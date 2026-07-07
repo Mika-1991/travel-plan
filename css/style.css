@@ -53,10 +53,12 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
 @keyframes blink { 50% { opacity: .3; } }
 
 .readonly-banner {
-  position: fixed; top: var(--header-h); left: 0; right: 0; z-index: 49;
+  position: fixed; top: calc(var(--header-h) + var(--tabbar-h)); left: 0; right: 0; z-index: 49;
   background: var(--main); color: var(--white); text-align: center;
   padding: 6px; font-weight: 700; border-top: 1px solid rgba(255,255,255,.3);
 }
+/* 精靈階段分頁列尚未顯示，唯讀橫幅貼齊標題列 */
+body:not(.in-app) .readonly-banner { top: var(--header-h); }
 body.readonly { --header-extra: 36px; }
 body.readonly .edit-only { display: none !important; }
 
@@ -135,17 +137,18 @@ body.readonly .edit-only { display: none !important; }
 .star { color: var(--accent); font-weight: 700; }
 .chosen-list { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 
-/* ---------- 主畫面版型 ---------- */
-.app { padding-top: calc(var(--header-h) + var(--header-extra, 0px)); }
-.page { min-height: calc(100vh - var(--header-h)); }
+/* ---------- 主畫面版型（分頁列在頂部） ---------- */
+.app { padding-top: calc(var(--header-h) + var(--tabbar-h) + var(--header-extra, 0px)); }
+.page { min-height: calc(100vh - var(--header-h) - var(--tabbar-h)); }
 .page-pad { padding: 14px 14px 0; max-width: 640px; margin: 0 auto; }
 .page-title { margin-bottom: 10px; }
-.bottom-space { height: calc(var(--tabbar-h) + 90px); }
+.bottom-space { height: 100px; }
 
 /* 行程頁：上圖下表 */
 .map-pane { height: var(--map-h); min-height: 120px; background: #e9e2d6; position: relative; }
 .map-canvas { width: 100%; height: 100%; }
 .map-canvas.full { height: calc(100vh - var(--header-h) - var(--tabbar-h) - var(--header-extra, 0px)); }
+.map-canvas .gmap { width: 100%; height: 100%; }
 .drag-handle {
   height: 22px; background: var(--card); display: flex; align-items: center; justify-content: center;
   cursor: ns-resize; touch-action: none; border-bottom: 1px solid #e3d7c8;
@@ -224,6 +227,24 @@ body.readonly .edit-only { display: none !important; }
 .pay-onsite { background: var(--main); }
 .treat-badge { background: var(--accent); }
 
+/* 商家/飯店照片縮圖與放大 */
+.thumb {
+  width: 60px; height: 60px; object-fit: cover; border-radius: 10px;
+  flex: none; cursor: zoom-in; background: #e9e2d6;
+}
+.thumb-sm { width: 44px; height: 44px; }
+.with-photo { display: flex; flex-direction: row !important; gap: 10px; align-items: flex-start; }
+.with-photo > .r-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.zoom-img { width: 100%; border-radius: 12px; display: block; }
+
+/* 上一步/下一步（復原）小按鈕 */
+.undo-btns { display: flex; gap: 6px; }
+.undo-btns button {
+  border: 1.5px solid var(--main); color: var(--main); background: var(--white);
+  border-radius: 999px; padding: 4px 12px; font-weight: 700; font-size: .92rem;
+}
+.undo-btns button:disabled { opacity: .35; }
+
 .empty-state {
   text-align: center; color: var(--text-2); padding: 30px 10px;
   background: var(--card); border-radius: var(--radius); margin-top: 10px;
@@ -232,7 +253,7 @@ body.readonly .edit-only { display: none !important; }
 
 /* ---------- 懸浮主按鈕 + 分頁列 ---------- */
 .fab-wrap {
-  position: fixed; left: 0; right: 0; bottom: calc(var(--tabbar-h) + 10px);
+  position: fixed; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom));
   display: flex; justify-content: center; z-index: 40; pointer-events: none;
 }
 .fab {
@@ -248,16 +269,17 @@ body.readonly .edit-only { display: none !important; }
 }
 
 .tabbar {
-  position: fixed; bottom: 0; left: 0; right: 0; height: var(--tabbar-h);
-  background: var(--white); border-top: 1px solid #e6dbcc; z-index: 45;
-  display: flex; padding-bottom: env(safe-area-inset-bottom);
+  position: fixed; top: var(--header-h); left: 0; right: 0; height: var(--tabbar-h);
+  background: var(--white); border-bottom: 1px solid #e6dbcc; z-index: 45;
+  display: flex;
 }
 .tabbar button {
-  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 1px; color: var(--text-2); font-size: .85rem; font-weight: 700;
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  gap: 6px; color: var(--text-2); font-size: 1rem; font-weight: 700;
+  border-bottom: 3px solid transparent;
 }
-.tabbar button span { font-size: 1.25rem; }
-.tabbar button.on { color: var(--main); }
+.tabbar button span { font-size: 1.15rem; }
+.tabbar button.on { color: var(--main); border-bottom-color: var(--main); }
 
 /* ---------- 地圖（模擬 SVG） ---------- */
 .mock-map { width: 100%; height: 100%; display: block; background: #EFE9DD; }
@@ -267,7 +289,7 @@ body.readonly .edit-only { display: none !important; }
 .mock-map .marker-t { fill: #fff; font-weight: 700; font-size: 13px; text-anchor: middle; }
 .mock-map .marker-label { fill: #4A3B2E; font-size: 12px; text-anchor: middle; }
 .map-day-chips {
-  position: fixed; top: calc(var(--header-h) + var(--header-extra, 0px) + 10px);
+  position: fixed; top: calc(var(--header-h) + var(--tabbar-h) + var(--header-extra, 0px) + 10px);
   left: 0; right: 0; display: flex; gap: 8px; justify-content: center; z-index: 20; flex-wrap: wrap; padding: 0 10px;
 }
 .map-badge {
@@ -309,7 +331,7 @@ body.readonly .edit-only { display: none !important; }
 .code-line button { border: none; background: var(--main); color: #fff; border-radius: 8px; padding: 6px 10px; font-weight: 700; }
 
 .toast {
-  position: fixed; bottom: calc(var(--tabbar-h) + 80px); left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 92px; left: 50%; transform: translateX(-50%);
   background: var(--text); color: var(--white); padding: 10px 18px; border-radius: 999px;
   z-index: 120; box-shadow: var(--shadow); max-width: 88vw; text-align: center;
 }
