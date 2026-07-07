@@ -75,6 +75,22 @@
         <input id="inpDayStart" type="time" value="09:00" aria-label="每日開始時間">
         <input id="inpDayEnd" type="time" value="21:00" aria-label="每日結束時間">
       </div>
+
+      <label>🚩 集合出發地（選填，第一天從這裡出發）</label>
+      <div class="row-add">
+        <input id="inpMeetPoint" type="text" placeholder="例如：台中火車站">
+        <button id="btnMeetSearch" class="btn-small">搜尋</button>
+      </div>
+      <div id="meetResults" class="result-list"></div>
+      <div id="meetChosen" class="chips"></div>
+
+      <label>🏁 解散地（選填，最後一天在這裡結束）</label>
+      <div class="row-add">
+        <input id="inpEndPoint" type="text" placeholder="例如：台中火車站">
+        <button id="btnEndSearch" class="btn-small">搜尋</button>
+      </div>
+      <div id="endResults" class="result-list"></div>
+      <div id="endChosen" class="chips"></div>
     </div>
     <div class="w-nav">
       <button class="btn-outline" data-back="w-start">上一步</button>
@@ -154,40 +170,14 @@
     <div id="mapDayChips" class="map-day-chips"></div>
   </section>
 
-  <!-- 美食頁 -->
-  <section id="page-food" class="page hidden">
-    <div class="page-pad">
-      <h2 class="page-title">🍜 附近美食推薦</h2>
-      <div class="card">
-        <label for="selFoodCenter">以哪裡為中心？</label>
-        <select id="selFoodCenter"></select>
-        <div class="row-2">
-          <div>
-            <label for="selFoodDist">距離範圍</label>
-            <select id="selFoodDist">
-              <option value="500">500 公尺內</option>
-              <option value="1000" selected>1 公里內</option>
-              <option value="2000">2 公里內</option>
-            </select>
-          </div>
-          <div>
-            <label for="inpFoodKind">想吃什麼？（可留空）</label>
-            <input id="inpFoodKind" type="text" placeholder="例如：牛肉麵">
-          </div>
-        </div>
-        <button id="btnFoodSearch" class="btn-primary">找美食</button>
-      </div>
-      <div id="foodResults" class="result-list"></div>
-      <div class="bottom-space"></div>
-    </div>
-  </section>
-
   <!-- 分帳頁 -->
   <section id="page-exp" class="page hidden">
     <div class="page-pad">
       <h2 class="page-title">💰 分帳（均分制）</h2>
       <div class="card edit-only">
         <div class="step-title"><span class="step-badge">1</span><span class="step-text">記一筆</span></div>
+        <label>快速選項（點一下自動填入項目）</label>
+        <div id="expQuick" class="chips"></div>
         <div class="row-2">
           <input id="expDate" type="date" aria-label="日期">
           <input id="expItem" type="text" placeholder="項目，例如：午餐" maxlength="20">
@@ -221,11 +211,10 @@
     <button id="btnOptimize" class="fab">🧭 一鍵排最佳路線</button>
   </div>
 
-  <!-- 底部分頁列 -->
+  <!-- 頂部分頁列 -->
   <nav id="tabbar" class="tabbar">
     <button data-page="page-trip" class="on"><span>🗓️</span>行程</button>
-    <button data-page="page-map"><span>🗺️</span>地圖</button>
-    <button data-page="page-food"><span>🍜</span>美食</button>
+    <button data-page="page-map"><span>🗺️</span>路線</button>
     <button data-page="page-exp"><span>💰</span>分帳</button>
   </nav>
 </main>
