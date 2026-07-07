@@ -4,7 +4,7 @@
 const Wizard = (() => {
 
   const $ = id => document.getElementById(id);
-  const basic = { name: '', startDate: '', endDate: '', members: [], transport: 'driving', dayStart: '09:00', dayEnd: '21:00' };
+  const basic = { name: '', startDate: '', endDate: '', members: [], transport: 'driving', dayStart: '09:00', dayEnd: '21:00', meetPoint: null, endPoint: null };
   let hotelMode = 'skip';      // 'input' | 'recommend' | 'skip'
   let chosenHotels = {};       // {night: hotel}
   let currentNight = 0;
@@ -58,6 +58,10 @@ const Wizard = (() => {
     document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => show(b.dataset.back));
     $('btnBasicNext').onclick = basicNext;
 
+    // 集合出發地 / 解散地（選填）
+    setupPointPicker('inpMeetPoint', 'btnMeetSearch', 'meetResults', 'meetChosen', 'meetPoint', '🚩');
+    setupPointPicker('inpEndPoint', 'btnEndSearch', 'endResults', 'endChosen', 'endPoint', '🏁');
+
     // ---- Step 2 ----
     $('btnHotelYes').onclick = () => {
       hotelMode = 'input';
@@ -98,6 +102,42 @@ const Wizard = (() => {
       UI.loading(false);
       UI.alert('載入失敗', e.message + '\n\n請確認代碼有沒有打錯，或請行程建立者再分享一次。');
     }
+  }
+
+  // 通用地點選擇器（集合地／解散地）
+  function setupPointPicker(inpId, btnId, resId, chosenId, field, icon) {
+    const renderChosenChip = () => {
+      const p = basic[field];
+      $(chosenId).innerHTML = p
+        ? `<span class="chip on">${icon} ${UI.esc(p.name)} <span class="x">✕</span></span>` : '';
+      const x = $(chosenId).querySelector('.x');
+      if (x) x.onclick = () => { basic[field] = null; renderChosenChip(); };
+    };
+    const search = async () => {
+      const q = $(inpId).value.trim();
+      if (!q) { UI.toast('請先輸入地點名稱'); return; }
+      try {
+        UI.loading(true, '搜尋地點中…');
+        const rs = await Api.searchPlaces(q, 'spot');
+        UI.loading(false);
+        if (!rs.length) { $(resId).innerHTML = '<p class="hint">找不到這個地點，請換個關鍵字。</p>'; return; }
+        $(resId).innerHTML = rs.slice(0, 5).map((p, i) => `
+          <div class="result-item">
+            <div class="r-name">${UI.esc(p.name)}</div>
+            <div class="r-meta">${UI.esc(p.address || '')}</div>
+            <div class="r-actions"><button class="primary" data-i="${i}">選這裡</button></div>
+          </div>`).join('');
+        $(resId).querySelectorAll('button[data-i]').forEach(b =>
+          b.onclick = () => {
+            const p = rs[Number(b.dataset.i)];
+            basic[field] = { placeId: p.placeId, name: p.name, address: p.address || '', lat: p.lat, lng: p.lng };
+            $(resId).innerHTML = ''; $(inpId).value = '';
+            renderChosenChip();
+          });
+      } catch (e) { UI.loading(false); UI.alert('搜尋失敗', e.message); }
+    };
+    $(btnId).onclick = search;
+    $(inpId).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
   }
 
   function updateDayCount() {
@@ -237,7 +277,7 @@ const Wizard = (() => {
     trip.hotels = Object.entries(chosenHotels).map(([n, h]) => ({
       night: Number(n), placeId: h.placeId, name: h.name, address: h.address,
       rating: h.rating, phone: h.phone || '', lat: h.lat, lng: h.lng,
-      note: h.note || '', pay: h.pay || ''
+      note: h.note || '', pay: h.pay || '', photo: h.photo || ''
     }));
     trip.hotelMode = hotelMode;
     Store.touch();

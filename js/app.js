@@ -99,7 +99,15 @@ const UI = (() => {
   // 飯店付款狀態標籤（全站共用）
   const PAY_LABELS = { full: '已刷全額', part: '已刷部分', onsite: '當天現刷' };
 
-  return { esc, gmapLink, navLink, toast, loading, modal, closeModal, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS };
+  // 照片點擊放大
+  function photoZoom(url, title) {
+    if (!url) return;
+    const body = document.createElement('div');
+    body.innerHTML = `<img class="zoom-img" src="${url}" alt="${esc(title || '')}">`;
+    modal(title || '照片', body, []);
+  }
+
+  return { esc, gmapLink, navLink, toast, loading, modal, closeModal, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom };
 })();
 
 // ---------- App 主控 ----------
@@ -113,7 +121,6 @@ const App = (() => {
       b.classList.toggle('on', b.dataset.page === pageId));
     $('fabWrap').classList.toggle('hidden', pageId !== 'page-trip' || Store.isReadonly());
     if (pageId === 'page-map') Itin.renderFullMap(0);
-    if (pageId === 'page-food') Feat.refreshFoodCenters();
     if (pageId === 'page-exp') Feat.renderExpensePage();
     window.scrollTo(0, 0);
   }
@@ -128,6 +135,7 @@ const App = (() => {
   function enterMain() {
     $('wizard').classList.add('hidden');
     $('app').classList.remove('hidden');
+    document.body.classList.add('in-app');
     $('btnShare').classList.remove('hidden');
     $('btnMenu').classList.remove('hidden');
     applyRole();

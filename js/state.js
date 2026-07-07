@@ -48,8 +48,11 @@ const Store = (() => {
   function create(basic) {
     trip = newTrip(basic);
     trip.viewCode = Logic.genViewCode(trip.editCode);
+    if (basic.meetPoint) trip.meetPoint = basic.meetPoint;
+    if (basic.endPoint) trip.endPoint = basic.endPoint;
     role = 'edit';
     manualDirty = false;
+    resetHistory();
     persistLocal();
     return trip;
   }
@@ -58,7 +61,44 @@ const Store = (() => {
     trip = t;
     role = r || 'edit';
     manualDirty = false;
+    resetHistory();
     persistLocal();
+  }
+
+  // ---------- 上一步 / 下一步（復原最近 30 步） ----------
+  let histPrev = [], histNext = [], lastSnap = null;
+  const snap = () => JSON.stringify(trip);
+  function resetHistory() { histPrev = []; histNext = []; lastSnap = trip ? snap() : null; }
+  function recordHistory() {
+    if (lastSnap === null) { lastSnap = snap(); return; }
+    histPrev.push(lastSnap);
+    if (histPrev.length > 30) histPrev.shift();
+    histNext = [];
+    lastSnap = snap();
+  }
+  const canUndo = () => histPrev.length > 0 && !isReadonly();
+  const canRedo = () => histNext.length > 0 && !isReadonly();
+  function undo() {
+    if (!canUndo()) return false;
+    histNext.push(snap());
+    trip = JSON.parse(histPrev.pop());
+    lastSnap = snap();
+    afterHistoryJump();
+    return true;
+  }
+  function redo() {
+    if (!canRedo()) return false;
+    histPrev.push(snap());
+    trip = JSON.parse(histNext.pop());
+    lastSnap = snap();
+    afterHistoryJump();
+    return true;
+  }
+  function afterHistoryJump() {
+    trip.updatedAt = Date.now();
+    persistLocal();
+    scheduleCloudSave();
+    document.dispatchEvent(new CustomEvent('trip-changed'));
   }
 
   // ---------- 本機快取 ----------
@@ -86,6 +126,7 @@ const Store = (() => {
     if (!trip) return;
     if (opts && opts.manual) manualDirty = true;
     trip.updatedAt = Date.now();
+    recordHistory();
     persistLocal();
     scheduleCloudSave();
     document.dispatchEvent(new CustomEvent('trip-changed'));
@@ -131,6 +172,7 @@ const Store = (() => {
     create, load, loadLocal, clearLocal,
     prefs, setPref,
     touch, isManualDirty, clearManualDirty,
+    undo, redo, canUndo, canRedo,
     cloudSaveNow, reloadFromCloud
   };
 })();
