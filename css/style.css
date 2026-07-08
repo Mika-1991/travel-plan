@@ -45,8 +45,9 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 14px; z-index: 50; box-shadow: var(--shadow);
 }
-.header-actions { display: flex; align-items: center; gap: 8px; }
-.icon-btn { color: var(--white); font-size: 1rem; padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,.15); }
+.app-header h1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.icon-btn { color: var(--white); font-size: 1.05rem; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.15); }
 .sync-dot { width: 10px; height: 10px; border-radius: 50%; background: #b7e0a8; display: inline-block; }
 .sync-dot.saving { background: #ffd97a; animation: blink 1s infinite; }
 .sync-dot.error, .sync-dot.offline, .sync-dot.conflict { background: #ffb3a0; }
