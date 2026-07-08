@@ -130,6 +130,16 @@ const Api = (() => {
     });
     const route = res.routes[0];
     const legs = route.legs.map(l => Math.round(l.duration.value / 60));
+    // 合理性防護：目的地若是車開不到的點（例如山丘上的燈塔），
+    // Google 偶爾會回離譜的繞路時間 → 超過估算 3 倍就改用估算值
+    const seq = [o, ...route.waypoint_order.map(i => spots[i]), d];
+    for (let i = 0; i < legs.length; i++) {
+      const est = Logic.travelMinutes(seq[i], seq[i + 1], mode);
+      if (legs[i] > est * 3 + 60) {
+        console.warn(`路段 ${i} 車程異常（Google 回 ${legs[i]} 分，估算 ${est} 分），改用估算值`);
+        legs[i] = est;
+      }
+    }
     return { order: route.waypoint_order, legs };
   }
 
@@ -239,6 +249,18 @@ const Api = (() => {
     return gasCall('saveTrip', { code, trip });
   }
 
+  // 用建立行程時留的 Email 找回行程（可能有多筆）
+  async function cloudFindByEmail(email) {
+    email = String(email || '').trim().toLowerCase();
+    if (isMock()) {
+      await delay(300);
+      return Object.values(mockCloud())
+        .filter(t => (t.creatorEmail || '').toLowerCase() === email)
+        .map(t => ({ name: t.name, startDate: t.startDate, endDate: t.endDate, editCode: t.editCode }));
+    }
+    return gasCall('findTripsByEmail', { email });
+  }
+
   async function cloudSendCodes(email, trip) {
     if (isMock()) {
       await delay(400);
@@ -255,6 +277,6 @@ const Api = (() => {
     searchPlaces, nearbySearch,
     optimizeRoute, routeLegs,
     weatherOn,
-    cloudGetTrip, cloudSaveTrip, cloudSendCodes
+    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudFindByEmail
   };
 })();

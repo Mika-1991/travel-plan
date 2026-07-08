@@ -85,10 +85,12 @@ const Wizard = (() => {
   }
 
   async function loadByCode() {
-    const code = Logic.normalizeCode($('codeInput').value);
-    if (!code) { UI.toast('請先輸入行程代碼'); return; }
+    const raw = $('codeInput').value.trim();
+    if (!raw) { UI.toast('請先輸入行程代碼或 Email'); return; }
+    if (raw.includes('@')) { loadByEmail(raw); return; }
+    const code = Logic.normalizeCode(raw);
     if (!Logic.isEditCodeFormat(code) && !Logic.isViewCodeFormat(code)) {
-      UI.toast('代碼格式看起來不對，請確認（例如 TPE826 或 TPE826-V3K9）');
+      UI.toast('格式看起來不對：代碼像 TPE826 或 TPE826-V3K9，或輸入完整 Email');
       return;
     }
     try {
@@ -138,6 +140,39 @@ const Wizard = (() => {
     };
     $(btnId).onclick = search;
     $(inpId).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+  }
+
+  // 用 Email 找回行程（多筆時讓使用者選）
+  async function loadByEmail(email) {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { UI.toast('Email 格式看起來不對，請再確認'); return; }
+    try {
+      UI.loading(true, '正在尋找你的行程…');
+      const list = await Api.cloudFindByEmail(email);
+      UI.loading(false);
+      if (!list.length) {
+        UI.alert('找不到行程',
+          '這個 Email 沒有綁定任何行程。\n\n小提醒：建立行程後，要在分享畫面用這個 Email「寄送代碼」過一次，Email 才會綁定。\n\n也可以直接輸入行程代碼載入。');
+        return;
+      }
+      const openByCode = async code => {
+        UI.loading(true, '正在載入行程…');
+        const r = await Api.cloudGetTrip(code);
+        Store.load(r.trip, r.role);
+        UI.loading(false);
+        UI.toast('行程載入成功！');
+        App.enterMain();
+      };
+      if (list.length === 1) { await openByCode(list[0].editCode); return; }
+      UI.choose('找到多個行程，要開哪一個？',
+        list.map(x => ({
+          label: `${x.name}（${String(x.startDate).slice(5)}～${String(x.endDate).slice(5)}）`,
+          value: x.editCode
+        })),
+        code => openByCode(code).catch(e => { UI.loading(false); UI.alert('載入失敗', e.message); }));
+    } catch (e) {
+      UI.loading(false);
+      UI.alert('尋找失敗', e.message);
+    }
   }
 
   function updateDayCount() {

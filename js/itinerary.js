@@ -39,7 +39,15 @@ const Itin = (() => {
   function legsForDay(day) {
     const list = spotsOfDay(day);
     const cached = trip().legsByDay[day];
-    if (cached && cached.length === list.length + 1) return cached;
+    if (cached && cached.length === list.length + 1) {
+      // 舊資料防護：異常路段（例如 Google 對到不了的點回傳的怪時間）改用估算
+      const seq = [startHotel(day), ...list, endHotel(day)];
+      return cached.map((min, i) => {
+        if (!seq[i] || !seq[i + 1]) return min;
+        const est = Logic.travelMinutes(seq[i], seq[i + 1], trip().transport);
+        return min > est * 3 + 60 ? est : min;
+      });
+    }
     const sp = startHotel(day), ep = endHotel(day);
     const legs = [];
     let prev = sp;
@@ -49,6 +57,12 @@ const Itin = (() => {
     }
     legs.push(ep && prev ? Logic.travelMinutes(prev, ep, trip().transport) : 0);
     return legs;
+  }
+
+  // 每一天實際的出發時間（可個別覆寫，預設用全域設定）
+  function dayStartOf(day) {
+    const t = trip();
+    return (t.dayStartOv || {})[day] || t.dayStart;
   }
 
   function dayCenter(day) {
@@ -295,7 +309,7 @@ const Itin = (() => {
     const dateISO = Store.dateOfDay(d);
     const sp = startPoint(d), ep = endPoint(d);
     const legs = legsForDay(d);
-    const tl = Logic.buildTimeline(list, legs, t.dayStart);
+    const tl = Logic.buildTimeline(list, legs, dayStartOf(d));
 
     const card = document.createElement('div');
     card.className = 'day-card';
@@ -313,6 +327,7 @@ const Itin = (() => {
       <div data-rain-slot="${d}"></div>
       ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${tl.totalTravel} 分｜停留 ${Math.round(tl.totalStay / 60 * 10) / 10} 小時｜預計 ${tl.endTime} 結束</p>` : ''}
       <div class="day-tools">
+        <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)} 出發${(t.dayStartOv || {})[d] ? '＊' : ''}</button>
         <button data-addspot="${d}" class="edit-only">➕ 加景點</button>
         <button data-food="${d}" class="edit-only">🍜 附近美食</button>
         ${list.length ? `<a href="${dayNavLink(d, list)}" target="_blank" rel="noopener">🧭 全日導航</a>` : ''}
@@ -328,7 +343,7 @@ const Itin = (() => {
     });
 
     // 起點列
-    if (sp && list.length) card.appendChild(pointRow(sp, `${t.dayStart} ${sp.kind === 'meet' ? '從集合地出發' : '從飯店出發'}`));
+    if (sp && list.length) card.appendChild(pointRow(sp, `${dayStartOf(d)} ${sp.kind === 'meet' ? '從集合地出發' : '從飯店出發'}`));
 
     // 景點列 + 路段
     tl.rows.forEach((row, i) => {
@@ -346,6 +361,8 @@ const Itin = (() => {
       card.appendChild(p);
     }
 
+    const timeBtn = head.querySelector(`[data-daytime="${d}"]`);
+    if (timeBtn) timeBtn.onclick = () => editDayStart(d);
     const addBtn = head.querySelector(`[data-addspot="${d}"]`);
     if (addBtn) addBtn.onclick = () => openAddSpot(d);
     const foodBtn = head.querySelector(`[data-food="${d}"]`);
@@ -356,6 +373,40 @@ const Itin = (() => {
     if (hotelRec) hotelRec.onclick = () => Feat.recommendHotel(d);
     head.querySelectorAll(`[data-routepts]`).forEach(b => b.onclick = () => Feat.openRoutePoints());
     return card;
+  }
+
+  // 調整某一天的出發時間（時間軸依停留＋車程重新推算）
+  function editDayStart(d) {
+    const t = trip();
+    if (!t.dayStartOv) t.dayStartOv = {};
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <label>第 ${d} 天幾點出發？</label>
+      <input id="dayStartInp" type="time" value="${dayStartOf(d)}">
+      <p class="hint">改了之後，這一天的抵達／出發時間會依停留時間與車程自動重排。全域預設是 ${t.dayStart}。</p>`;
+    const actions = [{
+      label: '套用', primary: true,
+      onClick: () => {
+        const v = document.getElementById('dayStartInp').value;
+        if (!v) { UI.toast('請選擇時間'); return; }
+        t.dayStartOv[d] = v;
+        Store.touch();
+        UI.closeModal();
+        render();
+        UI.toast(`第 ${d} 天改為 ${v} 出發，時間已重排`);
+      }
+    }];
+    if (t.dayStartOv[d]) actions.push({
+      label: `還原預設 ${t.dayStart}`,
+      onClick: () => {
+        delete t.dayStartOv[d];
+        Store.touch();
+        UI.closeModal();
+        render();
+        UI.toast(`第 ${d} 天恢復 ${t.dayStart} 出發`);
+      }
+    });
+    UI.modal(`🕘 第 ${d} 天出發時間`, body, actions);
   }
 
   function legRow(min) {

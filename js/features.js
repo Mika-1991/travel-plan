@@ -550,14 +550,15 @@ const Feat = (() => {
     return `${base}?code=${code}`;
   }
 
+  // 依 Mika 定案順序：Email → 唯讀連結 → 編輯連結 → 編輯代碼 → 唯讀代碼
   function codesBlock(t) {
     return `
-      <p style="margin-bottom:4px"><b>✏️ 編輯代碼</b>（可修改行程，只給要一起排行程的人）</p>
-      <div class="code-line"><b>${t.editCode}</b><button data-copy="${t.editCode}">複製代碼</button></div>
-      <div class="code-line"><span style="font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shareLink(t.editCode)}</span><button data-copy="${shareLink(t.editCode)}">複製連結</button></div>
-      <p style="margin:12px 0 4px"><b>👀 唯讀代碼</b>（只能看、不能改，安心分享）</p>
-      <div class="code-line"><b>${t.viewCode}</b><button data-copy="${t.viewCode}">複製代碼</button></div>
-      <div class="code-line"><span style="font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shareLink(t.viewCode)}</span><button data-copy="${shareLink(t.viewCode)}">複製連結</button></div>`;
+      <div class="stack" style="margin-top:10px">
+        <button class="btn-primary" data-copy="${shareLink(t.viewCode)}">👀 複製唯讀連結（親友只能看）</button>
+        <button class="btn-outline" data-copy="${shareLink(t.editCode)}">✏️ 複製編輯連結（可修改行程）</button>
+        <button class="btn-outline" data-copy="${t.editCode}">複製編輯代碼｜${t.editCode}</button>
+        <button class="btn-outline" data-copy="${t.viewCode}">複製唯讀代碼｜${t.viewCode}</button>
+      </div>`;
   }
 
   function bindCopyButtons(root) {
@@ -568,9 +569,9 @@ const Feat = (() => {
   function emailBlock(t) {
     const div = document.createElement('div');
     div.innerHTML = `
-      <p style="margin:14px 0 4px"><b>📮 把代碼寄到信箱備份</b>（換手機也找得回行程）</p>
+      <p style="margin:4px 0 4px"><b>📮 輸入電子郵件</b>（寄代碼備份；之後在首頁輸入這個 Email 就能直接找回行程）</p>
       <div class="row-add">
-        <input type="email" placeholder="輸入你的 Gmail" value="${UI.esc(t.creatorEmail || '')}">
+        <input type="email" placeholder="輸入你的 Email" value="${UI.esc(t.creatorEmail || '')}">
         <button class="btn-small">寄送</button>
       </div>`;
     const inp = div.querySelector('input');
@@ -594,9 +595,11 @@ const Feat = (() => {
     const body = document.createElement('div');
     body.innerHTML = `
       <p style="margin-bottom:10px">🎉 「${UI.esc(t.name)}」建立成功！<br>
-      <b style="color:var(--accent)">請先把代碼存下來</b>，之後在任何裝置輸入代碼就能打開行程。</p>
-      ${codesBlock(t)}`;
+      <b style="color:var(--accent)">請先留下 Email 或存下連結</b>，之後在任何裝置都能打開行程。</p>`;
     body.appendChild(emailBlock(t));
+    const codes = document.createElement('div');
+    codes.innerHTML = codesBlock(t);
+    body.appendChild(codes);
     bindCopyButtons(body);
     UI.modal('行程建立成功', body, [
       { label: '開始規劃 →', primary: true, onClick: () => { UI.closeModal(); onDone && onDone(); } }
@@ -608,13 +611,16 @@ const Feat = (() => {
     const body = document.createElement('div');
     if (Store.isReadonly()) {
       body.innerHTML = `
-        <p style="margin-bottom:4px"><b>👀 唯讀代碼</b>（分享給朋友一起看）</p>
-        <div class="code-line"><b>${t.viewCode}</b><button data-copy="${t.viewCode}">複製代碼</button></div>
-        <div class="code-line"><span style="font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${shareLink(t.viewCode)}</span><button data-copy="${shareLink(t.viewCode)}">複製連結</button></div>
+        <div class="stack">
+          <button class="btn-primary" data-copy="${shareLink(t.viewCode)}">👀 複製唯讀連結（分享給朋友一起看）</button>
+          <button class="btn-outline" data-copy="${t.viewCode}">複製唯讀代碼｜${t.viewCode}</button>
+        </div>
         <p class="hint" style="margin-top:8px">你目前是唯讀模式，看不到編輯代碼。</p>`;
     } else {
-      body.innerHTML = codesBlock(t);
       body.appendChild(emailBlock(t));
+      const codes = document.createElement('div');
+      codes.innerHTML = codesBlock(t);
+      body.appendChild(codes);
     }
     bindCopyButtons(body);
     UI.modal('分享行程', body, []);
