@@ -317,7 +317,9 @@ const Itin = (() => {
         <button data-food="${d}" class="edit-only">🍜 附近美食</button>
         ${list.length ? `<a href="${dayNavLink(d, list)}" target="_blank" rel="noopener">🧭 全日導航</a>` : ''}
         <button data-rainbtn="${d}" class="edit-only-inline">☔ 雨天備案${t.rainActive[d] ? '（使用中）' : (t.rainPlans[d]?.spots?.length ? '（已設定）' : '')}</button>
-        ${!ep && !sp ? `<button data-hotelrec="${d}" class="edit-only">🏨 推薦飯店</button>` : ''}
+        <button data-hotelrec="${d}" class="edit-only">🏨 ${Store.hotelOfNight(d - 1) || Store.hotelOfNight(d - 2) ? '換飯店' : '推薦飯店'}</button>
+        ${d === 1 ? `<button data-routepts="${d}" class="edit-only">🚩 集合地${t.meetPoint ? ' ✓' : ''}</button>` : ''}
+        ${d === Store.days() ? `<button data-routepts="${d}" class="edit-only">🏁 解散地${t.endPoint ? ' ✓' : ''}</button>` : ''}
       </div>`;
     card.appendChild(head);
 
@@ -352,6 +354,7 @@ const Itin = (() => {
     if (rainBtn) rainBtn.onclick = () => Feat.openRainPlan(d);
     const hotelRec = head.querySelector(`[data-hotelrec="${d}"]`);
     if (hotelRec) hotelRec.onclick = () => Feat.recommendHotel(d);
+    head.querySelectorAll(`[data-routepts]`).forEach(b => b.onclick = () => Feat.openRoutePoints());
     return card;
   }
 
@@ -371,6 +374,8 @@ const Itin = (() => {
     const div = document.createElement('div');
     div.className = 'spot-row';
     const payTag = kind === 'hotel' && p.pay ? `<span class="pay-badge pay-${p.pay}">${UI.PAY_LABELS[p.pay] || ''}</span>` : '';
+    const priceTxt = kind === 'hotel' && (p.priceWeekday || p.priceWeekend)
+      ? `<div class="spot-times">💲 ${p.priceWeekday ? `平日 $${Number(p.priceWeekday).toLocaleString()}` : ''}${p.priceWeekday && p.priceWeekend ? '｜' : ''}${p.priceWeekend ? `假日 $${Number(p.priceWeekend).toLocaleString()}` : ''}</div>` : '';
     div.innerHTML = `
       <div class="spot-main">
         ${p.photo ? `<img class="thumb thumb-sm" src="${p.photo}" alt="">` : `<span class="spot-no hotel">${icon}</span>`}
@@ -378,6 +383,7 @@ const Itin = (() => {
           <div class="spot-name">${kind !== 'hotel' ? icon + ' ' : ''}${UI.esc(p.name)} ${payTag}</div>
           <div class="spot-times">${timeTxt}</div>
           ${kind === 'hotel' && p.note ? `<div class="spot-times">📝 ${UI.esc(p.note)}</div>` : ''}
+          ${priceTxt}
         </div>
         <div class="spot-actions">
           ${kind === 'hotel' ? `<button class="edit-only" data-act="hedit" title="編輯住宿備註">✎</button>` : ''}
@@ -402,7 +408,15 @@ const Itin = (() => {
         <option value="">未設定</option>
         ${Object.entries(UI.PAY_LABELS).map(([v, lb]) =>
           `<option value="${v}" ${h.pay === v ? 'selected' : ''}>${lb}</option>`).join('')}
-      </select>`;
+      </select>
+      <label>房價紀錄（選填，會顯示在行程上）</label>
+      <div class="row-2">
+        <input id="hEditPw" type="number" min="0" inputmode="numeric" placeholder="平日價" value="${h.priceWeekday || ''}">
+        <input id="hEditPe" type="number" min="0" inputmode="numeric" placeholder="假日價" value="${h.priceWeekend || ''}">
+      </div>
+      <a class="btn-outline" style="display:block;text-align:center;text-decoration:none;margin-top:4px"
+         href="${UI.hotelPriceLink(h.name)}" target="_blank" rel="noopener">💲 查即時房價（可切平日／假日）</a>
+      <p class="hint" style="margin-top:4px">房價由訂房網站提供，查到後可回來記在上面兩格。</p>`;
     UI.modal(`🏨 ${h.name}`, body, [
       {
         label: '💰 記房費到分帳', onClick: () => {
@@ -415,11 +429,15 @@ const Itin = (() => {
         onClick: () => {
           const note = document.getElementById('hEditNote').value.trim();
           const pay = document.getElementById('hEditPay').value;
-          trip().hotels.filter(x => x.placeId === h.placeId).forEach(x => { x.note = note; x.pay = pay; });
+          const pw = Number(document.getElementById('hEditPw').value) || '';
+          const pe = Number(document.getElementById('hEditPe').value) || '';
+          trip().hotels.filter(x => x.placeId === h.placeId).forEach(x => {
+            x.note = note; x.pay = pay; x.priceWeekday = pw; x.priceWeekend = pe;
+          });
           Store.touch();
           UI.closeModal();
           render();
-          UI.toast('住宿備註已更新');
+          UI.toast('住宿資訊已更新');
         }
       }
     ]);
@@ -561,7 +579,8 @@ const Itin = (() => {
     const sp = startHotel(d), ep = endHotel(d);
     const pts = list.map(s => `${s.lat},${s.lng}`);
     const origin = sp ? `${sp.lat},${sp.lng}` : pts.shift();
-    const dest = ep ? `${ep.lat},${ep.lng}` : pts.pop();
+    // 只有 1 個景點又沒設飯店時，終點退回用起點，避免產生壞掉的導航連結
+    const dest = ep ? `${ep.lat},${ep.lng}` : (pts.length ? pts.pop() : origin);
     const mode = { driving: 'driving', transit: 'transit', walking: 'walking' }[trip().transport];
     let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=${mode}`;
     if (pts.length) url += `&waypoints=${pts.join('|')}`;

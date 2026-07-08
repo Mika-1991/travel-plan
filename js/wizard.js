@@ -219,6 +219,7 @@ const Wizard = (() => {
             <div class="r-meta">${UI.esc(h.address)}｜<span class="star">★ ${h.rating}</span>（${(h.reviews || 0).toLocaleString()} 則）</div>
             <div class="r-actions">
               <button class="primary" data-i="${i}">選這間</button>
+              <a href="${UI.hotelPriceLink(h.name)}" target="_blank" rel="noopener">💲 查房價</a>
               <a href="${UI.gmapLink(h)}" target="_blank" rel="noopener">📍 地圖</a>
             </div>
           </div>`).join('');

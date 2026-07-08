@@ -66,7 +66,11 @@ const Feat = (() => {
   // ================= 雨天備案 =================
   function openRainPlan(d) {
     const t = trip();
-    if (!t.rainPlans[d]) t.rainPlans[d] = { spots: [] };
+    const ro = Store.isReadonly();
+    if (!t.rainPlans[d]) {
+      if (ro) { UI.toast('這天還沒有雨天備案'); return; }
+      t.rainPlans[d] = { spots: [] };
+    }
     const plan = t.rainPlans[d];
 
     const body = document.createElement('div');
@@ -76,13 +80,20 @@ const Feat = (() => {
         ? plan.spots.map((s, i) => `
           <div class="result-item">
             <div class="r-name">${UI.esc(s.name)} <span class="star">★ ${s.rating || '-'}</span></div>
-            <div class="r-actions"><button data-del="${i}">移除</button></div>
+            ${ro ? '' : `<div class="r-actions"><button data-del="${i}">移除</button></div>`}
           </div>`).join('')
         : '<p class="hint">備案清單是空的。點下面的按鈕加入室內景點。</p>';
       listBox.querySelectorAll('[data-del]').forEach(b =>
         b.onclick = () => { plan.spots.splice(Number(b.dataset.del), 1); Store.touch(); renderList(); });
     };
     renderList();
+
+    // 唯讀：只給看清單，不給任何編輯操作
+    if (ro) {
+      body.appendChild(listBox);
+      UI.modal(`第 ${d} 天的雨天備案`, body, []);
+      return;
+    }
 
     const recBox = document.createElement('div');
     const btnRec = document.createElement('button');
@@ -200,6 +211,7 @@ const Feat = (() => {
             <div class="r-meta"><span class="star">★ ${h.rating}</span>（${(h.reviews || 0).toLocaleString()} 則）｜約 ${h.distKm ? h.distKm.toFixed(1) : '?'} 公里</div>
             <div class="r-actions">
               <button class="primary" data-i="${i}">選這間</button>
+              <a href="${UI.hotelPriceLink(h.name)}" target="_blank" rel="noopener">💲 查房價</a>
               <a href="${UI.gmapLink(h)}" target="_blank" rel="noopener">📍 地圖</a>
             </div>
           </div>
@@ -230,6 +242,74 @@ const Feat = (() => {
         });
       UI.modal(`第 ${d} 天附近的推薦飯店`, body, []);
     } catch (e) { UI.loading(false); UI.alert('推薦失敗', e.message); }
+  }
+
+  // ================= 集合出發地 / 解散地（行程內隨時可調） =================
+  function openRoutePoints() {
+    const t = trip();
+    if (Store.isReadonly()) { UI.toast('唯讀模式無法修改'); return; }
+    const body = document.createElement('div');
+
+    const section = (field, icon, title, hint) => {
+      const box = document.createElement('div');
+      box.style.marginBottom = '14px';
+      const renderState = () => {
+        box.innerHTML = `
+          <label>${icon} ${title}</label>
+          <div class="chips" data-chip></div>
+          <div class="row-add">
+            <input type="text" placeholder="${hint}">
+            <button class="btn-small">搜尋</button>
+          </div>
+          <div class="result-list" data-res></div>`;
+        const chipBox = box.querySelector('[data-chip]');
+        chipBox.innerHTML = t[field]
+          ? `<span class="chip on">${icon} ${UI.esc(t[field].name)} <span class="x">✕</span></span>`
+          : `<span class="hint">未設定（用飯店當起終點）</span>`;
+        const x = chipBox.querySelector('.x');
+        if (x) x.onclick = () => { t[field] = null; applyChange(); renderState(); };
+        const inp = box.querySelector('input');
+        const search = async () => {
+          const q = inp.value.trim();
+          if (!q) { UI.toast('請先輸入地點名稱'); return; }
+          try {
+            UI.loading(true, '搜尋地點中…');
+            const rs = await Api.searchPlaces(q, 'spot');
+            UI.loading(false);
+            const res = box.querySelector('[data-res]');
+            res.innerHTML = rs.length ? rs.slice(0, 5).map((p, i) => `
+              <div class="result-item">
+                <div class="r-name">${UI.esc(p.name)}</div>
+                <div class="r-meta">${UI.esc(p.address || '')}</div>
+                <div class="r-actions"><button class="primary" data-i="${i}">選這裡</button></div>
+              </div>`).join('') : '<p class="hint">找不到這個地點，請換個關鍵字。</p>';
+            res.querySelectorAll('button[data-i]').forEach(b =>
+              b.onclick = () => {
+                const p = rs[Number(b.dataset.i)];
+                t[field] = { placeId: p.placeId, name: p.name, address: p.address || '', lat: p.lat, lng: p.lng };
+                applyChange();
+                renderState();
+              });
+          } catch (e) { UI.loading(false); UI.alert('搜尋失敗', e.message); }
+        };
+        box.querySelector('.btn-small').onclick = search;
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+      };
+      renderState();
+      return box;
+    };
+
+    function applyChange() {
+      delete t.legsByDay[1];
+      delete t.legsByDay[Store.days()];
+      Store.touch();
+      Itin.render();
+      UI.toast('起終點已更新，車程時間重新計算');
+    }
+
+    body.appendChild(section('meetPoint', '🚩', '集合出發地（第一天從這裡出發）', '例如：台中火車站'));
+    body.appendChild(section('endPoint', '🏁', '解散地（最後一天在這裡結束）', '例如：台中火車站'));
+    UI.modal('集合地／解散地', body, []);
   }
 
   // ================= 附近美食（每日彈窗，直接加進該天） =================
@@ -541,7 +621,7 @@ const Feat = (() => {
   }
 
   return {
-    fillWeather, openRainPlan, recommendHotel,
+    fillWeather, openRainPlan, recommendHotel, openRoutePoints,
     openFood, renderExpensePage, quickExpense,
     initExpense, showTripCreated, showShare
   };

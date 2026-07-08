@@ -19,7 +19,10 @@ const Api = (() => {
       const s = document.createElement('script');
       s.src = `https://maps.googleapis.com/maps/api/js?key=${CONFIG.googleApiKey}&libraries=places&language=zh-TW&region=TW`;
       s.onload = () => resolve(true);
-      s.onerror = () => reject(new Error('Google 地圖服務載入失敗，請檢查網路或 API Key 設定'));
+      s.onerror = () => {
+        gmapsReady = null; // 失敗不快取，下次呼叫可重試
+        reject(new Error('Google 地圖服務載入失敗，請檢查網路或 API Key 設定'));
+      };
       document.head.appendChild(s);
     });
     return gmapsReady;
@@ -165,7 +168,7 @@ const Api = (() => {
       const res = await fetch(url);
       if (!res.ok) throw new Error('weather http ' + res.status);
       const j = await res.json();
-      const sh = parseInt(dayStartHHMM), eh = parseInt(dayEndHHMM);
+      const sh = Math.floor(Logic.toMin(dayStartHHMM) / 60), eh = Math.floor(Logic.toMin(dayEndHHMM) / 60);
       const probs = (j.hourly?.precipitation_probability || [])
         .filter((_, i) => i >= sh && i <= eh);
       const out = {

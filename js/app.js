@@ -15,6 +15,9 @@ const UI = (() => {
   const navLink = p =>
     `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}` +
     (p.placeId && !String(p.placeId).startsWith('m-') ? `&destination_place_id=${p.placeId}` : '');
+  // Google 旅館頁：可切換日期看平日/假日房價（Google API 不直接提供房價）
+  const hotelPriceLink = name =>
+    `https://www.google.com/travel/hotels?q=${encodeURIComponent(name)}`;
 
   let toastTimer = null;
   function toast(msg) {
@@ -107,7 +110,7 @@ const UI = (() => {
     modal(title || '照片', body, []);
   }
 
-  return { esc, gmapLink, navLink, toast, loading, modal, closeModal, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom };
+  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, modal, closeModal, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom };
 })();
 
 // ---------- App 主控 ----------
@@ -136,8 +139,7 @@ const App = (() => {
     $('wizard').classList.add('hidden');
     $('app').classList.remove('hidden');
     document.body.classList.add('in-app');
-    $('btnShare').classList.remove('hidden');
-    $('btnMenu').classList.remove('hidden');
+    ['btnShare', 'btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
     applyRole();
     Itin.render();
     switchPage('page-trip');
@@ -146,33 +148,30 @@ const App = (() => {
   function initHeader() {
     $('appTitle').textContent = `Mika 旅遊路線規劃 ${CONFIG.version}`;
     document.title = `Mika 旅遊路線規劃 ${CONFIG.version}`;
+    // 點標題 → 回行程主畫面
+    $('appTitle').onclick = () => {
+      if (!$('app').classList.contains('hidden')) {
+        switchPage('page-trip');
+      }
+    };
     $('btnShare').onclick = () => Feat.showShare();
-    $('btnMenu').onclick = () => {
-      const opts = [
-        { label: '🔄 重新從雲端載入', value: 'reload' },
-        { label: '🏠 回到開始畫面', value: 'home' },
-        { label: '🧹 清除本機資料', value: 'clear', danger: true }
-      ];
-      UI.choose('更多功能', opts, async v => {
-        if (v === 'reload') {
-          try {
-            UI.loading(true, '重新載入中…');
-            await Store.reloadFromCloud();
-            UI.loading(false);
-            enterMain();
-            UI.toast('已載入最新版本');
-          } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
-        } else if (v === 'home') {
-          location.href = location.pathname;
-        } else if (v === 'clear') {
-          UI.confirm('清除本機資料？',
-            '會清除這台裝置記住的行程與偏好設定。\n\n☁️ 雲端的行程不受影響，之後仍可用行程代碼載入。\n\n確定要清除嗎？', () => {
-              Store.clearLocal();
-              UI.toast('已清除，即將回到開始畫面');
-              setTimeout(() => location.href = location.pathname, 900);
-            });
-        }
-      });
+    $('btnReload').onclick = async () => {
+      try {
+        UI.loading(true, '重新載入中…');
+        await Store.reloadFromCloud();
+        UI.loading(false);
+        enterMain();
+        UI.toast('已載入最新版本');
+      } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
+    };
+    $('btnHome').onclick = () => { location.href = location.pathname; };
+    $('btnClear').onclick = () => {
+      UI.confirm('清除本機資料？',
+        '會清除這台裝置記住的行程與偏好設定。\n\n☁️ 雲端的行程不受影響，之後仍可用行程代碼載入。\n\n確定要清除嗎？', () => {
+          Store.clearLocal();
+          UI.toast('已清除，即將回到開始畫面');
+          setTimeout(() => location.href = location.pathname, 900);
+        });
     };
 
     // 同步狀態小圓點
