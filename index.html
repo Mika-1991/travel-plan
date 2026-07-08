@@ -10,11 +10,13 @@
 
 <!-- ===== 頂部標題列 ===== -->
 <header class="app-header">
-  <h1 id="appTitle">Mika 旅遊路線規劃</h1>
+  <h1 id="appTitle" title="回到行程主畫面">Mika 旅遊路線規劃</h1>
   <div class="header-actions">
     <span id="syncDot" class="sync-dot" title="同步狀態"></span>
-    <button id="btnShare" class="icon-btn hidden" title="分享行程">📤 分享</button>
-    <button id="btnMenu" class="icon-btn hidden" title="更多">⋯</button>
+    <button id="btnShare" class="icon-btn hidden" title="分享行程" aria-label="分享行程">📤</button>
+    <button id="btnReload" class="icon-btn hidden" title="重新從雲端載入" aria-label="重新從雲端載入">🔄</button>
+    <button id="btnHome" class="icon-btn hidden" title="回到開始畫面" aria-label="回到開始畫面">🏠</button>
+    <button id="btnClear" class="icon-btn hidden" title="清除本機資料" aria-label="清除本機資料">🧹</button>
   </div>
 </header>
 
