@@ -73,6 +73,7 @@ const Store = (() => {
     role = 'edit';
     manualDirty = false;
     resetHistory();
+    loadSavedSnap();
     persistLocal();
     return trip;
   }
@@ -82,6 +83,7 @@ const Store = (() => {
     role = r || 'edit';
     manualDirty = false;
     resetHistory();
+    loadSavedSnap();
     persistLocal();
   }
 
@@ -119,6 +121,56 @@ const Store = (() => {
     persistLocal();
     scheduleCloudSave();
     document.dispatchEvent(new CustomEvent('trip-changed'));
+  }
+
+  // ---------- 上次儲存的安排（可一鍵還原；撐過重新整理） ----------
+  const SAVE_KEY = 'mika_lastsave';   // {tripId, json, at}
+  let savedSnap = null;               // {json, at, sig}
+  // 只擷取「行程安排」相關欄位當比對指紋（排除 updatedAt 等易變欄位）
+  function arrangementSig(t) {
+    if (!t) return '';
+    return JSON.stringify({
+      s: (t.spots || []).map(x => [x.id, x.day, x.order, x.stayMin]),
+      h: (t.hotels || []).map(x => [x.night, x.placeId || x.name]),
+      m: t.meetPoint ? (t.meetPoint.placeId || t.meetPoint.name) : null,
+      e: t.endPoint ? (t.endPoint.placeId || t.endPoint.name) : null,
+      tr: t.transport,
+      ds: t.dayStartOv || {},
+      l: t.legsByDay || {}
+    });
+  }
+  function loadSavedSnap() {
+    try {
+      const j = JSON.parse(localStorage.getItem(SAVE_KEY));
+      if (j && trip && j.tripId === trip.tripId) {
+        savedSnap = { json: j.json, at: j.at, sig: arrangementSig(JSON.parse(j.json)) };
+      } else savedSnap = null;
+    } catch { savedSnap = null; }
+  }
+  function markSaved() {
+    if (!trip) return;
+    savedSnap = { json: snap(), at: Date.now(), sig: arrangementSig(trip) };
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ tripId: trip.tripId, json: savedSnap.json, at: savedSnap.at }));
+    } catch {}
+    document.dispatchEvent(new CustomEvent('trip-changed'));
+  }
+  const hasSavedSnap = () => !!savedSnap;
+  const savedSnapAt = () => savedSnap ? savedSnap.at : 0;
+  // 目前安排與已儲存版本不同，且可編輯時才需要顯示「還原」
+  const canRestoreSaved = () => !!savedSnap && !isReadonly() && arrangementSig(trip) !== savedSnap.sig;
+  function restoreSaved() {
+    if (!savedSnap || isReadonly()) return false;
+    recordHistory();                         // 先把目前狀態推進 undo，讓還原也能用「上一步」救回
+    const restored = normalizeTrip(JSON.parse(savedSnap.json));
+    restored.baseUpdatedAt = trip.baseUpdatedAt;  // 保留最新雲端衝突基準
+    trip = restored;
+    trip.updatedAt = Date.now();
+    lastSnap = snap();
+    persistLocal();
+    scheduleCloudSave();
+    document.dispatchEvent(new CustomEvent('trip-changed'));
+    return true;
   }
 
   // ---------- 本機快取 ----------
@@ -193,6 +245,7 @@ const Store = (() => {
     prefs, setPref,
     touch, isManualDirty, clearManualDirty,
     undo, redo, canUndo, canRedo,
+    markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved,
     cloudSaveNow, reloadFromCloud
   };
 })();

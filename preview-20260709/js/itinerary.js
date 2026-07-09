@@ -348,12 +348,31 @@ const Itin = (() => {
     try {
       UI.loading(true, '儲存目前安排…');
       await Store.cloudSaveNow();
+      Store.markSaved();
       UI.loading(false);
+      render();
       UI.toast('目前手動安排已儲存');
     } catch (e) {
       UI.loading(false);
       UI.alert('儲存失敗', e.message || String(e));
     }
+  }
+
+  function savedTimeTxt() {
+    const ts = Store.savedSnapAt();
+    if (!ts) return '';
+    const d = new Date(ts);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function confirmRestoreSaved() {
+    UI.confirm('還原到上次儲存', `要回到 ${savedTimeTxt()} 儲存的安排嗎？目前的變更會被覆蓋（還原後仍可用「↩ 上一步」救回）。`, () => {
+      if (Store.restoreSaved()) {
+        render();
+        UI.toast('已還原到上次儲存的安排');
+      }
+    });
   }
 
   async function routeMinute(a, b) {
@@ -406,7 +425,10 @@ const Itin = (() => {
           <button id="btnSwitchMode" class="chip" style="cursor:pointer">${modeTxt[t.transport]} ▾</button>
         </span>
       </div>
+      ${Store.canRestoreSaved() ? `<div class="restore-bar"><span>🔖 已儲存版本 ${savedTimeTxt()}</span><button id="btnRestoreSaved" class="chip restore-chip" style="cursor:pointer">↺ 還原到上次儲存</button></div>` : ''}
       <p class="hint" style="margin:6px 0 0">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同</p>`;
+    const rBtn = $('btnRestoreSaved');
+    if (rBtn) rBtn.onclick = confirmRestoreSaved;
     const dBtn = $('btnTripDates');
     if (Store.isReadonly()) dBtn.style.pointerEvents = 'none';
     else dBtn.onclick = () => Feat.editTripDates();
