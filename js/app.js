@@ -41,7 +41,8 @@ const UI = (() => {
   // 通用彈窗：body 可為 HTML 字串或元素；actions: [{label, onClick, primary, danger}]
   function modal(title, body, actions, opts) {
     const box = $('modalBox');
-    box.innerHTML = `<h3>${esc(title)}</h3>`;
+    box.innerHTML = `<button class="modal-x" type="button" aria-label="關閉視窗" title="關閉">×</button><h3>${esc(title)}</h3>`;
+    box.querySelector('.modal-x').onclick = closeModal;
     if (typeof body === 'string') {
       const p = document.createElement('div');
       p.style.whiteSpace = 'pre-wrap';
@@ -130,6 +131,7 @@ const App = (() => {
     $('fabWrap').classList.toggle('hidden', pageId !== 'page-trip' || Store.isReadonly());
     if (pageId === 'page-map') Itin.renderFullMap(0);
     if (pageId === 'page-exp') Feat.renderExpensePage();
+    if (pageId === 'page-res') Feat.renderResourcePage();
     window.scrollTo(0, 0);
   }
 
@@ -144,7 +146,7 @@ const App = (() => {
     $('wizard').classList.add('hidden');
     $('app').classList.remove('hidden');
     document.body.classList.add('in-app');
-    ['btnShare', 'btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
+    ['btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
     applyRole();
     Itin.render();
     switchPage('page-trip');
@@ -159,7 +161,6 @@ const App = (() => {
         switchPage('page-trip');
       }
     };
-    $('btnShare').onclick = () => Feat.showShare();
     $('btnReload').onclick = async () => {
       try {
         UI.loading(true, '重新載入中…');

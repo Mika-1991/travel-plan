@@ -13,7 +13,6 @@
   <h1 id="appTitle" title="回到行程主畫面">Mika 旅遊路線規劃</h1>
   <div class="header-actions">
     <span id="syncDot" class="sync-dot" title="同步狀態"></span>
-    <button id="btnShare" class="icon-btn hidden" title="分享行程" aria-label="分享行程">📤</button>
     <button id="btnReload" class="icon-btn hidden" title="重新從雲端載入" aria-label="重新從雲端載入">🔄</button>
     <button id="btnHome" class="icon-btn hidden" title="回到開始畫面" aria-label="回到開始畫面">🏠</button>
     <button id="btnClear" class="icon-btn hidden" title="清除本機資料" aria-label="清除本機資料">🧹</button>
@@ -185,6 +184,7 @@
   <section id="page-map" class="page hidden">
     <div id="fullMap" class="map-canvas full"></div>
     <div id="mapDayChips" class="map-day-chips"></div>
+    <div id="mapDaySummary" class="map-day-summary"></div>
   </section>
 
   <!-- 分帳頁 -->
@@ -223,9 +223,46 @@
     </div>
   </section>
 
+  <!-- 下載資源頁 -->
+  <section id="page-res" class="page hidden">
+    <div class="page-pad">
+      <h2 class="page-title">📥 參考資料</h2>
+      <div class="card">
+        <div class="step-title"><span class="step-badge">1</span><span class="step-text">每日行程 PDF</span></div>
+        <p class="hint">A4 列印版：依日期列出住宿、景點、車程與備註。可先預覽，再由瀏覽器輸出 PDF。</p>
+        <div class="row-2">
+          <button id="btnPreviewPrint" class="btn-outline">預覽列印頁</button>
+          <button id="btnDownloadPrint" class="btn-primary">輸出 PDF</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="step-title"><span class="step-badge">2</span><span class="step-text">Excel 匯出</span></div>
+        <p class="hint">輸出繁體中文欄位，分頁包含總覽、每日行程、住宿、景點、支出明細、結算與攜帶清單。</p>
+        <button id="btnExportExcel" class="btn-primary" style="width:100%">下載 Excel</button>
+      </div>
+      <div class="card">
+        <div class="step-title"><span class="step-badge">3</span><span class="step-text">攜帶物品清單</span></div>
+        <p class="hint">不做互動勾選，提供可列印或下載的清單版；之後可改接 GAS，讓你在試算表維護項目。</p>
+        <div class="row-2" style="margin-bottom:10px">
+          <button id="btnPackingPreview" class="btn-outline">預覽列印清單</button>
+          <button id="btnPackingDownload" class="btn-primary">下載清單 HTML</button>
+        </div>
+        <div id="packingListBox" class="resource-list"></div>
+      </div>
+      <div class="bottom-space"></div>
+    </div>
+  </section>
+
   <!-- 懸浮主按鈕（行程頁專屬） -->
   <div id="fabWrap" class="fab-wrap edit-only">
-    <button id="btnOptimize" class="fab">🧭 一鍵排最佳路線</button>
+    <div class="route-actions">
+      <button id="btnUndo" class="route-action" disabled>↩ 上一步</button>
+      <button id="btnRefreshRoutes" class="route-action">🔄 更新車程</button>
+      <button id="btnRestoreSaved" class="route-action restore hidden">↺ 還原</button>
+      <button id="btnManualSave" class="route-action">💾 儲存目前安排</button>
+      <button id="btnOptimize" class="fab">🧭 自動安排最佳路線</button>
+      <button id="btnShareBottom" class="route-action share" title="分享行程">📤 分享</button>
+    </div>
   </div>
 
   <!-- 頂部分頁列 -->
@@ -233,6 +270,7 @@
     <button data-page="page-trip" class="on"><span>🗓️</span>行程</button>
     <button data-page="page-map"><span>🗺️</span>路線</button>
     <button data-page="page-exp"><span>💰</span>分帳</button>
+    <button data-page="page-res"><span>📥</span>下載每日行程</button>
   </nav>
 </main>
 

@@ -119,6 +119,7 @@ body.readonly .edit-only { display: none !important; }
   padding: 10px 14px; flex: none; font-weight: 700;
 }
 .btn-danger-ghost { color: var(--danger); font-weight: 700; padding: 8px; }
+.mini-action { width: 34px; height: 34px; padding: 0; border-radius: 8px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 
 /* ---------- 卡片與列 ---------- */
 .card { background: var(--card); border-radius: var(--radius); padding: 16px; }
@@ -192,10 +193,12 @@ body.readonly .edit-only { display: none !important; }
 
 /* 天卡片 */
 .day-list { display: flex; flex-direction: column; gap: 14px; }
-.day-card { background: var(--card); border-radius: var(--radius); overflow: hidden; }
+.day-card { background: var(--card); border-radius: var(--radius); overflow: hidden; border-left: 6px solid var(--main); }
+.day-card.day-shade { background: #E7D5C0; }   /* 相鄰天深淺交錯，易讀性更好 */
 .day-head { padding: 10px 14px 8px; }
 .day-head-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.day-title { font-weight: 700; color: var(--main); font-size: 1.1rem; }
+.day-title { font-weight: 800; color: var(--main); font-size: 1.5rem; line-height: 1.25; }
+.day-title .day-date { font-weight: 600; font-size: 1.1rem; }
 .day-weather { font-size: .95rem; color: var(--text-2); }
 .day-outfit { font-size: .92rem; color: var(--text-2); margin-top: 2px; }
 .rain-alert {
@@ -290,8 +293,23 @@ body.readonly .edit-only { display: none !important; }
 /* ---------- 懸浮主按鈕 + 分頁列 ---------- */
 .fab-wrap {
   position: fixed; left: 0; right: 0; bottom: calc(14px + env(safe-area-inset-bottom));
-  display: flex; justify-content: center; z-index: 40; pointer-events: none;
+  display: flex; justify-content: center; z-index: 40; pointer-events: none; padding: 0 10px;
 }
+.route-actions {
+  display: flex; justify-content: center; align-items: center; gap: 8px; flex-wrap: wrap;
+  max-width: calc(100vw - 20px); pointer-events: auto;
+}
+.route-action {
+  pointer-events: auto;
+  background: var(--white); color: var(--main); border: 1.5px solid var(--main);
+  font-size: .98rem; font-weight: 700; padding: 12px 16px; border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(74,59,46,.22);
+}
+.route-action:disabled {
+  opacity: .45; box-shadow: none;
+}
+.route-action.restore { border-color: var(--accent); color: var(--accent); }
+.route-action.share { border-color: var(--accent); color: var(--accent); padding: 12px 14px; }
 .fab {
   pointer-events: auto;
   background: var(--main); color: var(--white); font-size: 1.15rem; font-weight: 700;
@@ -302,6 +320,10 @@ body.readonly .edit-only { display: none !important; }
 @keyframes glow {
   0%, 100% { box-shadow: 0 4px 16px rgba(74,59,46,.35); }
   50% { box-shadow: 0 0 22px 6px rgba(217,142,74,.65); }
+}
+@media (max-width: 560px) {
+  .route-actions { gap: 6px; }
+  .route-action, .fab { font-size: .9rem; padding: 10px 12px; }
 }
 
 .tabbar {
@@ -317,6 +339,16 @@ body.readonly .edit-only { display: none !important; }
 .tabbar button span { font-size: 1.15rem; }
 .tabbar button.on { color: var(--main); border-bottom-color: var(--main); }
 
+/* ---------- 下載資源 ---------- */
+.resource-list { display: grid; gap: 10px; margin-top: 8px; }
+.packing-group { background: var(--white); border-radius: 12px; padding: 12px; box-shadow: var(--shadow); }
+.packing-group b { color: var(--main); }
+.packing-group ul { list-style: none; margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+.packing-group li label { font-weight: 400; margin: 0; display: flex; gap: 6px; align-items: center; }
+.packing-group input { width: auto; margin: 0; }
+.packing-line { display: flex; gap: 7px; align-items: flex-start; color: var(--text); }
+.print-check { color: var(--main); font-weight: 700; line-height: 1.4; }
+
 /* ---------- 地圖（模擬 SVG） ---------- */
 .mock-map { width: 100%; height: 100%; display: block; background: #EFE9DD; }
 .mock-map .road { stroke: #A9805B; stroke-width: 3; fill: none; stroke-dasharray: 8 6; opacity: .8; }
@@ -331,6 +363,28 @@ body.readonly .edit-only { display: none !important; }
 .map-badge {
   position: absolute; left: 10px; bottom: 10px; background: rgba(255,255,255,.9);
   color: var(--text-2); padding: 3px 10px; border-radius: 8px; font-size: .85rem;
+}
+.map-day-summary {
+  position: fixed; left: 10px; bottom: calc(var(--tabbar-h) + 12px + env(safe-area-inset-bottom)); z-index: 20;
+  background: rgba(255,255,255,.94); border-radius: 10px; padding: 8px 12px;
+  box-shadow: 0 3px 12px rgba(74,59,46,.22); font-size: .9rem; max-width: 62vw;
+}
+.map-day-summary .mds-head { font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.map-day-summary .mds-row { display: flex; align-items: center; gap: 6px; color: var(--text-2); line-height: 1.7; }
+.map-day-summary .mds-row b { margin-left: auto; color: var(--main); padding-left: 12px; }
+.map-day-summary .mds-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+/* 可摺疊區塊 */
+.collapse > summary {
+  cursor: pointer; font-weight: 700; color: var(--main); list-style: none;
+  padding: 4px 0; user-select: none;
+}
+.collapse > summary::-webkit-details-marker { display: none; }
+.collapse > summary::before { content: '▸ '; }
+.collapse[open] > summary::before { content: '▾ '; }
+/* 景點列右側外觀縮圖 */
+.spot-thumb {
+  width: 52px; height: 52px; object-fit: cover; border-radius: 8px; flex: none;
+  align-self: center; margin-left: 4px; cursor: zoom-in; background: var(--card);
 }
 
 /* ---------- 分帳 ---------- */
@@ -355,8 +409,17 @@ body.readonly .edit-only { display: none !important; }
 .modal-box {
   background: var(--bg); border-radius: 16px; padding: 20px;
   width: 100%; max-width: 440px; max-height: 84vh; overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,.3);
+  position: relative;
 }
-.modal-box h3 { color: var(--main); margin-bottom: 10px; font-size: 1.2rem; }
+.modal-box h3 { color: var(--main); margin: 0 38px 10px 0; font-size: 1.2rem; }
+.modal-x {
+  position: absolute; top: 10px; right: 10px;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-2); background: var(--white);
+  font-size: 1.35rem; font-weight: 700; box-shadow: var(--shadow);
+}
+.modal-x:active { color: var(--main); background: var(--card); }
 .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
 .modal-actions button { flex: 1; }
 .code-line {

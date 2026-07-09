@@ -465,12 +465,60 @@ const Api = (() => {
     });
   }
 
+  // 寄送完整行程（唯讀連結＋每日行程明細）。html 由前端組好，GAS 直接寄出
+  async function cloudSendItinerary(email, subject, html, code) {
+    if (isMock()) { await delay(400); return { simulated: true }; }
+    return gasCall('sendItinerary', { email, subject, html, code });
+  }
+
+  // 沿實際道路的路徑座標（Google Directions overview_path）；失敗或模擬回 null → 呼叫端改用直線
+  async function routePath(seq, mode) {
+    if (isMock() || !seq || seq.length < 2) return null;
+    try {
+      await loadGoogleMaps();
+      const svc = new google.maps.DirectionsService();
+      const travelMode = mode === 'walking' ? 'WALKING' : mode === 'transit' ? 'TRANSIT' : 'DRIVING';
+      const origin = seq[0], destination = seq[seq.length - 1];
+      const waypoints = seq.slice(1, -1).map(p => ({ location: { lat: p.lat, lng: p.lng }, stopover: true }));
+      const res = await svc.route({
+        origin: { lat: origin.lat, lng: origin.lng },
+        destination: { lat: destination.lat, lng: destination.lng },
+        waypoints, optimizeWaypoints: false, travelMode,
+        avoidFerries: true   // 避免路線繞到離島渡輪（例如飄到澎湖／七美）
+      });
+      const path = res.routes[0].overview_path.map(ll => ({ lat: ll.lat(), lng: ll.lng() }));
+      // 防護 1：幾何邊界——道路路徑若跑出景點群經緯度範圍太多（例如飄到澎湖／七美），視為異常
+      const lats = seq.map(p => p.lat), lngs = seq.map(p => p.lng);
+      const M = 0.2; // 約 20km 邊界寬容度（容許正常繞路）
+      const minLat = Math.min(...lats) - M, maxLat = Math.max(...lats) + M;
+      const minLng = Math.min(...lngs) - M, maxLng = Math.max(...lngs) + M;
+      const escaped = path.some(p => p.lat < minLat || p.lat > maxLat || p.lng < minLng || p.lng > maxLng);
+      if (escaped) {
+        console.warn('道路路徑跑出景點範圍（可能繞到離島／渡輪），改用直線');
+        return null;
+      }
+      // 防護 2：道路路徑長度遠大於直線距離（繞太遠／怪路線），改用直線
+      let pathKm = 0;
+      for (let i = 1; i < path.length; i++) pathKm += Logic.haversineKm(path[i - 1], path[i]);
+      let directKm = 0;
+      for (let i = 1; i < seq.length; i++) directKm += Logic.haversineKm(seq[i - 1], seq[i]);
+      if (pathKm > directKm * 2.5 + 10) {
+        console.warn(`道路路徑異常（${Math.round(pathKm)}km vs 直線 ${Math.round(directKm)}km），改用直線`);
+        return null;
+      }
+      return path;
+    } catch (e) {
+      console.warn('道路路徑查詢失敗，改用直線', e);
+      return null;
+    }
+  }
+
   return {
     isMock, loadGoogleMaps, geocodeAddress,
     searchPlaces, searchFood, nearbySearch,
-    optimizeRoute, routeLegs, travelTime,
+    optimizeRoute, routeLegs, routePath, travelTime,
     weatherOn,
-    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudFindByEmail,
+    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail,
     cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail
   };
 })();

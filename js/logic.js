@@ -105,6 +105,90 @@ const Logic = (() => {
     return daysArr;
   }
 
+  // 點 p 到線段 a-b 的近似距離（km）；a/b 可為 null
+  function distToSeg(p, a, b) {
+    if (!a && !b) return Infinity;
+    if (!a) return haversineKm(p, b);
+    if (!b) return haversineKm(p, a);
+    const latRef = (a.lat + b.lat) / 2 * Math.PI / 180;
+    const kx = Math.cos(latRef);
+    const ax = a.lng * kx, ay = a.lat, bx = b.lng * kx, by = b.lat, px = p.lng * kx, py = p.lat;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let tp = len2 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+    tp = Math.max(0, Math.min(1, tp));
+    const cx = ax + tp * dx, cy = ay + tp * dy;
+    const dLat = py - cy, dLng = px - cx;
+    return Math.sqrt(dLat * dLat + dLng * dLng) * 111;
+  }
+
+  // 依每天的起訖錨點（集合地／飯店／解散地）把景點分配到最合適的一天。
+  // 每晚飯店會把該天釘在某個城市，因此比「只按時間切天」更符合實際路線。
+  // dayAnchors: 長度=days，dayAnchors[d-1] = { start, end }（可為 null）
+  // ctx: { days, dayStartMin, dayEndMin, travelMin(a,b), stayMin(s) }
+  // 回傳 [[spot,...],...]（長度=days）；若完全沒有錨點則回 null（交給 splitIntoDays）
+  function assignDaysByAnchors(spots, dayAnchors, ctx) {
+    const days = ctx.days;
+    if (!dayAnchors.some(a => a && (a.start || a.end))) return null;
+    const daysArr = Array.from({ length: days }, () => []);
+    const orderDay = d => {
+      const a = dayAnchors[d] || {};
+      const list = daysArr[d];
+      if (list.length > 1) {
+        const s0 = a.start || a.end || list[0];
+        const e0 = a.end || a.start || list[list.length - 1];
+        const ord = optimizeOrder(list, s0, e0);
+        daysArr[d] = ord.map(i => list[i]);
+      }
+    };
+    const dayTime = d => {
+      const a = dayAnchors[d] || {}, list = daysArr[d];
+      if (!list.length) return 0;
+      let prev = a.start || null, t = 0;
+      for (const s of list) { t += (prev ? ctx.travelMin(prev, s) : 0) + ctx.stayMin(s); prev = s; }
+      if (a.end && prev) t += ctx.travelMin(prev, a.end);
+      return t;
+    };
+    // 1) 每個景點分配到成本最低（離該天路段最近）的一天
+    for (const s of spots) {
+      let best = 0, bestC = Infinity;
+      for (let d = 0; d < days; d++) {
+        const a = dayAnchors[d] || {};
+        const c = (a.start || a.end) ? distToSeg(s, a.start, a.end) : 1e6 + d;
+        if (c < bestC) { bestC = c; best = d; }
+      }
+      daysArr[best].push(s);
+    }
+    for (let d = 0; d < days; d++) orderDay(d);
+    // 2) 容量調整：把爆量天的景點勻到有空、且離其路段近的天（優先填空天）
+    const budget = ctx.dayEndMin - ctx.dayStartMin;
+    let guard = 0;
+    while (guard++ < spots.length * 3) {
+      let over = -1, overBy = 0;
+      for (let d = 0; d < days; d++) {
+        const ex = dayTime(d) - budget;
+        if (daysArr[d].length > 1 && ex > overBy) { overBy = ex; over = d; }
+      }
+      if (over < 0) break;
+      let mv = null;
+      for (const s of daysArr[over]) {
+        for (let d = 0; d < days; d++) {
+          if (d === over) continue;
+          const a = dayAnchors[d] || {};
+          const cost = (a.start || a.end) ? distToSeg(s, a.start, a.end) : 1e6 + d;
+          const spare = budget - dayTime(d);
+          const score = cost - (spare > ctx.stayMin(s) ? 1000 : 0);
+          if (!mv || score < mv.score) mv = { s, d, score };
+        }
+      }
+      if (!mv) break;
+      daysArr[over] = daysArr[over].filter(x => x !== mv.s);
+      daysArr[mv.d].push(mv.s);
+      orderDay(over); orderDay(mv.d);
+    }
+    return daysArr;
+  }
+
   // ---------- 時間軸 ----------
   const toMin = hhmm => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
   const toHHMM = min => {
@@ -203,7 +287,7 @@ const Logic = (() => {
   }
 
   return {
-    haversineKm, travelMinutes, optimizeOrder, splitIntoDays, hasCoords, fmtDur,
+    haversineKm, travelMinutes, optimizeOrder, splitIntoDays, assignDaysByAnchors, distToSeg, hasCoords, fmtDur,
     toMin, toHHMM, buildTimeline, settleExpenses, outfitAdvice,
     genEditCode, genViewCode, normalizeCode, isEditCodeFormat, isViewCodeFormat,
     uid, datesBetween

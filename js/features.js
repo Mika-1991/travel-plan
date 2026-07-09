@@ -503,11 +503,12 @@ const Feat = (() => {
             <option value="30" selected>30 分鐘內</option>
             <option value="45">45 分鐘內</option>
             <option value="60">1 小時內</option>
+            <option value="0">不設限</option>
           </select>
         </div>
         <div>
-          <label>想吃什麼？（可留空）</label>
-          <input id="foodKind" type="text" placeholder="例如：牛肉麵、咖啡、火鍋" ${centers.length ? '' : 'disabled'}>
+          <label>想吃什麼？（品項或餐廳名稱，可留空）</label>
+          <input id="foodKind" type="text" placeholder="例如：牛肉麵、咖啡、阿霞飯店" ${centers.length ? '' : 'disabled'}>
         </div>
       </div>
       <button id="foodGo" class="btn-primary" style="width:100%" ${centers.length ? '' : 'disabled'}>找美食</button>
@@ -518,31 +519,37 @@ const Feat = (() => {
     custom.style.background = 'var(--white)';
     custom.style.marginTop = '12px';
     custom.innerHTML = `
-      <label>自訂餐廳</label>
-      <input id="customFoodName" type="text" placeholder="餐廳名稱，例如：阿霞飯店">
-      <input id="customFoodAddr" type="text" placeholder="餐廳地址，會用 Google 定位後加入路線">
-      <div class="row-2" style="margin-top:8px">
-        <button id="btnCustomFoodMap" class="btn-outline" type="button">Google 搜尋</button>
-        <button id="btnCustomFoodAdd" class="btn-primary" type="button">定位並加到第 ${d} 天</button>
-      </div>
-      <p class="hint">自訂餐廳一定要填地址；定位成功後才會參與一鍵最佳路線。</p>`;
+      <details class="collapse">
+        <summary>➕ 自訂餐廳（找不到才用，點開）</summary>
+        <div style="margin-top:10px">
+          <input id="customFoodName" type="text" placeholder="餐廳名稱，例如：阿霞飯店">
+          <input id="customFoodAddr" type="text" placeholder="餐廳地址，會用 Google 定位後加入路線">
+          <div class="row-2" style="margin-top:8px">
+            <button id="btnCustomFoodMap" class="btn-outline" type="button">Google 搜尋</button>
+            <button id="btnCustomFoodAdd" class="btn-primary" type="button">定位並加到第 ${d} 天</button>
+          </div>
+          <p class="hint">自訂餐廳一定要填地址；定位成功後才會參與一鍵最佳路線。</p>
+        </div>
+      </details>`;
     body.appendChild(custom);
 
     body.querySelector('#foodGo').onclick = async () => {
       const center = centers[Number(body.querySelector('#foodCenter').value) || 0];
-      const maxMin = Math.min(60, Number(body.querySelector('#foodMaxMin').value) || 30);
+      const rawMaxMin = Number(body.querySelector('#foodMaxMin').value);
+      const noLimit = rawMaxMin === 0;
+      const maxMin = noLimit ? Infinity : Math.min(60, rawMaxMin || 30);
       const radius = foodRadiusByMinutes(maxMin, t.transport);
       const kind = body.querySelector('#foodKind').value.trim();
       const res = body.querySelector('#foodRes');
       try {
         UI.loading(true, '搜尋美食與路程時間…');
         let list = kind ? await Api.searchFood(kind, center, radius) : await Api.nearbySearch(center, 'restaurant', radius);
-        list = list.filter(r => (r.rating || 0) >= CONFIG.defaults.minRating);
+        if (!kind) list = list.filter(r => (r.rating || 0) >= CONFIG.defaults.minRating);
         list = list.filter(Logic.hasCoords).slice(0, 18);
         const timed = [];
         for (const r of list) {
           const travelMin = await Api.travelTime(center, r, t.transport);
-          if (travelMin !== null && travelMin <= maxMin) timed.push({ ...r, travelMin });
+          if (travelMin !== null && (noLimit || travelMin <= maxMin)) timed.push({ ...r, travelMin });
         }
         list = timed.sort((a, b) => (a.travelMin - b.travelMin) || ((b.rating || 0) - (a.rating || 0))).slice(0, 12);
         UI.loading(false);
@@ -559,7 +566,7 @@ const Feat = (() => {
               </div>
             </div>
           </div>`).join('')
-          : `<p class="hint" style="margin-top:10px">${Logic.fmtDur(maxMin)}內找不到符合餐廳，請改成 1 小時內或換關鍵字。</p>`;
+          : `<p class="hint" style="margin-top:10px">${noLimit ? '找不到符合的餐廳，請換關鍵字。' : `${Logic.fmtDur(maxMin)}內找不到符合餐廳，請改成不設限或換關鍵字。`}</p>`;
         res.querySelectorAll('[data-zoom]').forEach(img =>
           img.onclick = () => UI.photoZoom(list[Number(img.dataset.zoom)].photo, list[Number(img.dataset.zoom)].name));
         res.querySelectorAll('button[data-i]').forEach(b =>
@@ -692,6 +699,58 @@ const Feat = (() => {
     setTimeout(() => body.querySelector('#qeAmt').focus(), 50);
   }
 
+  function editExpense(expenseId) {
+    const t = trip();
+    const e = t.expenses.find(x => x.id === expenseId);
+    if (!e) { UI.toast('找不到這筆支出'); return; }
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <label>項目</label>
+      <input id="editExpItem" type="text" maxlength="30" value="${UI.esc(e.item || '')}">
+      <div class="row-2">
+        <div><label>日期</label><input id="editExpDate" type="date" value="${e.date || t.startDate}"></div>
+        <div><label>金額</label><input id="editExpAmount" type="number" min="1" inputmode="numeric" value="${Number(e.amount) || ''}"></div>
+      </div>
+      <label>誰先付的？</label>
+      <select id="editExpPayer">${t.members.map(m => `<option ${e.payer === m ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
+      <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="editExpTreat" ${e.treat ? 'checked' : ''}> 🎁 這筆是請客，不用分帳</label>
+      <div id="editExpPartsWrap">
+        <label>誰參與</label>
+        <div class="chips" id="editExpParts">${t.members.map(m => {
+          const on = e.treat || !e.participants?.length || e.participants.includes(m);
+          return `<span class="chip ${on ? 'on' : ''}" data-m="${UI.esc(m)}">${UI.esc(m)}</span>`;
+        }).join('')}</div>
+      </div>`;
+    body.querySelectorAll('#editExpParts .chip').forEach(c => c.onclick = () => c.classList.toggle('on'));
+    const treat = body.querySelector('#editExpTreat');
+    const partsWrap = body.querySelector('#editExpPartsWrap');
+    const syncTreat = () => { partsWrap.style.opacity = treat.checked ? '.35' : '1'; };
+    treat.onchange = syncTreat;
+    syncTreat();
+    UI.modal('編輯支出', body, [{
+      label: '儲存修改', primary: true,
+      onClick: () => {
+        const item = body.querySelector('#editExpItem').value.trim();
+        const amount = Number(body.querySelector('#editExpAmount').value);
+        const isTreat = body.querySelector('#editExpTreat').checked;
+        const participants = isTreat ? [] : [...body.querySelectorAll('#editExpParts .chip.on')].map(c => c.dataset.m);
+        if (!item) { UI.toast('請輸入項目名稱'); return; }
+        if (!amount || amount <= 0) { UI.toast('請輸入大於 0 的金額'); return; }
+        if (!isTreat && !participants.length) { UI.toast('請至少選一位參與人，或勾「請客」'); return; }
+        e.item = item;
+        e.date = body.querySelector('#editExpDate').value || t.startDate;
+        e.amount = amount;
+        e.payer = body.querySelector('#editExpPayer').value;
+        e.treat = isTreat;
+        e.participants = participants;
+        Store.touch();
+        UI.closeModal();
+        renderExpenseList();
+        UI.toast('支出已更新');
+      }
+    }]);
+  }
+
   function renderExpenseList() {
     const t = trip();
     const box = $('expList');
@@ -709,8 +768,9 @@ const Feat = (() => {
           <div class="e-sub">${e.date.slice(5).replace('-', '/')}｜${UI.esc(e.payer)} ${e.treat ? '請客 <span class="treat-badge">🎁 不分帳</span>' : `先付｜${e.participants.length} 人分`}</div>
         </div>
         <span class="exp-amt">$${e.amount.toLocaleString()}</span>
-        ${ro ? '' : `<button class="btn-danger-ghost" data-del="${e.id}">✕</button>`}
+        ${ro ? '' : `<button class="btn-outline mini-action" data-edit="${e.id}">✎</button><button class="btn-danger-ghost mini-action" data-del="${e.id}">✕</button>`}
       </div>`).join('');
+    box.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editExpense(b.dataset.edit));
     box.querySelectorAll('[data-del]').forEach(b =>
       b.onclick = () => UI.confirm('刪除這筆支出', '確定要刪除嗎？', () => {
         t.expenses = t.expenses.filter(x => x.id !== b.dataset.del);
@@ -756,6 +816,332 @@ const Feat = (() => {
       txt += '\n轉帳方式：\n' + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}`).join('\n');
     }
     UI.copy(txt, '結算結果已複製，可以貼到群組裡');
+  }
+
+  // ================= 下載資源 =================
+  const packingTemplate = [
+    { cat: '證件與付款', items: ['身分證／健保卡', '駕照', '信用卡／金融卡', '現金與零錢', '訂房與票券截圖'] },
+    { cat: '3C 電子', items: ['手機', '充電線', '行動電源', '耳機', '相機／記憶卡', '車充'] },
+    { cat: '衣物', items: ['換洗衣物', '睡衣', '外套', '帽子', '襪子', '拖鞋'] },
+    { cat: '盥洗保養', items: ['牙刷牙膏', '洗面乳', '保養品', '防曬', '卸妝用品', '毛巾'] },
+    { cat: '藥品', items: ['個人藥品', '暈車藥', '止痛藥', '腸胃藥', 'OK 繃', '防蚊液'] },
+    { cat: '雨天備品', items: ['摺疊傘', '雨衣', '防水袋', '備用襪子'] },
+    { cat: '親子／長輩', items: ['濕紙巾', '衛生紙', '保溫瓶', '小零食', '常用藥', '備用衣物'] }
+  ];
+
+  const xmlEsc = v => String(v ?? '').replace(/[<>&"']/g,
+    c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
+  const textEsc = v => UI.esc(v ?? '');
+  const dateLabel = iso => iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : '';
+  const transportLabel = v => ({ driving: '開車', transit: '大眾運輸', walking: '走路' }[v] || v || '');
+  function downloadFile(filename, content, type) {
+    const blob = new Blob([content], { type });
+    downloadBlob(filename, blob);
+  }
+  function downloadBlob(filename, blob) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+  function dayRows(d) {
+    const t = trip();
+    const rows = [];
+    const list = Itin.spotsOfDay(d);
+    const sp = Itin.startHotel(d);
+    const ep = Itin.endHotel(d);
+    const legs = Itin.legsForDay(d);
+    if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '', photo: t.meetPoint.photo || '' });
+    else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: '', photo: sp.photo || '' });
+    const shouldShowEmptyLeg = !list.length && sp && ep && sp !== ep && legs[0] > 0 &&
+      ((d === 1 && t.meetPoint) || (d === Store.days() && t.endPoint));
+    if (shouldShowEmptyLeg) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[0])}`, address: '', note: '' });
+    list.forEach((s, i) => {
+      if (legs[i] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[i])}`, address: '', note: '' });
+      rows.push({ type: s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點', name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
+    });
+    if (list.length && ep) {
+      if (legs[list.length] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[list.length])}`, address: '', note: '' });
+      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '', photo: ep.photo || '' });
+    } else if (!list.length && ep && ep !== sp) {
+      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '', photo: ep.photo || '' });
+    }
+    return rows;
+  }
+  function sheetXml(name, rows) {
+    const body = rows.map(row => `<Row>${row.map(v =>
+      `<Cell><Data ss:Type="${typeof v === 'number' ? 'Number' : 'String'}">${xmlEsc(v)}</Data></Cell>`).join('')}</Row>`).join('');
+    return `<Worksheet ss:Name="${xmlEsc(name)}"><Table>${body}</Table></Worksheet>`;
+  }
+  function excelWorkbook() {
+    const t = trip();
+    const days = Store.days();
+    const overview = [
+      ['項目', '內容'],
+      ['行程名稱', t.name],
+      ['日期', `${t.startDate} ~ ${t.endDate}`],
+      ['天數', `${days} 天 ${Math.max(days - 1, 0)} 夜`],
+      ['交通方式', transportLabel(t.transport)],
+      ['每日時間', `${t.dayStart} ~ ${t.dayEnd}`],
+      ['建立者 Email', t.creatorEmail || '']
+    ];
+    const itinerary = [['天數', '日期', '類型', '名稱', '地址', '備註']];
+    for (let d = 1; d <= days; d++) {
+      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
+    }
+    const hotels = [['晚別', '名稱', '地址', '付款狀態', '備註', '平日價', '假日價']];
+    (t.hotels || []).sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
+      hotels.push([`第 ${Number(h.night) + 1} 晚`, h.name, h.address || '', UI.PAY_LABELS[h.pay] || '', h.note || '', h.priceWeekday || '', h.priceWeekend || '']));
+    const spots = [['天數', '順序', '名稱', '地址', '停留分鐘', '必去', '備註']];
+    (t.spots || []).sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
+      spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, s.address || '', s.stayMin || '', s.must ? '是' : '', s.note || '']));
+    const expenses = [['日期', '項目', '金額', '付款人', '請客', '參與人']];
+    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、')]));
+    const settle = [['成員', '已付', '應分攤', '結餘']];
+    const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
+    (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
+    settle.push([]);
+    settle.push(['轉出人', '收款人', '金額']);
+    sr.transfers.forEach(x => settle.push([x.from, x.to, x.amount]));
+    const packing = [['分類', '物品', '已準備']];
+    packingTemplate.forEach(g => g.items.forEach(i => packing.push([g.cat, i, '□'])));
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+${sheetXml('行程總覽', overview)}
+${sheetXml('每日行程', itinerary)}
+${sheetXml('住宿資訊', hotels)}
+${sheetXml('景點清單', spots)}
+${sheetXml('支出明細', expenses)}
+${sheetXml('分帳結算', settle)}
+${sheetXml('攜帶清單', packing)}
+</Workbook>`;
+  }
+  function excelSheets() {
+    const t = trip();
+    const days = Store.days();
+    const overview = [
+      ['欄位', '內容'],
+      ['行程名稱', t.name],
+      ['日期', `${t.startDate} ~ ${t.endDate}`],
+      ['天數', `${days} 天 ${Math.max(days - 1, 0)} 晚`],
+      ['交通方式', transportLabel(t.transport)],
+      ['每日時間', `${t.dayStart} ~ ${t.dayEnd}`],
+      ['建立者 Email', t.creatorEmail || '']
+    ];
+    const itinerary = [['天數', '日期', '類型', '名稱', '地址', '備註']];
+    for (let d = 1; d <= days; d++) {
+      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
+    }
+    const hotels = [['夜晚', '名稱', '地址', '付款狀態', '備註', '平日價格', '假日價格']];
+    (t.hotels || []).slice().sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
+      hotels.push([`第 ${Number(h.night) + 1} 晚`, h.name, h.address || '', UI.PAY_LABELS[h.pay] || '', h.note || '', Number(h.priceWeekday) || '', Number(h.priceWeekend) || '']));
+    const spots = [['天數', '順序', '名稱', '地址', '停留分鐘', '必去', '備註']];
+    (t.spots || []).slice().sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
+      spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, s.address || '', Number(s.stayMin) || '', s.must ? '是' : '', s.note || '']));
+    const expenses = [['日期', '項目', '金額', '付款人', '不分帳', '分帳成員']];
+    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、')]));
+    const settle = [['成員', '已付', '應付', '餘額']];
+    const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
+    (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
+    settle.push([]);
+    settle.push(['付款人', '收款人', '金額']);
+    sr.transfers.forEach(x => settle.push([x.from, x.to, x.amount]));
+    const packing = [['分類', '物品', '確認']];
+    packingTemplate.forEach(g => g.items.forEach(i => packing.push([g.cat, i, '□'])));
+    return [
+      { name: '行程總覽', rows: overview },
+      { name: '每日行程', rows: itinerary },
+      { name: '住宿資訊', rows: hotels },
+      { name: '景點清單', rows: spots },
+      { name: '支出明細', rows: expenses },
+      { name: '結算表', rows: settle },
+      { name: '攜帶清單', rows: packing }
+    ];
+  }
+  const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const enc = new TextEncoder();
+  const CRC32_TABLE = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[i] = c >>> 0;
+    }
+    return table;
+  })();
+  function bytes(s) { return enc.encode(String(s)); }
+  function u16(n) { return new Uint8Array([n & 255, (n >>> 8) & 255]); }
+  function u32(n) { return new Uint8Array([n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]); }
+  function concatBytes(parts) {
+    const len = parts.reduce((sum, p) => sum + p.length, 0);
+    const out = new Uint8Array(len);
+    let pos = 0;
+    parts.forEach(p => { out.set(p, pos); pos += p.length; });
+    return out;
+  }
+  function crc32Bytes(data) {
+    let crc = 0xFFFFFFFF;
+    for (const b of data) crc = CRC32_TABLE[(crc ^ b) & 255] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  function dosStamp(d = new Date()) {
+    const time = (d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds() / 2);
+    const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    return { time, date };
+  }
+  function zipStore(files, type) {
+    const localParts = [];
+    const centralParts = [];
+    const stamp = dosStamp();
+    let offset = 0;
+    files.forEach(file => {
+      const nameBytes = bytes(file.name.replace(/\\/g, '/'));
+      const dataBytes = bytes(file.data);
+      const crc = crc32Bytes(dataBytes);
+      const local = concatBytes([
+        u32(0x04034b50), u16(20), u16(0), u16(0), u16(stamp.time), u16(stamp.date),
+        u32(crc), u32(dataBytes.length), u32(dataBytes.length), u16(nameBytes.length), u16(0),
+        nameBytes, dataBytes
+      ]);
+      const central = concatBytes([
+        u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(stamp.time), u16(stamp.date),
+        u32(crc), u32(dataBytes.length), u32(dataBytes.length), u16(nameBytes.length), u16(0),
+        u16(0), u16(0), u16(0), u32(0), u32(offset), nameBytes
+      ]);
+      localParts.push(local);
+      centralParts.push(central);
+      offset += local.length;
+    });
+    const centralOffset = offset;
+    const centralSize = centralParts.reduce((sum, p) => sum + p.length, 0);
+    const end = concatBytes([
+      u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length),
+      u32(centralSize), u32(centralOffset), u16(0)
+    ]);
+    return new Blob([...localParts, ...centralParts, end], { type });
+  }
+  function colName(n) {
+    let s = '';
+    while (n > 0) {
+      const m = (n - 1) % 26;
+      s = String.fromCharCode(65 + m) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+  function visibleLen(v) {
+    return String(v ?? '').split('').reduce((sum, ch) => sum + (ch.charCodeAt(0) > 255 ? 2 : 1), 0);
+  }
+  function worksheetXml(rows) {
+    const cols = Math.max(1, ...rows.map(r => r.length));
+    const widths = Array.from({ length: cols }, (_, c) =>
+      Math.min(48, Math.max(10, Math.max(...rows.map(r => visibleLen(r[c]))) + 2)));
+    const colsXml = `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>`;
+    const body = rows.map((row, rIdx) => `<row r="${rIdx + 1}">` + row.map((v, cIdx) => {
+      const ref = `${colName(cIdx + 1)}${rIdx + 1}`;
+      const style = rIdx === 0 ? ' s="1"' : '';
+      if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${ref}"${style}><v>${v}</v></c>`;
+      return `<c r="${ref}" t="inlineStr"${style}><is><t>${xmlEsc(v)}</t></is></c>`;
+    }).join('') + '</row>').join('');
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${body}</sheetData></worksheet>`;
+  }
+  function xlsxBlob() {
+    const sheets = excelSheets();
+    const sheetOverrides = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
+    const workbookSheets = sheets.map((s, i) => `<sheet name="${xmlEsc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+    const sheetRels = sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('');
+    const files = [
+      { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheetOverrides}</Types>` },
+      { name: '_rels/.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+      { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${workbookSheets}</sheets></workbook>` },
+      { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheetRels}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+      { name: 'xl/styles.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Microsoft JhengHei"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Microsoft JhengHei"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFA9805B"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs></styleSheet>` },
+      ...sheets.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: worksheetXml(s.rows) }))
+    ];
+    return zipStore(files, XLSX_MIME);
+  }
+  function printableHtml() {
+    const t = trip();
+    const daySections = Array.from({ length: Store.days() }, (_, i) => {
+      const d = i + 1;
+      const rows = dayRows(d).map(r => `
+        <tr>
+          <td class="type">${textEsc(r.type)}</td>
+          <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
+        </tr>`).join('');
+      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="2">尚無安排</td></tr>'}</table></section>`;
+    }).join('');
+    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 每日行程</title>
+<style>
+body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#FAF6F0;margin:0;padding:24px}
+h1{margin:0 0 8px;color:#8f6a49}.meta{color:#8C7B6B;margin-bottom:18px}.day{page-break-inside:avoid;background:#fff;border-radius:12px;padding:16px;margin:0 0 16px;box-shadow:0 2px 10px #e1d4c4}
+h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:10px;vertical-align:top}.type{width:90px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:14px;margin-top:3px}
+@media print{body{background:#fff;padding:0}.day{box-shadow:none;border:1px solid #ddd}}
+</style></head><body><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</body></html>`;
+  }
+  function printableDailyHtml() {
+    const t = trip();
+    const daySections = Array.from({ length: Store.days() }, (_, i) => {
+      const d = i + 1;
+      const rows = dayRows(d).map(r => `
+        <tr>
+          <td class="type">${textEsc(r.type)}</td>
+          <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
+          <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="">` : ''}</td>
+        </tr>`).join('');
+      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
+    }).join('');
+    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 每日行程 PDF</title>
+<style>
+@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
+h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.day{page-break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:12px;margin:0 0 12px}
+h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:8px;vertical-align:top}.type{width:86px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:13px;margin-top:3px}.pic{width:64px;text-align:right}.pic img{width:60px;height:60px;object-fit:cover;border-radius:6px}
+@media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.day{break-inside:avoid}}
+</style></head><body><main class="sheet"><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</main></body></html>`;
+  }
+  function packingHtml() {
+    const t = trip();
+    const groups = packingTemplate.map(g => `<section class="group"><h2>${textEsc(g.cat)}</h2><ul>${g.items.map(i => `<li><span>□</span>${textEsc(i)}</li>`).join('')}</ul></section>`).join('');
+    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 攜帶物品清單</title>
+<style>
+@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
+h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.group{break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:10px}
+h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}li{display:flex;gap:7px;align-items:flex-start;font-size:14px}li span{color:#A9805B;font-weight:700}
+@media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.group{break-inside:avoid}}
+</style></head><body><main class="sheet"><h1>${textEsc(t.name)} 攜帶物品清單</h1><div class="meta">${t.startDate} ~ ${t.endDate}</div><div class="grid">${groups}</div></main></body></html>`;
+  }
+  function openPrintWindow(html, autoPrint, fallbackName) {
+    const w = window.open('', '_blank');
+    if (!w) {
+      UI.toast('瀏覽器阻擋新視窗，已改下載 HTML');
+      downloadFile(fallbackName, html, 'text/html;charset=utf-8');
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    if (autoPrint) setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.warn(e); } }, 350);
+  }
+  function renderPackingList() {
+    const box = $('packingListBox');
+    if (!box) return;
+    box.innerHTML = packingTemplate.map(g => `<div class="packing-group"><b>${UI.esc(g.cat)}</b><ul>${g.items.map(i => `<li class="packing-line"><span class="print-check">□</span><span>${UI.esc(i)}</span></li>`).join('')}</ul></div>`).join('');
+  }
+  function renderResourcePage() {
+    if (!$('page-res') || $('page-res').dataset.ready === '1') {
+      renderPackingList();
+      return;
+    }
+    $('page-res').dataset.ready = '1';
+    $('btnExportExcel').onclick = () => downloadBlob(`${trip().name || '旅遊行程'}-資料匯出.xlsx`, xlsxBlob());
+    $('btnPreviewPrint').onclick = () => openPrintWindow(printableDailyHtml(), false, `${trip().name || '旅遊行程'}-每日行程.html`);
+    $('btnDownloadPrint').onclick = () => openPrintWindow(printableDailyHtml(), true, `${trip().name || '旅遊行程'}-每日行程.html`);
+    $('btnPackingPreview').onclick = () => openPrintWindow(packingHtml(), true, `${trip().name || '旅遊行程'}-攜帶物品清單.html`);
+    $('btnPackingDownload').onclick = () => downloadFile(`${trip().name || '旅遊行程'}-攜帶物品清單.html`, packingHtml(), 'text/html;charset=utf-8');
+    renderPackingList();
   }
 
   // ================= 分享（雙代碼） =================
@@ -835,6 +1221,71 @@ const Feat = (() => {
     ], { noClose: true });
   }
 
+  // 每晚飯店 / 集合地 / 解散地當作每天起訖
+  function dayAnchors(t, d, totalDays) {
+    const hotelNight = n => (t.hotels || []).find(h => Number(h.night) === n) || null;
+    const start = (d === 1 && t.meetPoint) ? t.meetPoint : (hotelNight(d - 2) || hotelNight(d - 1) || null);
+    const end = (d === totalDays && t.endPoint) ? t.endPoint : hotelNight(d - 1);
+    return { start, end };
+  }
+
+  // 組出「每日行程」HTML（寄信用）
+  function itineraryRowsHtml(t) {
+    const days = Logic.datesBetween(t.startDate, t.endDate);
+    return days.map((dateISO, i) => {
+      const d = i + 1;
+      const list = t.spots.filter(s => Number(s.day) === d).sort((a, b) => a.order - b.order);
+      const { start, end } = dayAnchors(t, d, days.length);
+      const items = [];
+      if (start) items.push(`<li style="color:#8C7B6B">🏁 出發：${UI.esc(start.name)}</li>`);
+      list.forEach((s, idx) => items.push(
+        `<li style="margin:2px 0"><b>${idx + 1}. ${UI.esc(s.name)}</b>` +
+        (s.address ? `<br><span style="color:#8C7B6B;font-size:13px">${UI.esc(s.address)}</span>` : '') + `</li>`));
+      if (end) items.push(`<li style="color:#8C7B6B">🏨 住宿：${UI.esc(end.name)}</li>`);
+      const dTxt = `${Number(dateISO.slice(5, 7))}/${Number(dateISO.slice(8, 10))}`;
+      return `<div style="margin:14px 0"><h3 style="color:#A9805B;margin:0 0 6px;font-size:17px">第 ${d} 天 <span style="font-weight:400;color:#8C7B6B;font-size:14px">${dTxt}</span></h3>` +
+        `<ul style="margin:0;padding-left:18px;line-height:1.7">${items.join('') || '<li style="color:#8C7B6B">尚未安排景點</li>'}</ul></div>`;
+    }).join('');
+  }
+
+  function fullItineraryEmailHtml(t, viewUrl) {
+    const dTxt = t.startDate.slice(5).replace('-', '/') + '–' + t.endDate.slice(5).replace('-', '/');
+    return '<div style="font-family:sans-serif;color:#4A3B2E;max-width:640px">' +
+      `<h2 style="color:#A9805B;margin:0 0 4px">🧋 ${UI.esc(t.name)}</h2>` +
+      `<p style="color:#8C7B6B;margin:0 0 12px">${dTxt}</p>` +
+      `<p><a href="${viewUrl}" style="display:inline-block;background:#A9805B;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:700">👀 打開完整行程（可看地圖、天氣）</a></p>` +
+      `<hr style="border:none;border-top:1px solid #E8DDCD;margin:14px 0">` +
+      `<h3 style="color:#4A3B2E">📅 每日行程</h3>` + itineraryRowsHtml(t) +
+      `<p style="color:#8C7B6B;font-size:13px;margin-top:16px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
+      '</div>';
+  }
+
+  // 主要：寄送完整行程（唯讀連結＋每日行程）；支援多位收件人
+  function itineraryEmailBlock(t) {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <p style="margin:2px 0 4px"><b style="color:var(--accent)">📧 寄送完整行程</b></p>
+      <div class="row-add">
+        <input type="email" placeholder="收件人 Email（多位用逗號分隔）" value="${UI.esc(t.creatorEmail || '')}">
+        <button class="btn-small">寄送</button>
+      </div>`;
+    const inp = div.querySelector('input');
+    div.querySelector('button').onclick = async () => {
+      const list = inp.value.split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean);
+      if (!list.length) { UI.toast('請輸入至少一個 Email'); return; }
+      const bad = list.filter(e => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+      if (bad.length) { UI.toast(`這些 Email 格式怪怪的：${bad.join('、')}`); return; }
+      try {
+        UI.loading(true, `寄送中…（${list.length} 位）`);
+        const html = fullItineraryEmailHtml(t, shareLink(t.viewCode));
+        const r = await Api.cloudSendItinerary(list.join(','), `【Mika 旅遊路線規劃】${t.name} 完整行程`, html, t.editCode);
+        UI.loading(false);
+        UI.toast(r.simulated ? '（模擬模式）正式版上線後會真的寄出唷' : `已寄出完整行程給 ${list.length} 位！`);
+      } catch (e) { UI.loading(false); UI.alert('寄送失敗', e.message); }
+    };
+    return div;
+  }
+
   function showShare() {
     const t = trip();
     const body = document.createElement('div');
@@ -842,22 +1293,28 @@ const Feat = (() => {
       body.innerHTML = `
         <div class="stack">
           <button class="btn-primary" data-copy="${shareLink(t.viewCode)}">👀 複製唯讀連結（分享給朋友一起看）</button>
-          <button class="btn-outline" data-copy="${t.viewCode}">複製唯讀代碼｜${t.viewCode}</button>
         </div>
         <p class="hint" style="margin-top:8px">你目前是唯讀模式，看不到編輯代碼。</p>`;
     } else {
-      body.appendChild(emailBlock(t));
-      const codes = document.createElement('div');
-      codes.innerHTML = codesBlock(t);
-      body.appendChild(codes);
+      // 順序：複製唯讀連結 → 複製編輯連結 → 寄送完整行程（代碼建立時已寄給本人，這裡不再列）
+      const links = document.createElement('div');
+      links.className = 'stack';
+      links.innerHTML = `
+        <button class="btn-primary" data-copy="${shareLink(t.viewCode)}">👀 複製唯讀連結（親友只能看）</button>
+        <button class="btn-outline" data-copy="${shareLink(t.editCode)}">✏️ 複製編輯連結（可修改行程）</button>`;
+      body.appendChild(links);
+      const mailWrap = document.createElement('div');
+      mailWrap.style.marginTop = '12px';
+      mailWrap.appendChild(itineraryEmailBlock(t));
+      body.appendChild(mailWrap);
     }
     bindCopyButtons(body);
-    UI.modal('分享行程', body, []);
+    UI.modal('📤 分享行程', body, []);
   }
 
   return {
     fillWeather, openRainPlan, recommendHotel, openRoutePoints, editTripDates,
-    openFood, renderExpensePage, quickExpense,
+    openFood, renderExpensePage, quickExpense, renderResourcePage,
     initExpense, showTripCreated, showShare
   };
 })();
