@@ -4,7 +4,7 @@
 const Wizard = (() => {
 
   const $ = id => document.getElementById(id);
-  const basic = { name: '', startDate: '', endDate: '', members: [], transport: 'driving', dayStart: '09:00', dayEnd: '21:00', meetPoint: null, endPoint: null };
+  const basic = { name: '', creatorEmail: '', startDate: '', endDate: '', members: [], transport: 'driving', dayStart: '09:00', dayEnd: '21:00', meetPoint: null, endPoint: null };
   let hotelMode = 'skip';      // 'input' | 'recommend' | 'skip'
   let chosenHotels = {};       // {night: hotel}
   let currentNight = 0;
@@ -82,6 +82,7 @@ const Wizard = (() => {
     $('btnHotelSearch').onclick = searchHotel;
     $('inpHotelSearch').addEventListener('keydown', e => { if (e.key === 'Enter') searchHotel(); });
     $('chkSameHotel').addEventListener('change', renderNightTabs);
+    $('btnCustomHotel').onclick = chooseCustomHotel;
   }
 
   async function loadByCode() {
@@ -142,37 +143,119 @@ const Wizard = (() => {
     $(inpId).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
   }
 
-  // 用 Email 找回行程（多筆時讓使用者選）
+  // 用 Email 找回行程：寄 6 碼驗證碼 → 驗證 → 列出行程（可開啟／刪除）
   async function loadByEmail(email) {
+    email = email.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { UI.toast('Email 格式看起來不對，請再確認'); return; }
     try {
-      UI.loading(true, '正在尋找你的行程…');
-      const list = await Api.cloudFindByEmail(email);
+      UI.loading(true, '寄送驗證碼中…');
+      const r = await Api.cloudRequestOtp(email);
       UI.loading(false);
-      if (!list.length) {
-        UI.alert('找不到行程',
-          '這個 Email 沒有綁定任何行程。\n\n小提醒：建立行程後，要在分享畫面用這個 Email「寄送代碼」過一次，Email 才會綁定。\n\n也可以直接輸入行程代碼載入。');
-        return;
-      }
-      const openByCode = async code => {
-        UI.loading(true, '正在載入行程…');
-        const r = await Api.cloudGetTrip(code);
-        Store.load(r.trip, r.role);
-        UI.loading(false);
-        UI.toast('行程載入成功！');
-        App.enterMain();
-      };
-      if (list.length === 1) { await openByCode(list[0].editCode); return; }
-      UI.choose('找到多個行程，要開哪一個？',
-        list.map(x => ({
-          label: `${x.name}（${String(x.startDate).slice(5)}～${String(x.endDate).slice(5)}）`,
-          value: x.editCode
-        })),
-        code => openByCode(code).catch(e => { UI.loading(false); UI.alert('載入失敗', e.message); }));
+      openOtpModal(email, r);
     } catch (e) {
       UI.loading(false);
-      UI.alert('尋找失敗', e.message);
+      if (/未知的動作/.test(e.message)) {
+        UI.alert('後端需要更新',
+          '這個功能需要 v2 的後端。\n\n請先部署 v2版本/2.程式/gas/Code.gs（含 OTP 驗證），並重新執行一次 setupSheets，再測試 Email 找回。');
+      } else {
+        UI.alert('無法寄送驗證碼', e.message);
+      }
     }
+  }
+
+  // 步驟 2：輸入驗證碼
+  function openOtpModal(email, reqResult) {
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <p style="margin-bottom:8px">驗證碼已寄到 <b>${UI.esc(email)}</b>，10 分鐘內有效。</p>
+      ${reqResult.simulated ? `<p class="hint">（模擬模式不會真的寄信，請輸入 <b>${reqResult.mockOtp}</b> 測試）</p>` : ''}
+      <label>輸入 6 碼驗證碼</label>
+      <input id="otpInp" type="text" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="letter-spacing:6px;font-size:1.3rem;text-align:center">
+      <button id="otpResend" class="btn-ghost" style="width:100%">沒收到？60 秒後可重寄</button>`;
+
+    // 重寄倒數
+    let cd = 60;
+    const timer = setInterval(() => {
+      const btn = document.getElementById('otpResend');
+      if (!btn) { clearInterval(timer); return; }
+      cd--;
+      if (cd <= 0) { btn.textContent = '重新寄送驗證碼'; btn.disabled = false; clearInterval(timer); }
+      else { btn.textContent = `沒收到？${cd} 秒後可重寄`; btn.disabled = true; }
+    }, 1000);
+    body.querySelector('#otpResend').disabled = true;
+    body.querySelector('#otpResend').onclick = async () => {
+      try {
+        UI.loading(true, '重新寄送中…');
+        const r = await Api.cloudRequestOtp(email);
+        UI.loading(false);
+        UI.toast('驗證碼已重新寄出');
+        openOtpModal(email, r);
+      } catch (e) { UI.loading(false); UI.alert('重寄失敗', e.message); }
+    };
+
+    const verify = async () => {
+      const otp = document.getElementById('otpInp').value.trim();
+      if (!/^\d{6}$/.test(otp)) { UI.toast('請輸入 6 位數驗證碼'); return; }
+      try {
+        UI.loading(true, '驗證中…');
+        const r = await Api.cloudVerifyOtp(email, otp);
+        UI.loading(false);
+        clearInterval(timer);
+        openTripListModal(email, r.sessionToken, r.trips);
+      } catch (e) { UI.loading(false); UI.alert('驗證失敗', e.message); }
+    };
+    body.querySelector('#otpInp').addEventListener('keydown', e => { if (e.key === 'Enter') verify(); });
+    UI.modal('📮 信箱驗證', body, [{ label: '驗證', primary: true, onClick: verify }]);
+    setTimeout(() => document.getElementById('otpInp')?.focus(), 50);
+  }
+
+  // 步驟 3：行程清單（開啟／刪除）
+  function openTripListModal(email, sessionToken, trips) {
+    if (!trips.length) {
+      UI.alert('沒有行程', '這個 Email 目前沒有任何行程（可能都已刪除）。');
+      return;
+    }
+    const body = document.createElement('div');
+    body.className = 'result-list';
+    body.innerHTML = trips.map((t, i) => `
+      <div class="result-item">
+        <div class="r-name">${UI.esc(t.name)}</div>
+        <div class="r-meta">${UI.esc(String(t.startDate))} ～ ${UI.esc(String(t.endDate))}</div>
+        <div class="r-actions">
+          <button class="primary" data-open="${i}">開啟行程</button>
+          <button data-del="${i}" style="border-color:var(--danger);color:var(--danger)">🗑️ 刪除</button>
+        </div>
+      </div>`).join('');
+
+    body.querySelectorAll('[data-open]').forEach(b =>
+      b.onclick = async () => {
+        try {
+          UI.loading(true, '正在載入行程…');
+          const r = await Api.cloudGetTrip(trips[Number(b.dataset.open)].editCode);
+          Store.load(r.trip, r.role);
+          UI.loading(false);
+          UI.closeModal();
+          UI.toast('行程載入成功！');
+          App.enterMain();
+        } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
+      });
+
+    body.querySelectorAll('[data-del]').forEach(b =>
+      b.onclick = () => {
+        const t = trips[Number(b.dataset.del)];
+        UI.confirm('刪除行程？',
+          `確定要刪除「${t.name}」嗎？\n\n刪除後所有人（包含拿到代碼的親友）都無法再開啟。\n資料會保留一段時間，若誤刪可聯絡 Mika 復原。`, async () => {
+            try {
+              UI.loading(true, '刪除中…');
+              const r = await Api.cloudDeleteTripByEmail(email, sessionToken, t.tripId);
+              UI.loading(false);
+              UI.toast(`已刪除「${t.name}」`);
+              openTripListModal(email, sessionToken, r.trips); // 重新列出剩餘行程
+            } catch (e) { UI.loading(false); UI.alert('刪除失敗', e.message); }
+          });
+      });
+
+    UI.modal('你的行程', body, []);
   }
 
   function updateDayCount() {
@@ -186,6 +269,8 @@ const Wizard = (() => {
   function addMember() {
     const name = $('inpMember').value.trim();
     if (!name) return;
+    if (name === '我') { UI.toast('請輸入實際人名，不要使用「我」'); return; }
+    if (name.length < 2) { UI.toast('請輸入至少 2 個字的成員名稱'); return; }
     if (basic.members.includes(name)) { UI.toast('這個暱稱已經加過了'); return; }
     basic.members.push(name);
     $('inpMember').value = '';
@@ -202,11 +287,22 @@ const Wizard = (() => {
     const s = $('inpStart').value, e = $('inpEnd').value;
     if (!s || !e) { UI.alert('還差一步', '請先選擇旅遊的開始與結束日期。'); return; }
     if (e < s) { UI.alert('日期有誤', '結束日期不能早於開始日期，請重新選擇。'); return; }
+    const email = $('inpCreatorEmail').value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      UI.alert('Email 必填', '請輸入有效的建立者 Email，之後才能安全找回行程。');
+      $('inpCreatorEmail').focus();
+      return;
+    }
+    if (basic.members.length === 0) {
+      UI.alert('請加入成員', '請至少加入一位實際人名；不能用「我」當成員。');
+      $('inpMember').focus();
+      return;
+    }
     basic.name = $('inpTripName').value.trim() || '我的旅程';
+    basic.creatorEmail = email;
     basic.startDate = s; basic.endDate = e;
     basic.dayStart = $('inpDayStart').value || '09:00';
     basic.dayEnd = $('inpDayEnd').value || '21:00';
-    if (basic.members.length === 0) basic.members = ['我'];
     nights = Math.max(Logic.datesBetween(s, e).length - 1, 1);
     chosenHotels = {}; currentNight = 0;
     show('w-hotel');
@@ -280,6 +376,46 @@ const Wizard = (() => {
     UI.toast(`已選擇「${h.name}」`);
   }
 
+  async function chooseCustomHotel() {
+    const name = $('inpCustomHotelName').value.trim();
+    const address = $('inpCustomHotelAddress').value.trim();
+    const latRaw = $('inpCustomHotelLat').value.trim();
+    const lngRaw = $('inpCustomHotelLng').value.trim();
+    if (!name) { UI.toast('請輸入自訂住宿名稱'); return; }
+    const hasLat = latRaw !== '', hasLng = lngRaw !== '';
+    if (hasLat !== hasLng) { UI.toast('座標請同時填緯度與經度，或兩個都空白'); return; }
+    let lat = hasLat ? Number(latRaw) : null;
+    let lng = hasLng ? Number(lngRaw) : null;
+    if (hasLat && (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180)) {
+      UI.toast('座標格式不對，請使用十進制度 DD');
+      return;
+    }
+    let located = hasLat;
+    // 沒填座標但有地址 → 用 Google 地圖自動定位，路程就能估算
+    if (!hasLat && address) {
+      UI.loading(true, '用地址定位中…');
+      const geo = await Api.geocodeAddress(address);
+      UI.loading(false);
+      if (geo) { lat = geo.lat; lng = geo.lng; located = true; UI.toast('已從地址定位，路程可以估算了'); }
+    }
+    chooseHotel({
+      source: 'custom',
+      placeId: 'custom-hotel-' + Logic.uid(),
+      name, address,
+      lat, lng,
+      rating: 0,
+      reviews: 0,
+      phone: '',
+      photo: '',
+      hasCoords: located,
+      estimateWarning: located ? '' : '沒有座標，住宿路程無法精準估算'
+    });
+    $('inpCustomHotelName').value = '';
+    $('inpCustomHotelAddress').value = '';
+    $('inpCustomHotelLat').value = '';
+    $('inpCustomHotelLng').value = '';
+  }
+
   function renderChosen() {
     const same = $('chkSameHotel').checked;
     const box = $('hotelChosen');
@@ -288,6 +424,7 @@ const Wizard = (() => {
       <div class="result-item" data-n="${n}">
         <div class="r-name">🏨 ${same && nights > 1 ? '每晚' : `第 ${Number(n) + 1} 晚`}：${UI.esc(h.name)}</div>
         <div class="r-meta">${UI.esc(h.address)}${h.phone ? '｜☎ ' + h.phone : ''}｜<span class="star">★ ${h.rating}</span></div>
+        ${Logic.hasCoords(h) ? '' : '<div class="r-meta" style="color:var(--danger)">⚠️ 沒有座標，住宿路程無法精準估算</div>'}
         <input class="h-note" type="text" placeholder="備註（例：訂房編號 BK12345）" maxlength="60" value="${UI.esc(h.note || '')}" style="margin:8px 0 6px">
         <select class="h-pay" aria-label="付款狀態" style="margin-bottom:0">
           <option value="">付款狀態（選填）</option>
@@ -311,8 +448,9 @@ const Wizard = (() => {
     }
     const trip = Store.create(basic);
     trip.hotels = Object.entries(chosenHotels).map(([n, h]) => ({
-      night: Number(n), placeId: h.placeId, name: h.name, address: h.address,
+      night: Number(n), source: h.source || 'google', placeId: h.placeId, name: h.name, address: h.address,
       rating: h.rating, phone: h.phone || '', lat: h.lat, lng: h.lng,
+      hasCoords: Logic.hasCoords(h), estimateWarning: Logic.hasCoords(h) ? '' : '沒有座標，住宿路程無法精準估算',
       note: h.note || '', pay: h.pay || '', photo: h.photo || ''
     }));
     trip.hotelMode = hotelMode;

@@ -29,7 +29,7 @@
   <!-- Step 0：行程選擇 -->
   <section id="w-start" class="w-screen">
     <div class="hero">
-      <div class="hero-emoji">🧋🗺️</div>
+      <div class="temp-logo" aria-label="Mika 暫用 logo">M</div>
       <h2>要從哪裡開始？</h2>
       <p class="hint">輸入景點，一鍵排出最佳路線</p>
     </div>
@@ -39,7 +39,7 @@
     <div id="codeBox" class="code-box hidden">
       <label for="codeInput">貼上行程代碼，或輸入建立行程時留的 Email</label>
       <input id="codeInput" type="text" placeholder="例如 TPE826 或 mika@gmail.com" autocomplete="off">
-      <p class="hint">編輯代碼可修改、唯讀代碼只能看，系統會自動判斷；用 Email 可找回自己建立的行程。</p>
+      <p class="hint">編輯代碼可修改、唯讀代碼只能看；用 Email 找回時，系統只會把行程代碼寄回該信箱，不會直接在畫面上開啟編輯權限。</p>
       <button id="btnLoadCode" class="btn-primary">載入行程</button>
     </div>
   </section>
@@ -51,6 +51,10 @@
       <label for="inpTripName">行程名稱</label>
       <input id="inpTripName" type="text" placeholder="例如：台北三天兩夜" maxlength="30">
 
+      <label for="inpCreatorEmail">建立者 Email（必填，用來找回行程）</label>
+      <input id="inpCreatorEmail" type="email" placeholder="例如：mika@gmail.com" autocomplete="email">
+      <p class="hint">請填自己的 Email；之後找回行程會把代碼寄到這個信箱。</p>
+
       <label>旅遊日期</label>
       <div class="row-2">
         <input id="inpStart" type="date" aria-label="開始日期">
@@ -58,7 +62,7 @@
       </div>
       <p id="dayCountHint" class="hint"></p>
 
-      <label for="inpMember">成員（分帳會用到，一個一個加入）</label>
+      <label for="inpMember">成員（分帳會用到，一個一個加入；不可輸入「我」）</label>
       <div class="row-add">
         <input id="inpMember" type="text" placeholder="輸入暱稱，例如：Mika" maxlength="10">
         <button id="btnAddMember" class="btn-small">加入</button>
@@ -123,6 +127,17 @@
           <button id="btnHotelSearch" class="btn-small">搜尋</button>
         </div>
         <div id="hotelResults" class="result-list"></div>
+        <div class="card" style="background:var(--white);margin-top:12px">
+          <label>搜尋不到時，改用自訂住宿</label>
+          <input id="inpCustomHotelName" type="text" placeholder="例如：朋友家、親戚家、民宿暫名">
+          <input id="inpCustomHotelAddress" type="text" placeholder="地址或位置備註，可空白">
+          <div class="row-2">
+            <input id="inpCustomHotelLat" type="number" step="any" placeholder="緯度 DD，可空白">
+            <input id="inpCustomHotelLng" type="number" step="any" placeholder="經度 DD，可空白">
+          </div>
+          <p class="hint">座標可以不填，但未填座標時，住宿到景點的路程會無法精準估算。</p>
+          <button id="btnCustomHotel" class="btn-outline" style="width:100%">使用自訂住宿</button>
+        </div>
         <div id="hotelChosen" class="chosen-list"></div>
         <label class="check-row"><input type="checkbox" id="chkSameHotel" checked> 每晚都住同一間</label>
       </div>

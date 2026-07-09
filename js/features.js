@@ -194,16 +194,37 @@ const Feat = (() => {
   async function recommendHotel(d) {
     const t = trip();
     const center = Itin.dayCenter(d);
-    if (!center) { UI.alert('先加入景點', '請先把這天的景點加進來，系統才能依景點位置推薦附近飯店。'); return; }
     try {
-      UI.loading(true, '尋找附近飯店…');
-      let list = await Api.nearbySearch(center, 'lodging', 5000);
-      list = list.filter(h => (h.rating || 0) >= CONFIG.defaults.minRating)
-        .sort((a, b) => (b.rating - a.rating) || (a.distKm - b.distKm))
-        .slice(0, 10);
-      UI.loading(false);
+      let list = [];
+      if (center) {
+        UI.loading(true, '尋找附近飯店…');
+        list = await Api.nearbySearch(center, 'lodging', 5000);
+        list = list.filter(h => (h.rating || 0) >= CONFIG.defaults.minRating)
+          .sort((a, b) => (b.rating - a.rating) || (a.distKm - b.distKm))
+          .slice(0, 10);
+        UI.loading(false);
+      }
       const body = document.createElement('div');
-      body.innerHTML = list.length ? list.map((h, i) => `
+      body.innerHTML = `
+        <div class="card" style="background:var(--white);margin-bottom:12px">
+          <label>🔍 搜尋飯店名稱（Google）</label>
+          <div class="row-add">
+            <input id="recHotelSearchInp" type="text" placeholder="例如：福容大飯店">
+            <button id="btnRecHotelSearch" class="btn-small">搜尋</button>
+          </div>
+          <div class="result-list" id="recHotelSearchRes"></div>
+        </div>
+        <div class="card" style="background:var(--white);margin-bottom:12px">
+          <label>自訂住宿</label>
+          <input id="recCustomHotelName" type="text" placeholder="例如：朋友家、親戚家、民宿暫名">
+          <input id="recCustomHotelAddress" type="text" placeholder="地址或位置備註，可空白">
+          <div class="row-2">
+            <input id="recCustomHotelLat" type="number" step="any" placeholder="緯度 DD，可空白">
+            <input id="recCustomHotelLng" type="number" step="any" placeholder="經度 DD，可空白">
+          </div>
+          <p class="hint">座標可空白；未填座標時，住宿路程會顯示無法精準估算。</p>
+          <button id="btnRecCustomHotel" class="btn-outline" style="width:100%">使用自訂住宿</button>
+        </div>` + (list.length ? list.map((h, i) => `
         <div class="result-item ${h.photo ? 'with-photo' : ''}">
           ${h.photo ? `<img class="thumb" src="${h.photo}" alt="" data-zoom="${i}">` : ''}
           <div class="r-body">
@@ -215,7 +236,88 @@ const Feat = (() => {
               <a href="${UI.gmapLink(h)}" target="_blank" rel="noopener">📍 地圖</a>
             </div>
           </div>
-        </div>`).join('') : '<p class="hint">附近找不到評分 4.0 以上的飯店，可以改用精靈輸入飯店名稱。</p>';
+        </div>`).join('') : `<p class="hint">${center ? '附近找不到評分 4.0 以上的飯店' : '這天沒有可定位的景點，無法推薦附近飯店'}，可以使用上方自訂住宿。</p>`);
+      const applyHotel = (rec, mode) => {
+        const nights = Math.max(Store.days() - 1, 1);
+        if (mode === 'all') {
+          t.hotels = Array.from({ length: nights }, (_, n) => ({ night: n, ...rec }));
+        } else {
+          t.hotels = t.hotels.filter(x => x.night !== d - 1);
+          t.hotels.push({ night: d - 1, ...rec });
+        }
+        t.legsByDay = {};
+        Store.touch({ manual: true });
+        UI.closeModal();
+        Itin.render();
+        UI.toast(`已設定住宿「${rec.name}」`);
+      };
+      // Google 名稱搜尋（刪除住宿後也能隨時搜尋加回）
+      const doHotelSearch = async () => {
+        const q = body.querySelector('#recHotelSearchInp').value.trim();
+        if (!q) { UI.toast('請先輸入飯店名稱'); return; }
+        try {
+          UI.loading(true, '搜尋飯店中…');
+          const rs = await Api.searchPlaces(q, 'hotel');
+          UI.loading(false);
+          const res = body.querySelector('#recHotelSearchRes');
+          res.innerHTML = rs.length ? rs.slice(0, 6).map((h, i) => `
+            <div class="result-item ${h.photo ? 'with-photo' : ''}">
+              ${h.photo ? `<img class="thumb" src="${h.photo}" alt="">` : ''}
+              <div class="r-body">
+                <div class="r-name">${UI.esc(h.name)}</div>
+                <div class="r-meta">${UI.esc(h.address || '')}｜<span class="star">★ ${h.rating || '-'}</span></div>
+                <div class="r-actions">
+                  <button class="primary" data-si="${i}">選這間</button>
+                  <a href="${UI.hotelPriceLink(h.name)}" target="_blank" rel="noopener">💲 查房價</a>
+                </div>
+              </div>
+            </div>`).join('') : '<p class="hint">找不到這個飯店，請換個關鍵字，或改用下方自訂住宿。</p>';
+          res.querySelectorAll('[data-si]').forEach(b =>
+            b.onclick = () => {
+              const h = rs[Number(b.dataset.si)];
+              UI.choose(`「${h.name}」要套用到？`, [
+                { label: `只有第 ${d} 天這晚`, value: 'one' },
+                { label: '整趟旅程每晚都住這間', value: 'all' }
+              ], v => applyHotel({ source: 'google', placeId: h.placeId, name: h.name, address: h.address, rating: h.rating, phone: h.phone || '', lat: h.lat, lng: h.lng, hasCoords: true, note: '', pay: '', photo: h.photo || '' }, v));
+            });
+        } catch (e) { UI.loading(false); UI.alert('搜尋失敗', e.message); }
+      };
+      body.querySelector('#btnRecHotelSearch').onclick = doHotelSearch;
+      body.querySelector('#recHotelSearchInp').addEventListener('keydown', e => { if (e.key === 'Enter') doHotelSearch(); });
+
+      body.querySelector('#btnRecCustomHotel').onclick = async () => {
+        const name = body.querySelector('#recCustomHotelName').value.trim();
+        const address = body.querySelector('#recCustomHotelAddress').value.trim();
+        const latRaw = body.querySelector('#recCustomHotelLat').value.trim();
+        const lngRaw = body.querySelector('#recCustomHotelLng').value.trim();
+        if (!name) { UI.toast('請輸入自訂住宿名稱'); return; }
+        const hasLat = latRaw !== '', hasLng = lngRaw !== '';
+        if (hasLat !== hasLng) { UI.toast('座標請同時填緯度與經度，或兩個都空白'); return; }
+        let lat = hasLat ? Number(latRaw) : null;
+        let lng = hasLng ? Number(lngRaw) : null;
+        if (hasLat && (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180)) {
+          UI.toast('座標格式不對，請使用十進制度 DD');
+          return;
+        }
+        let located = hasLat;
+        // 沒填座標但有地址 → 用 Google 地圖自動定位，路程就能估算
+        if (!hasLat && address) {
+          UI.loading(true, '用地址定位中…');
+          const geo = await Api.geocodeAddress(address);
+          UI.loading(false);
+          if (geo) { lat = geo.lat; lng = geo.lng; located = true; UI.toast('已從地址定位，路程可以估算了'); }
+        }
+        const rec = {
+          source: 'custom', placeId: 'custom-hotel-' + Logic.uid(), name, address,
+          rating: 0, phone: '', lat, lng, hasCoords: located,
+          estimateWarning: located ? '' : '沒有座標，住宿路程無法精準估算',
+          note: '', pay: '', photo: ''
+        };
+        UI.choose(`「${name}」要套用到？`, [
+          { label: `只有第 ${d} 天這晚`, value: 'one' },
+          { label: '整趟旅程每晚都住這裡', value: 'all' }
+        ], v => applyHotel(rec, v));
+      };
       body.querySelectorAll('[data-zoom]').forEach(img =>
         img.onclick = () => UI.photoZoom(list[Number(img.dataset.zoom)].photo, list[Number(img.dataset.zoom)].name));
       body.querySelectorAll('[data-i]').forEach(b =>
@@ -225,23 +327,69 @@ const Feat = (() => {
             { label: `只有第 ${d} 天這晚`, value: 'one' },
             { label: '整趟旅程每晚都住這間', value: 'all' }
           ], v => {
-            const rec = { placeId: h.placeId, name: h.name, address: h.address, rating: h.rating, phone: h.phone || '', lat: h.lat, lng: h.lng, note: '', pay: '', photo: h.photo || '' };
-            const nights = Math.max(Store.days() - 1, 1);
-            if (v === 'all') {
-              t.hotels = Array.from({ length: nights }, (_, n) => ({ night: n, ...rec }));
-            } else {
-              t.hotels = t.hotels.filter(x => x.night !== d - 1);
-              t.hotels.push({ night: d - 1, ...rec });
-            }
-            t.legsByDay = {};
-            Store.touch();
-            UI.closeModal();
-            Itin.render();
-            UI.toast(`已設定飯店「${h.name}」`);
+            const rec = { source: 'google', placeId: h.placeId, name: h.name, address: h.address, rating: h.rating, phone: h.phone || '', lat: h.lat, lng: h.lng, hasCoords: true, note: '', pay: '', photo: h.photo || '' };
+            applyHotel(rec, v);
           });
         });
       UI.modal(`第 ${d} 天附近的推薦飯店`, body, []);
     } catch (e) { UI.loading(false); UI.alert('推薦失敗', e.message); }
+  }
+
+  // ================= 旅遊日期／天數變更 =================
+  function editTripDates() {
+    const t = trip();
+    if (Store.isReadonly()) { UI.toast('唯讀模式無法修改'); return; }
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <label>旅遊日期（改日期就能新增或刪除天數）</label>
+      <div class="row-2">
+        <input id="tdStart" type="date" value="${t.startDate}">
+        <input id="tdEnd" type="date" value="${t.endDate}">
+      </div>
+      <p class="hint" id="tdHint"></p>
+      <p class="hint">天數變少時：超出天數的景點會移到最後一天、超出的住宿會移除（會先告訴你）。</p>`;
+    const upd = () => {
+      const s = body.querySelector('#tdStart').value, e = body.querySelector('#tdEnd').value;
+      if (s && e && e >= s) {
+        const n = Logic.datesBetween(s, e).length;
+        body.querySelector('#tdHint').textContent = `共 ${n} 天 ${n - 1} 夜（目前 ${Store.days()} 天）`;
+      } else body.querySelector('#tdHint').textContent = '';
+    };
+    body.querySelector('#tdStart').addEventListener('change', upd);
+    body.querySelector('#tdEnd').addEventListener('change', upd);
+    upd();
+    UI.modal('🗓️ 變更旅遊天數', body, [{
+      label: '套用', primary: true,
+      onClick: () => {
+        const s = body.querySelector('#tdStart').value, e = body.querySelector('#tdEnd').value;
+        if (!s || !e) { UI.toast('請選擇開始與結束日期'); return; }
+        if (e < s) { UI.toast('結束日期不能早於開始日期'); return; }
+        const newDays = Logic.datesBetween(s, e).length;
+        const maxNight = Math.max(newDays - 1, 1);
+        const movedSpots = t.spots.filter(sp => sp.day > newDays);
+        const removedHotels = t.hotels.filter(h => h.night >= maxNight);
+        const apply = () => {
+          t.startDate = s; t.endDate = e;
+          movedSpots.forEach(sp => { sp.day = newDays; });
+          t.hotels = t.hotels.filter(h => h.night < maxNight);
+          // 清掉超出天數的每日設定
+          [t.dayStartOv, t.rainPlans, t.rainActive, t.rainBackup].forEach(obj => {
+            if (obj) Object.keys(obj).forEach(k => { if (Number(k) > newDays) delete obj[k]; });
+          });
+          t.legsByDay = {};
+          Store.touch({ manual: true });
+          UI.closeModal();
+          Itin.render();
+          UI.toast(`已改為 ${newDays} 天，時間重新計算`);
+        };
+        if (movedSpots.length || removedHotels.length) {
+          UI.confirm('天數變少了，要繼續嗎？',
+            (movedSpots.length ? `這些景點會移到第 ${newDays} 天：\n${movedSpots.map(x => '・' + x.name).join('\n')}\n\n` : '') +
+            (removedHotels.length ? `這些住宿會被移除：\n${removedHotels.map(x => `・第 ${x.night + 1} 晚 ${x.name}`).join('\n')}\n\n` : '') +
+            '（可用「上一步」復原）', apply);
+        } else apply();
+      }
+    }]);
   }
 
   // ================= 集合出發地 / 解散地（行程內隨時可調） =================
@@ -592,10 +740,23 @@ const Feat = (() => {
 
   function showTripCreated(onDone) {
     const t = trip();
+    // 建立完成即自動把兩組代碼寄到建立者 Email（背景執行，不擋畫面）
+    let autoSentLine = '';
+    if (t.creatorEmail && !t.codesAutoSent) {
+      if (Api.isMock()) {
+        autoSentLine = `<p class="hint">（模擬模式）正式版會自動把代碼寄到 ${UI.esc(t.creatorEmail)}</p>`;
+      } else {
+        autoSentLine = `<p class="hint">📮 代碼已自動寄到 ${UI.esc(t.creatorEmail)}（沒收到請查垃圾郵件）</p>`;
+        Api.cloudSendCodes(t.creatorEmail, t)
+          .then(() => { t.codesAutoSent = true; Store.touch(); })
+          .catch(e => { console.warn('自動寄送失敗', e); UI.toast('自動寄送代碼失敗，可稍後在分享畫面手動寄送'); });
+      }
+    }
     const body = document.createElement('div');
     body.innerHTML = `
       <p style="margin-bottom:10px">🎉 「${UI.esc(t.name)}」建立成功！<br>
-      <b style="color:var(--accent)">請先留下 Email 或存下連結</b>，之後在任何裝置都能打開行程。</p>`;
+      <b style="color:var(--accent)">請先留下 Email 或存下連結</b>，之後在任何裝置都能打開行程。</p>
+      ${autoSentLine}`;
     body.appendChild(emailBlock(t));
     const codes = document.createElement('div');
     codes.innerHTML = codesBlock(t);
@@ -627,7 +788,7 @@ const Feat = (() => {
   }
 
   return {
-    fillWeather, openRainPlan, recommendHotel, openRoutePoints,
+    fillWeather, openRainPlan, recommendHotel, openRoutePoints, editTripDates,
     openFood, renderExpensePage, quickExpense,
     initExpense, showTripCreated, showShare
   };

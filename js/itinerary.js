@@ -66,8 +66,8 @@ const Itin = (() => {
   }
 
   function dayCenter(day) {
-    const list = spotsOfDay(day);
-    const pool = list.length ? list : trip().spots;
+    const list = spotsOfDay(day).filter(Logic.hasCoords);
+    const pool = list.length ? list : trip().spots.filter(Logic.hasCoords);
     if (!pool.length) return null;
     return {
       lat: pool.reduce((s, p) => s + p.lat, 0) / pool.length,
@@ -108,17 +108,21 @@ const Itin = (() => {
 
   function addSpot(place, opt) {
     const t = trip();
-    if (t.spots.some(s => s.placeId === place.placeId)) { UI.toast('這個景點已經在清單裡囉'); return false; }
+    const placeId = place.placeId || ('custom-' + Logic.uid());
+    if (t.spots.some(s => s.placeId === placeId)) { UI.toast('這個景點已經在清單裡囉'); return false; }
     const day = (opt && opt.day) || 0;
+    const hasCoords = Logic.hasCoords(place);
     t.spots.push({
-      id: Logic.uid(), placeId: place.placeId, name: place.name, address: place.address || '',
+      id: Logic.uid(), placeId, source: place.source || (String(placeId).startsWith('custom-') ? 'custom' : 'google'),
+      name: place.name, address: place.address || '',
       lat: place.lat, lng: place.lng, rating: place.rating || 0, photo: place.photo || '',
-      stayMin: CONFIG.defaults.stayMin, must: false, note: '',
+      hasCoords, estimateWarning: hasCoords ? '' : '沒有座標，路程無法精準估算',
+      stayMin: CONFIG.defaults.stayMin, must: false, note: place.note || '',
       day, order: day ? spotsOfDay(day).length : t.spots.length
     });
     if (day) delete t.legsByDay[day];
     Store.touch(day ? { manual: true } : undefined);
-    UI.toast(`已加入「${place.name}」${day ? `到第 ${day} 天` : ''}`);
+    UI.toast(hasCoords ? `已加入「${place.name}」${day ? `到第 ${day} 天` : ''}` : `已加入「${place.name}」，但沒有座標，路程會略過估算`);
     render();
     return true;
   }
@@ -127,10 +131,41 @@ const Itin = (() => {
   function openAddSpot(d) {
     const body = document.createElement('div');
     body.innerHTML = `
+      <label>從 Google 搜尋景點</label>
       <input type="text" id="addSpotInp" placeholder="輸入景點名稱，例如：鵝鑾鼻燈塔" autocomplete="off">
-      <div class="result-list" id="addSpotRes"></div>`;
+      <div class="result-list" id="addSpotRes"></div>
+      <div class="card" style="margin-top:12px;background:var(--white)">
+        <label>找不到時，改用自訂景點</label>
+        <input type="text" id="customSpotName" placeholder="景點名稱，例如：朋友推薦小店">
+        <input type="text" id="customSpotAddress" placeholder="地址或備註位置，可空白">
+        <div class="row-2">
+          <input type="number" step="any" id="customSpotLat" placeholder="緯度 DD，可空白">
+          <input type="number" step="any" id="customSpotLng" placeholder="經度 DD，可空白">
+        </div>
+        <input type="text" id="customSpotNote" placeholder="使用者備註，可空白" maxlength="80">
+        <p class="hint">座標可以不填，但未填座標時不會納入精準路程估算。</p>
+        <button id="btnAddCustomSpot" class="btn-outline" style="width:100%">加入自訂景點</button>
+      </div>`;
     const inp = body.querySelector('#addSpotInp');
     const res = body.querySelector('#addSpotRes');
+    body.querySelector('#btnAddCustomSpot').onclick = () => {
+      const name = body.querySelector('#customSpotName').value.trim();
+      const address = body.querySelector('#customSpotAddress').value.trim();
+      const latRaw = body.querySelector('#customSpotLat').value.trim();
+      const lngRaw = body.querySelector('#customSpotLng').value.trim();
+      const note = body.querySelector('#customSpotNote').value.trim();
+      if (!name) { UI.toast('請輸入自訂景點名稱'); return; }
+      const hasLat = latRaw !== '', hasLng = lngRaw !== '';
+      if (hasLat !== hasLng) { UI.toast('座標請同時填緯度與經度，或兩個都空白'); return; }
+      const lat = hasLat ? Number(latRaw) : null;
+      const lng = hasLng ? Number(lngRaw) : null;
+      if (hasLat && (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180)) {
+        UI.toast('座標格式不對，請使用十進制度 DD');
+        return;
+      }
+      addSpot({ source: 'custom', name, address, lat, lng, note }, { day: d });
+      UI.closeModal();
+    };
     let timer = null;
     inp.addEventListener('input', () => {
       clearTimeout(timer);
@@ -177,14 +212,21 @@ const Itin = (() => {
     try {
       UI.loading(true, '正在計算最佳路線…');
       const all = [...t.spots].sort((a, b) => (a.day || 99) - (b.day || 99) || a.order - b.order);
-      const prevDayOf = {}; all.forEach(s => prevDayOf[s.id] = s.day);
+      const routable = all.filter(Logic.hasCoords);
+      const skipped = all.filter(s => !Logic.hasCoords(s));
+      if (routable.length < 2) {
+        UI.loading(false);
+        UI.alert('座標不足', '至少需要 2 個有座標的景點，才能計算最佳路線。\n\n沒有座標的自訂景點會保留在原本天數，但不參與路線排序。');
+        return;
+      }
+      const prevDayOf = {}; routable.forEach(s => prevDayOf[s.id] = s.day);
       const days = Store.days();
-      const o1 = startHotel(1);
-      const oN = endHotel(days) || o1;
+      const o1 = Logic.hasCoords(startHotel(1)) ? startHotel(1) : null;
+      const oN = Logic.hasCoords(endHotel(days)) ? endHotel(days) : o1;
 
       // 1) 全體排序
-      const g = await Api.optimizeRoute(o1, oN, all, t.transport);
-      const ordered = g.order.map(i => all[i]);
+      const g = await Api.optimizeRoute(o1, oN, routable, t.transport);
+      const ordered = g.order.map(i => routable[i]);
 
       // 2) 依每日活動時間切天
       const dayArrs = Logic.splitIntoDays(ordered, {
@@ -192,7 +234,10 @@ const Itin = (() => {
         dayStartMin: Logic.toMin(t.dayStart),
         dayEndMin: Logic.toMin(t.dayEnd),
         travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
-        hotelOfDay: d => startHotel(d + 1)
+        hotelOfDay: d => {
+          const h = startHotel(d + 1);
+          return Logic.hasCoords(h) ? h : null;
+        }
       });
 
       // 3) 每天以起終點（集合地/飯店/解散地）再最佳化
@@ -200,7 +245,13 @@ const Itin = (() => {
       for (let d = 1; d <= days; d++) {
         const listD = dayArrs[d - 1];
         if (!listD.length) continue;
-        const r = await Api.optimizeRoute(startHotel(d), endHotel(d), listD, t.transport);
+        const r = await Api.optimizeRoute(
+          Logic.hasCoords(startHotel(d)) ? startHotel(d) : null,
+          Logic.hasCoords(endHotel(d)) ? endHotel(d) : null,
+          listD,
+          t.transport,
+          { onProgress: (done, total) => UI.loading(true, `第 ${d} 天：查詢真實車程 ${done}/${total} 段…`) }
+        );
         r.order.forEach((idx, pos) => {
           const s = listD[idx];
           s.day = d; s.order = pos;
@@ -214,12 +265,16 @@ const Itin = (() => {
       $('btnOptimize').classList.remove('glow');
       render();
 
-      const pushed = t.spots.filter(s => s.must && prevDayOf[s.id] > 0 && s.day > prevDayOf[s.id]);
+      const pushed = routable.filter(s => s.must && prevDayOf[s.id] > 0 && s.day > prevDayOf[s.id]);
       if (pushed.length) {
         UI.alert('必去景點被移到隔天了',
           `因為一天排不下，這些「必去」景點被移到後面的天數：\n\n` +
           pushed.map(s => `⭐ ${s.name}（第 ${s.day} 天）`).join('\n') +
           `\n\n可以縮短其他景點的停留時間，或手動把它拖回想去的那天。`);
+      } else if (skipped.length) {
+        UI.alert('最佳路線排好了',
+          `已排序有座標的景點。\n\n以下 ${skipped.length} 個地點沒有座標，已保留在原本天數，未納入路線計算：\n\n` +
+          skipped.map(s => `・${s.name}`).join('\n'));
       } else {
         UI.toast('最佳路線排好了！');
       }
@@ -259,9 +314,10 @@ const Itin = (() => {
   function renderSummaryBar() {
     const t = trip();
     const modeTxt = { driving: '🚗 開車', transit: '🚇 大眾運輸', walking: '🚶 走路' };
+    const visitedCount = t.spots.filter(s => s.visited).length;
     $('tripSummaryBar').innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-        <span>${UI.esc(t.name)}｜${t.startDate.slice(5).replace('-', '/')}–${t.endDate.slice(5).replace('-', '/')}｜${t.spots.length} 個景點</span>
+        <span>${UI.esc(t.name)}｜<button id="btnTripDates" class="chip" style="cursor:pointer" title="變更旅遊天數">🗓️ ${t.startDate.slice(5).replace('-', '/')}–${t.endDate.slice(5).replace('-', '/')} ▾</button>｜${t.spots.length} 個景點${visitedCount ? `｜✅ 已去 ${visitedCount}/${t.spots.length}` : ''}</span>
         <span style="display:flex;gap:6px;align-items:center">
           <span class="undo-btns edit-only">
             <button id="btnUndo" ${Store.canUndo() ? '' : 'disabled'}>↩ 上一步</button>
@@ -269,9 +325,13 @@ const Itin = (() => {
           </span>
           <button id="btnSwitchMode" class="chip" style="cursor:pointer">${modeTxt[t.transport]} ▾</button>
         </span>
-      </div>`;
+      </div>
+      <p class="hint" style="margin:6px 0 0">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同</p>`;
     $('btnUndo').onclick = () => { if (Store.undo()) { render(); UI.toast('已復原上一步'); } };
     $('btnRedo').onclick = () => { if (Store.redo()) { render(); UI.toast('已重做下一步'); } };
+    const dBtn = $('btnTripDates');
+    if (Store.isReadonly()) dBtn.style.pointerEvents = 'none';
+    else dBtn.onclick = () => Feat.editTripDates();
     const b = $('btnSwitchMode');
     if (Store.isReadonly()) { b.style.pointerEvents = 'none'; return; }
     b.onclick = () => {
@@ -304,12 +364,21 @@ const Itin = (() => {
     return card;
   }
 
+  function missingCoordNames(list, extraPoints) {
+    const all = [...(list || []), ...(extraPoints || [])].filter(Boolean);
+    return all.filter(p => !Logic.hasCoords(p)).map(p => p.name || '未命名地點');
+  }
+
   function renderDayCard(d, list) {
     const t = trip();
     const dateISO = Store.dateOfDay(d);
     const sp = startPoint(d), ep = endPoint(d);
     const legs = legsForDay(d);
     const tl = Logic.buildTimeline(list, legs, dayStartOf(d));
+    const noCoord = missingCoordNames(list, [sp && sp.p, ep && ep.p]);
+    const estimateHint = noCoord.length
+      ? `<div class="rain-alert" style="border-color:var(--danger);background:#FFF4EF">⚠️ ${noCoord.length} 個地點沒有座標，路程會略過或不精準：${noCoord.map(UI.esc).join('、')}</div>`
+      : '';
 
     const card = document.createElement('div');
     card.className = 'day-card';
@@ -320,12 +389,13 @@ const Itin = (() => {
     head.className = 'day-head';
     head.innerHTML = `
       <div class="day-head-top">
-        <span class="day-title" style="color:${dayColor(d)}">第 ${d} 天 <span style="font-weight:400;color:var(--text-2);font-size:.95rem">${dateTxt}</span></span>
+        <span class="day-title" style="color:${dayColor(d)}">第 ${d} 天 <span style="font-weight:400;color:var(--text-2);font-size:.95rem">${dateTxt}</span>${list.some(s => s.visited) ? ` <span style="font-size:.9rem;color:var(--ok)">✅ ${list.filter(s => s.visited).length}/${list.length}</span>` : ''}</span>
         <span class="day-weather" data-day-weather="${d}">☁️ 查天氣中…</span>
       </div>
       <div class="day-outfit" data-day-outfit="${d}"></div>
+      ${estimateHint}
       <div data-rain-slot="${d}"></div>
-      ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${tl.totalTravel} 分｜停留 ${Math.round(tl.totalStay / 60 * 10) / 10} 小時｜預計 ${tl.endTime} 結束</p>` : ''}
+      ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束</p>` : ''}
       <div class="day-tools">
         <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)} 出發${(t.dayStartOv || {})[d] ? '＊' : ''}</button>
         <button data-addspot="${d}" class="edit-only">➕ 加景點</button>
@@ -414,7 +484,7 @@ const Itin = (() => {
     const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[t.transport];
     const div = document.createElement('div');
     div.className = 'leg-row';
-    div.innerHTML = `↓ ${icon} 車程約 ${min} 分鐘`;
+    div.innerHTML = `↓ ${icon} 車程約 ${Logic.fmtDur(min)}`;
     return div;
   }
 
@@ -427,31 +497,95 @@ const Itin = (() => {
     const payTag = kind === 'hotel' && p.pay ? `<span class="pay-badge pay-${p.pay}">${UI.PAY_LABELS[p.pay] || ''}</span>` : '';
     const priceTxt = kind === 'hotel' && (p.priceWeekday || p.priceWeekend)
       ? `<div class="spot-times">💲 ${p.priceWeekday ? `平日 $${Number(p.priceWeekday).toLocaleString()}` : ''}${p.priceWeekday && p.priceWeekend ? '｜' : ''}${p.priceWeekend ? `假日 $${Number(p.priceWeekend).toLocaleString()}` : ''}</div>` : '';
+    const coordWarning = Logic.hasCoords(p) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;
+    const mapLink = Logic.hasCoords(p) || p.name ? `<a href="${UI.gmapLink(p)}" target="_blank" rel="noopener" style="padding:6px">📍</a>` : '';
     div.innerHTML = `
       <div class="spot-main">
         ${p.photo ? `<img class="thumb thumb-sm" src="${p.photo}" alt="">` : `<span class="spot-no hotel">${icon}</span>`}
         <div class="spot-info">
           <div class="spot-name">${kind !== 'hotel' ? icon + ' ' : ''}${UI.esc(p.name)} ${payTag}</div>
           <div class="spot-times">${timeTxt}</div>
+          ${kind === 'hotel' && p.address ? `<div class="spot-times addr-line">📍 ${UI.esc(p.address)}</div>` : ''}
           ${kind === 'hotel' && p.note ? `<div class="spot-times">📝 ${UI.esc(p.note)}</div>` : ''}
           ${priceTxt}
+          ${coordWarning}
         </div>
         <div class="spot-actions">
-          ${kind === 'hotel' ? `<button class="edit-only" data-act="hedit" title="編輯住宿備註">✎</button>` : ''}
-          <a href="${UI.gmapLink(p)}" target="_blank" rel="noopener" style="padding:6px">📍</a>
+          ${kind === 'hotel' ? `<button class="drag-grip edit-only" data-act="hdrag" title="按住拖曳，把住宿移到其他天">☰</button>
+          <button class="edit-only" data-act="hedit" title="編輯住宿備註">✎</button>` : ''}
+          ${mapLink}
         </div>
       </div>`;
     const thumb = div.querySelector('.thumb');
     if (thumb) thumb.onclick = () => UI.photoZoom(p.photo, p.name);
     const he = div.querySelector('[data-act="hedit"]');
     if (he) he.onclick = () => editHotelInfo(p);
+    const hd = div.querySelector('[data-act="hdrag"]');
+    if (hd && kind === 'hotel') hd.addEventListener('pointerdown', e => startHotelDrag(e, p, div));
     return div;
+  }
+
+  // ---------- 住宿拖曳到其他天（獨立於景點拖曳：住宿是「晚」不是「日間景點」） ----------
+  let hotelDrag = null;
+  function startHotelDrag(e, hotel, rowEl) {
+    if (Store.isReadonly()) return;
+    e.preventDefault();
+    rowEl.classList.add('dragging');
+    hotelDrag = { hotel, rowEl };
+    document.addEventListener('pointermove', onHotelDragMove);
+    document.addEventListener('pointerup', onHotelDragEnd, { once: true });
+  }
+  function onHotelDragMove(e) {
+    if (!hotelDrag) return;
+    document.querySelectorAll('#dayList .day-card').forEach(card => {
+      const rect = card.getBoundingClientRect();
+      const inside = e.clientY > rect.top && e.clientY < rect.bottom && Number(card.dataset.day) > 0;
+      card.classList.toggle('drop-target', inside);
+    });
+  }
+  function onHotelDragEnd(e) {
+    document.removeEventListener('pointermove', onHotelDragMove);
+    if (!hotelDrag) return;
+    const { hotel, rowEl } = hotelDrag;
+    hotelDrag = null;
+    rowEl.classList.remove('dragging');
+    const target = [...document.querySelectorAll('#dayList .day-card.drop-target')][0];
+    document.querySelectorAll('#dayList .day-card').forEach(c => c.classList.remove('drop-target'));
+    if (!target) return;
+    const d = Number(target.dataset.day);
+    const t = trip();
+    const maxNight = Math.max(Store.days() - 1, 1);
+    const newNight = d - 1; // 拖到第 d 天 = 第 d 天晚上入住
+    if (newNight >= maxNight) { UI.toast(`第 ${d} 天是最後一天，沒有過夜，住宿無法移過去`); return; }
+    if (newNight === hotel.night) return;
+    const doMove = () => {
+      t.hotels = t.hotels.filter(x => !(x.night === newNight && x.placeId !== hotel.placeId)); // 覆蓋目標晚原住宿
+      hotel.night = newNight;
+      t.legsByDay = {};
+      Store.touch({ manual: true });
+      render();
+      UI.alert('住宿已移動', `「${hotel.name}」已改為第 ${newNight + 1} 晚入住。\n\n⚠️ 住宿變動會改變路線的起終點，車程已重新估算；建議再按一次「一鍵排最佳路線」。`);
+    };
+    const occupied = t.hotels.find(x => x.night === newNight && x.placeId !== hotel.placeId);
+    if (occupied) {
+      UI.confirm('目標晚已有住宿', `第 ${newNight + 1} 晚已是「${occupied.name}」。要換成「${hotel.name}」嗎？`, doMove);
+    } else doMove();
   }
 
   // 住宿備註（訂房編號）與付款狀態；同一間飯店的多晚一起更新
   function editHotelInfo(h) {
+    const isCustom = h.source === 'custom' || String(h.placeId || '').startsWith('custom');
     const body = document.createElement('div');
     body.innerHTML = `
+      <label>地址</label>
+      <input id="hEditAddr" type="text" maxlength="80" placeholder="輸入或修改地址" value="${UI.esc(h.address || '')}">
+      ${isCustom ? `
+      <label>座標（十進制度 DD，選填）</label>
+      <div class="row-2">
+        <input id="hEditLat" type="number" step="any" placeholder="緯度，例 25.0339" value="${Logic.hasCoords(h) ? h.lat : ''}">
+        <input id="hEditLng" type="number" step="any" placeholder="經度，例 121.5645" value="${Logic.hasCoords(h) ? h.lng : ''}">
+      </div>
+      <p class="hint">補上座標後，路程就能精準估算。</p>` : ''}
       <label>備註（訂房編號、入住資訊等）</label>
       <input id="hEditNote" type="text" maxlength="60" placeholder="例：訂房編號 BK12345" value="${UI.esc(h.note || '')}">
       <label>付款狀態</label>
@@ -459,6 +593,11 @@ const Itin = (() => {
         <option value="">未設定</option>
         ${Object.entries(UI.PAY_LABELS).map(([v, lb]) =>
           `<option value="${v}" ${h.pay === v ? 'selected' : ''}>${lb}</option>`).join('')}
+      </select>
+      <label>住宿夜晚</label>
+      <select id="hEditNight">
+        ${Array.from({ length: Math.max(Store.days() - 1, 1) }, (_, i) =>
+          `<option value="${i}" ${h.night === i ? 'selected' : ''}>第 ${i + 1} 晚</option>`).join('')}
       </select>
       <label>房價紀錄（選填，會顯示在行程上）</label>
       <div class="row-2">
@@ -476,16 +615,57 @@ const Itin = (() => {
         }
       },
       {
-        label: '儲存', primary: true,
+        label: '刪除這晚住宿', danger: true,
         onClick: () => {
+          UI.confirm('刪除住宿？', `確定要刪除「${h.name}」這晚住宿嗎？相關天數的路程會重新估算。`, () => {
+            const t = trip();
+            t.hotels = t.hotels.filter(x => !(x.night === h.night && x.placeId === h.placeId));
+            t.legsByDay = {};
+            Store.touch({ manual: true });
+            UI.closeModal();
+            render();
+            UI.toast('住宿已刪除');
+          });
+        }
+      },
+      {
+        label: '儲存', primary: true,
+        onClick: async () => {
           const note = document.getElementById('hEditNote').value.trim();
           const pay = document.getElementById('hEditPay').value;
+          const night = Number(document.getElementById('hEditNight').value);
           const pw = Number(document.getElementById('hEditPw').value) || '';
           const pe = Number(document.getElementById('hEditPe').value) || '';
-          trip().hotels.filter(x => x.placeId === h.placeId).forEach(x => {
-            x.note = note; x.pay = pay; x.priceWeekday = pw; x.priceWeekend = pe;
-          });
-          Store.touch();
+          const addr = document.getElementById('hEditAddr').value.trim();
+          if (isCustom) {
+            const latRaw = document.getElementById('hEditLat').value.trim();
+            const lngRaw = document.getElementById('hEditLng').value.trim();
+            if ((latRaw !== '') !== (lngRaw !== '')) { UI.toast('座標請同時填緯度與經度，或兩個都空白'); return; }
+            if (latRaw !== '') {
+              const lat = Number(latRaw), lng = Number(lngRaw);
+              if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+                UI.toast('座標格式不對，請使用十進制度 DD'); return;
+              }
+              h.lat = lat; h.lng = lng; h.hasCoords = true; h.estimateWarning = '';
+            } else if (addr) {
+              // 沒填座標但有地址 → 用 Google 地圖自動定位
+              UI.loading(true, '用地址定位中…');
+              const geo = await Api.geocodeAddress(addr);
+              UI.loading(false);
+              if (geo) {
+                h.lat = geo.lat; h.lng = geo.lng; h.hasCoords = true; h.estimateWarning = '';
+                UI.toast('已從地址定位，路程可以估算了');
+              } else {
+                h.lat = null; h.lng = null; h.hasCoords = false;
+              }
+            } else {
+              h.lat = null; h.lng = null; h.hasCoords = false;
+            }
+          }
+          h.address = addr;
+          h.note = note; h.pay = pay; h.night = night; h.priceWeekday = pw; h.priceWeekend = pe;
+          trip().legsByDay = {};
+          Store.touch({ manual: true });
           UI.closeModal();
           render();
           UI.toast('住宿資訊已更新');
@@ -498,22 +678,35 @@ const Itin = (() => {
     const div = document.createElement('div');
     div.className = 'spot-row';
     div.dataset.spotId = s.id;
-    const stayH = s.stayMin >= 60 ? `${Math.floor(s.stayMin / 60)} 小時${s.stayMin % 60 ? ' ' + s.stayMin % 60 + ' 分' : ''}` : `${s.stayMin} 分鐘`;
+    const stayH = Logic.fmtDur(s.stayMin);
+    const coordWarning = Logic.hasCoords(s) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;
+    const noteLine = s.note ? `<div class="spot-times">備註：${UI.esc(s.note)}</div>` : '';
+    const navAction = Logic.hasCoords(s)
+      ? `<a href="${UI.navLink(s)}" target="_blank" rel="noopener" style="margin-left:auto;color:var(--main);font-weight:700;text-decoration:none">🧭 導航</a>`
+      : `<span class="hint" style="margin-left:auto">無座標不可導航</span>`;
+    if (s.visited) div.classList.add('visited');
     div.innerHTML = `
       <div class="spot-main">
-        <span class="spot-no" style="background:${d ? dayColor(d) : 'var(--text-2)'}">${no || '·'}</span>
+        <span class="spot-no" style="background:${s.visited ? 'var(--ok)' : (d ? dayColor(d) : 'var(--text-2)')}">${s.visited ? '✓' : (no || '·')}</span>
         <div class="spot-info">
-          <div class="spot-name">${s.must ? '<span class="must">⭐</span> ' : ''}${UI.esc(s.name)}</div>
+          <div class="spot-name">${s.must ? '<span class="must">⭐</span> ' : ''}${UI.esc(s.name)}${s.visited ? ' <span class="visited-badge">已去過</span>' : ''}</div>
           <div class="spot-times">${tlRow ? `${tlRow.arrive} 抵達（停留 ${stayH}）→ ${tlRow.depart} 出發` : `停留 ${stayH}`}</div>
+          ${noteLine}
+          ${coordWarning}
           <div class="stay-edit edit-only">
             <button data-act="stay-" aria-label="減少停留時間">−</button>
             <span class="stay-val">${stayH}</span>
             <button data-act="stay+" aria-label="增加停留時間">＋</button>
-            <a href="${UI.navLink(s)}" target="_blank" rel="noopener" style="margin-left:auto;color:var(--main);font-weight:700;text-decoration:none">🧭 導航</a>
+            ${navAction}
           </div>
         </div>
         <div class="spot-actions edit-only">
           <button class="drag-grip" title="按住拖曳排序（可拖到其他天）">☰</button>
+          <button data-act="visited" title="${s.visited ? '取消已去過' : '標記已去過'}">${s.visited ? '☑' : '☐'}</button>
+          <button data-act="note" title="編輯備註">📝</button>
+          <button data-act="must" title="標記必去">${s.must ? '★' : '☆'}</button>
+          <button data-act="exp" title="記一筆帳">💰</button>
+          <button data-act="del" title="刪除景點">🗑</button>
           <button data-act="menu" title="更多選項">⋯</button>
         </div>
         ${Store.isReadonly() ? `<div class="spot-actions"><a href="${UI.navLink(s)}" target="_blank" rel="noopener" style="padding:6px">🧭</a></div>` : ''}
@@ -521,6 +714,17 @@ const Itin = (() => {
 
     div.querySelector('[data-act="stay-"]').onclick = () => changeStay(s, -15);
     div.querySelector('[data-act="stay+"]').onclick = () => changeStay(s, 15);
+    div.querySelector('[data-act="visited"]').onclick = () => {
+      s.visited = !s.visited;
+      Store.touch();
+      render();
+      if (s.visited) UI.toast(`✅ 「${s.name}」打卡完成！`);
+    };
+    div.querySelector('[data-act="note"]').onclick = () => editSpotNote(s);
+    div.querySelector('[data-act="must"]').onclick = () => { s.must = !s.must; Store.touch(); render(); };
+    div.querySelector('[data-act="exp"]').onclick = () =>
+      Feat.quickExpense({ item: s.name, date: s.day ? Store.dateOfDay(s.day) : trip().startDate });
+    div.querySelector('[data-act="del"]').onclick = () => deleteSpot(s);
     div.querySelector('[data-act="menu"]').onclick = () => spotMenu(s);
     const grip = div.querySelector('.drag-grip');
     grip.addEventListener('pointerdown', e => startDrag(e, s, div));
@@ -533,29 +737,47 @@ const Itin = (() => {
     render();
   }
 
+  function editSpotNote(s) {
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <label>景點備註</label>
+      <input id="spotNoteInput" type="text" maxlength="120" placeholder="例：必買伴手禮、停車位置、門票提醒" value="${UI.esc(s.note || '')}">
+      <label>地址 / 位置備註</label>
+      <input id="spotAddressInput" type="text" maxlength="120" placeholder="可補充地址或集合點" value="${UI.esc(s.address || '')}">
+      <p class="hint">備註會顯示在景點卡片上。</p>`;
+    UI.modal(`📝 ${s.name}`, body, [{
+      label: '儲存', primary: true,
+      onClick: () => {
+        s.note = document.getElementById('spotNoteInput').value.trim();
+        s.address = document.getElementById('spotAddressInput').value.trim();
+        Store.touch({ manual: true });
+        UI.closeModal();
+        render();
+        UI.toast('景點備註已更新');
+      }
+    }]);
+    setTimeout(() => document.getElementById('spotNoteInput').focus(), 50);
+  }
+
+  function deleteSpot(s) {
+    UI.confirm('移除景點', `確定要把「${s.name}」從行程中移除嗎？（可用「上一步」復原）`, () => {
+      const t = trip();
+      t.spots = t.spots.filter(x => x.id !== s.id);
+      delete t.legsByDay[s.day];
+      Store.touch({ manual: true });
+      render();
+    });
+  }
+
   function spotMenu(s) {
     const days = Store.days();
-    const opts = [
-      { label: s.must ? '取消「必去」標記' : '⭐ 標記為必去', value: 'must' },
-      { label: '💰 記一筆帳（自動帶入名稱日期）', value: 'exp' }
-    ];
+    const opts = [];
     for (let d = 1; d <= days; d++) {
       if (d !== s.day) opts.push({ label: `📅 移到第 ${d} 天`, value: 'day' + d });
     }
-    opts.push({ label: '🗑️ 從行程移除', value: 'del', danger: true });
+    if (!opts.length) { UI.toast('沒有其他天可移動'); return; }
     UI.choose(s.name, opts, v => {
-      if (v === 'must') { s.must = !s.must; Store.touch(); render(); }
-      else if (v === 'exp') {
-        Feat.quickExpense({ item: s.name, date: s.day ? Store.dateOfDay(s.day) : trip().startDate });
-      }
-      else if (v === 'del') {
-        UI.confirm('移除景點', `確定要把「${s.name}」從行程中移除嗎？（可用「上一步」復原）`, () => {
-          const t = trip();
-          t.spots = t.spots.filter(x => x.id !== s.id);
-          delete t.legsByDay[s.day];
-          Store.touch({ manual: true }); render();
-        });
-      } else if (v.startsWith('day')) {
+      if (v.startsWith('day')) {
         const d = Number(v.slice(3));
         const t = trip();
         delete t.legsByDay[s.day]; delete t.legsByDay[d];
@@ -628,10 +850,11 @@ const Itin = (() => {
   // ---------- 導航連結 ----------
   function dayNavLink(d, list) {
     const sp = startHotel(d), ep = endHotel(d);
-    const pts = list.map(s => `${s.lat},${s.lng}`);
-    const origin = sp ? `${sp.lat},${sp.lng}` : pts.shift();
+    const pts = list.filter(Logic.hasCoords).map(s => `${s.lat},${s.lng}`);
+    if (!pts.length && !Logic.hasCoords(sp) && !Logic.hasCoords(ep)) return 'https://www.google.com/maps';
+    const origin = Logic.hasCoords(sp) ? `${sp.lat},${sp.lng}` : pts.shift();
     // 只有 1 個景點又沒設飯店時，終點退回用起點，避免產生壞掉的導航連結
-    const dest = ep ? `${ep.lat},${ep.lng}` : (pts.length ? pts.pop() : origin);
+    const dest = Logic.hasCoords(ep) ? `${ep.lat},${ep.lng}` : (pts.length ? pts.pop() : origin);
     const mode = { driving: 'driving', transit: 'transit', walking: 'walking' }[trip().transport];
     let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=${mode}`;
     if (pts.length) url += `&waypoints=${pts.join('|')}`;
@@ -644,11 +867,13 @@ const Itin = (() => {
     const groups = [];
     for (let d = 1; d <= days; d++) {
       if (selDay && d !== selDay) continue;
-      const list = spotsOfDay(d);
-      if (list.length) groups.push({ d, list, sp: startHotel(d), ep: endHotel(d) });
+      const list = spotsOfDay(d).filter(Logic.hasCoords);
+      const sp = startHotel(d), ep = endHotel(d);
+      if (list.length) groups.push({ d, list, sp: Logic.hasCoords(sp) ? sp : null, ep: Logic.hasCoords(ep) ? ep : null });
     }
-    if (!groups.length && unassigned().length) {
-      groups.push({ d: 0, list: unassigned(), sp: null, ep: null });
+    const unassignedWithCoords = unassigned().filter(Logic.hasCoords);
+    if (!groups.length && unassignedWithCoords.length) {
+      groups.push({ d: 0, list: unassignedWithCoords, sp: null, ep: null });
     }
     return groups;
   }
@@ -688,7 +913,7 @@ const Itin = (() => {
       });
       el._gitems = [];
     }
-    el._gitems.forEach(o => o.setMap(null));
+    el._gitems.forEach(o => o.setMap ? o.setMap(null) : o.close()); // InfoWindow 用 close()
     el._gitems = [];
     const groups = mapGroups(selDay);
     if (!groups.length) return;
@@ -730,6 +955,32 @@ const Itin = (() => {
       if (g.ep && g.ep !== g.sp) boundaryMarker(g.ep, g.d === Store.days() && trip().endPoint ? '🏁' : '🏨');
       if (g.sp) bounds.extend({ lat: g.sp.lat, lng: g.sp.lng });
       if (g.ep) bounds.extend({ lat: g.ep.lat, lng: g.ep.lng });
+
+      // 選了單一天：地圖上直接顯示景點名稱＋照片，以及每段路程時間
+      if (selDay > 0 && g.d === selDay) {
+        const openIw = (position, content, offsetY) => {
+          const iw = new google.maps.InfoWindow({
+            position, content, disableAutoPan: true, headerDisabled: true,
+            pixelOffset: new google.maps.Size(0, offsetY || 0)
+          });
+          iw.open({ map: el._gmap });
+          add(iw);
+        };
+        g.list.forEach((s, i) => {
+          openIw({ lat: s.lat, lng: s.lng },
+            `<div class="map-poi">${s.photo ? `<img src="${s.photo}" alt="">` : ''}<span>${i + 1}. ${UI.esc(s.name)}</span></div>`, -16);
+        });
+        const legs = legsForDay(g.d);
+        const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[trip().transport] || '🚗';
+        let prev = g.sp;
+        const pairs = [];
+        g.list.forEach((s, i) => { if (prev && legs[i] > 0) pairs.push([prev, s, legs[i]]); prev = s; });
+        if (g.ep && legs[g.list.length] > 0 && prev) pairs.push([prev, g.ep, legs[g.list.length]]);
+        pairs.forEach(([a, b, min]) => {
+          openIw({ lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 },
+            `<div class="map-leg">${icon} ${Logic.fmtDur(min)}</div>`);
+        });
+      }
     }
     el._gmap.fitBounds(bounds, 46);
   }
@@ -776,6 +1027,18 @@ const Itin = (() => {
           <text class="marker-label" x="${X(s)}" y="${Y(s) + 24}">${UI.esc(short)}</text>`;
       });
       if (g.ep && g.ep !== g.sp) svg += `<text x="${X(g.ep)}" y="${Y(g.ep) + 5}" text-anchor="middle" font-size="16">${g.d === Store.days() && trip().endPoint ? '🏁' : '🏨'}</text>`;
+
+      // 選了單一天：路段上顯示車程時間
+      if (selDay > 0 && g.d === selDay) {
+        const legs = legsForDay(g.d);
+        let prev = g.sp;
+        const pairs = [];
+        g.list.forEach((s, i) => { if (prev && legs[i] > 0) pairs.push([prev, s, legs[i]]); prev = s; });
+        if (g.ep && legs[g.list.length] > 0 && prev) pairs.push([prev, g.ep, legs[g.list.length]]);
+        pairs.forEach(([a, b, min]) => {
+          svg += `<text class="leg-label" x="${((X(a) + X(b)) / 2).toFixed(1)}" y="${((Y(a) + Y(b)) / 2 - 4).toFixed(1)}">${Logic.fmtDur(min)}</text>`;
+        });
+      }
     }
     svg += `</svg>`;
     el.innerHTML = svg + `<div class="map-badge">示意地圖（正式版為 Google 地圖）</div>`;

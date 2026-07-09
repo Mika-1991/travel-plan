@@ -102,10 +102,101 @@ const Api = (() => {
       .sort((a, b) => a.distKm - b.distKm);
   }
 
+  // ---------- 地址轉座標（自訂住宿補地址後可估算路程） ----------
+  async function geocodeAddress(address) {
+    address = String(address || '').trim();
+    if (!address) return null;
+    if (isMock()) { await delay(200); return null; } // 模擬模式無法定位
+    try {
+      await loadGoogleMaps();
+      const g = new google.maps.Geocoder();
+      const res = await g.geocode({ address, region: 'TW' });
+      const loc = res.results && res.results[0] && res.results[0].geometry.location;
+      return loc ? { lat: loc.lat(), lng: loc.lng() } : null;
+    } catch (e) {
+      console.warn('地址定位失敗', e);
+      return null;
+    }
+  }
+
   // ---------- 路線最佳化 ----------
   // origin/destination: {lat,lng}|null；spots: [{lat,lng,...}]
   // 回傳 { order:[原索引...], legs:[分鐘...] }（legs[i]=抵達第 i 站前的車程；最後多一段回終點）
-  async function optimizeRoute(origin, destination, spots, mode) {
+  const routeDurationCache = {};
+  const pointKey = p => `${Number(p.lat).toFixed(5)},${Number(p.lng).toFixed(5)}`;
+  const pointLatLng = p => ({ lat: Number(p.lat), lng: Number(p.lng) });
+
+  async function routeDuration(svc, a, b, travelMode, mode) {
+    const key = `${travelMode}:${pointKey(a)}>${pointKey(b)}`;
+    if (routeDurationCache[key]) return routeDurationCache[key];
+    const fallback = Logic.travelMinutes(a, b, mode);
+    try {
+      const res = await svc.route({ origin: pointLatLng(a), destination: pointLatLng(b), travelMode });
+      const min = Math.max(1, Math.round(res.routes[0].legs[0].duration.value / 60));
+      routeDurationCache[key] = min;
+      return min;
+    } catch (e) {
+      console.warn('單段路線查詢失敗，改用估算', e);
+      routeDurationCache[key] = fallback;
+      return fallback;
+    }
+  }
+
+  async function routeMatrix(svc, points, travelMode, mode, onProgress) {
+    const matrix = Array.from({ length: points.length }, () => Array(points.length).fill(0));
+    const total = points.length * (points.length - 1);
+    let done = 0;
+    for (let i = 0; i < points.length; i++) {
+      for (let j = 0; j < points.length; j++) {
+        if (i !== j) {
+          matrix[i][j] = await routeDuration(svc, points[i], points[j], travelMode, mode);
+          done++;
+          if (onProgress) onProgress(done, total);
+        }
+      }
+    }
+    return matrix;
+  }
+
+  function matrixOrder(spots, matrix, hasOrigin, hasDest) {
+    const n = spots.length;
+    const spotNode = i => hasOrigin ? i + 1 : i;
+    const destNode = hasDest ? (hasOrigin ? n + 1 : n) : null;
+    const remain = spots.map((_, i) => i);
+    const order = [];
+    let curNode = hasOrigin ? 0 : spotNode(0);
+    while (remain.length) {
+      let bestAt = 0, bestCost = Infinity;
+      for (let i = 0; i < remain.length; i++) {
+        const cost = matrix[curNode][spotNode(remain[i])];
+        if (cost < bestCost) { bestCost = cost; bestAt = i; }
+      }
+      const idx = remain.splice(bestAt, 1)[0];
+      order.push(idx);
+      curNode = spotNode(idx);
+    }
+
+    let improved = true, guard = 0;
+    while (improved && guard++ < 40) {
+      improved = false;
+      for (let i = 0; i < order.length - 1; i++) {
+        for (let j = i + 1; j < order.length; j++) {
+          const leftNode = i === 0 ? (hasOrigin ? 0 : spotNode(order[0])) : spotNode(order[i - 1]);
+          const rightNode = j + 1 === order.length ? (hasDest ? destNode : spotNode(order[order.length - 1])) : spotNode(order[j + 1]);
+          const before = matrix[leftNode][spotNode(order[i])] + matrix[spotNode(order[j])][rightNode];
+          const after = matrix[leftNode][spotNode(order[j])] + matrix[spotNode(order[i])][rightNode];
+          if (after + 1e-9 < before) {
+            order.splice(i, j - i + 1, ...order.slice(i, j + 1).reverse());
+            improved = true;
+          }
+        }
+      }
+    }
+    return order;
+  }
+
+  async function optimizeRoute(origin, destination, spots, mode, opts) {
+    const onProgress = (opts && opts.onProgress) || null;
     const o = origin || spots[0];
     const d = destination || o;
     if (isMock() || spots.length > 23) { // Directions 上限 25 站（含起終點）
@@ -117,6 +208,25 @@ const Api = (() => {
     await loadGoogleMaps();
     const svc = new google.maps.DirectionsService();
     const travelMode = mode === 'walking' ? 'WALKING' : mode === 'transit' ? 'TRANSIT' : 'DRIVING';
+    const canUseMatrix = (travelMode === 'DRIVING' || travelMode === 'WALKING') &&
+      spots.length <= (CONFIG.routeMatrixMaxStops || 10) &&
+      spots.every(Logic.hasCoords) && (!origin || Logic.hasCoords(origin)) && (!destination || Logic.hasCoords(destination));
+    if (canUseMatrix) {
+      const hasOrigin = !!origin;
+      const hasDest = !!destination;
+      const points = [...(hasOrigin ? [origin] : []), ...spots, ...(hasDest ? [destination] : [])];
+      const matrix = await routeMatrix(svc, points, travelMode, mode, onProgress);
+      const order = matrixOrder(spots, matrix, hasOrigin, hasDest);
+      const spotNode = i => hasOrigin ? i + 1 : i;
+      const destNode = hasDest ? (hasOrigin ? spots.length + 1 : spots.length) : null;
+      const legs = [];
+      legs.push(hasOrigin ? matrix[0][spotNode(order[0])] : 0);
+      for (let i = 1; i < order.length; i++) {
+        legs.push(matrix[spotNode(order[i - 1])][spotNode(order[i])]);
+      }
+      legs.push(hasDest ? matrix[spotNode(order[order.length - 1])][destNode] : 0);
+      return { order, legs, source: 'matrix' };
+    }
     // TRANSIT 不支援多中途點最佳化 → 交通模式改用本地估算順序 + 單段查時間
     if (travelMode === 'TRANSIT') {
       const order = Logic.optimizeOrder(spots, o, d);
@@ -219,6 +329,7 @@ const Api = (() => {
       await delay(300);
       const db = mockCloud();
       for (const t of Object.values(db)) {
+        if (t.deletedAt) continue; // 已刪除的行程開不了
         if (t.editCode === code) return { trip: t, role: 'edit' };
         if (t.viewCode === code) return { trip: t, role: 'view' };
       }
@@ -254,11 +365,58 @@ const Api = (() => {
     email = String(email || '').trim().toLowerCase();
     if (isMock()) {
       await delay(300);
-      return Object.values(mockCloud())
+      const list = Object.values(mockCloud())
         .filter(t => (t.creatorEmail || '').toLowerCase() === email)
-        .map(t => ({ name: t.name, startDate: t.startDate, endDate: t.endDate, editCode: t.editCode }));
+        .map(t => ({ name: t.name, startDate: t.startDate, endDate: t.endDate }));
+      return { count: list.length, simulated: true };
     }
     return gasCall('findTripsByEmail', { email });
+  }
+
+  // ---------- OTP 驗證與行程管理（v2） ----------
+  const MOCK_OTP = '123456'; // mock 模式固定驗證碼（畫面會提示）
+  let mockSession = null;
+
+  async function cloudRequestOtp(email) {
+    email = String(email || '').trim().toLowerCase();
+    if (isMock()) {
+      await delay(300);
+      const has = Object.values(mockCloud()).some(t => !t.deletedAt && (t.creatorEmail || '').toLowerCase() === email);
+      if (!has) throw new Error('這個 Email 沒有綁定任何行程。請確認是建立行程時填的那個 Email。');
+      return { sent: true, simulated: true, mockOtp: MOCK_OTP };
+    }
+    return gasCall('requestEmailOtp', { email });
+  }
+
+  async function cloudVerifyOtp(email, otp) {
+    email = String(email || '').trim().toLowerCase();
+    if (isMock()) {
+      await delay(300);
+      if (String(otp).trim() !== MOCK_OTP) throw new Error('驗證碼不正確，請再確認信件內容');
+      mockSession = 'mock-session-' + Date.now();
+      const trips = Object.values(mockCloud())
+        .filter(t => !t.deletedAt && (t.creatorEmail || '').toLowerCase() === email)
+        .map(t => ({ tripId: t.tripId, name: t.name, startDate: t.startDate, endDate: t.endDate, editCode: t.editCode }));
+      return { sessionToken: mockSession, trips };
+    }
+    return gasCall('verifyEmailOtp', { email, otp });
+  }
+
+  async function cloudDeleteTripByEmail(email, sessionToken, tripId) {
+    email = String(email || '').trim().toLowerCase();
+    if (isMock()) {
+      await delay(300);
+      if (sessionToken !== mockSession) throw new Error('驗證已失效，請重新用 Email 取得驗證碼');
+      const db = mockCloud();
+      if (!db[tripId] || db[tripId].deletedAt) throw new Error('找不到這個行程，可能已被刪除');
+      db[tripId].deletedAt = Date.now(); // 軟刪除：資料保留、僅標記
+      mockCloudSave(db);
+      const trips = Object.values(db)
+        .filter(t => !t.deletedAt && (t.creatorEmail || '').toLowerCase() === email)
+        .map(t => ({ tripId: t.tripId, name: t.name, startDate: t.startDate, endDate: t.endDate, editCode: t.editCode }));
+      return { deleted: true, trips };
+    }
+    return gasCall('deleteTripByEmail', { email, sessionToken, tripId });
   }
 
   async function cloudSendCodes(email, trip) {
@@ -273,10 +431,11 @@ const Api = (() => {
   }
 
   return {
-    isMock, loadGoogleMaps,
+    isMock, loadGoogleMaps, geocodeAddress,
     searchPlaces, nearbySearch,
     optimizeRoute, routeLegs,
     weatherOn,
-    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudFindByEmail
+    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudFindByEmail,
+    cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail
   };
 })();

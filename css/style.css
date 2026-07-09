@@ -45,7 +45,15 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 14px; z-index: 50; box-shadow: var(--shadow);
 }
-.app-header h1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.app-header h1 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.app-header h1::before {
+  content: "M";
+  width: 28px; height: 28px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--white); color: var(--main); font-weight: 900;
+  box-shadow: inset 0 -2px 0 rgba(74,59,46,.14);
+  flex: none;
+}
 .header-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .icon-btn { color: var(--white); font-size: 1.05rem; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.15); }
 .sync-dot { width: 10px; height: 10px; border-radius: 50%; background: #b7e0a8; display: inline-block; }
@@ -68,6 +76,15 @@ body.readonly .edit-only { display: none !important; }
 .w-screen { display: flex; flex-direction: column; gap: 12px; }
 .hero { text-align: center; margin: 20px 0 8px; }
 .hero-emoji { font-size: 3rem; }
+.temp-logo {
+  width: 78px; height: 78px; border-radius: 50%;
+  margin: 0 auto 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 35% 28%, #FFF8EF 0 18%, #D98E4A 19% 58%, #A9805B 59% 100%);
+  color: #fff; font-size: 2.4rem; font-weight: 900;
+  box-shadow: 0 8px 22px rgba(74,59,46,.18);
+  border: 3px solid rgba(255,255,255,.85);
+}
 .hero h2 { margin: 8px 0 4px; }
 .btn-big { padding: 15px; font-size: 1.1rem; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
@@ -196,6 +213,23 @@ body.readonly .edit-only { display: none !important; }
 /* 景點列 */
 .spot-row { background: var(--white); margin: 8px 10px; border-radius: 12px; padding: 10px 12px; position: relative; }
 .spot-row.dragging { opacity: .55; outline: 2px dashed var(--main); }
+.spot-row.visited { opacity: .72; }
+.spot-row.visited .spot-name { color: var(--text-2); }
+.visited-badge {
+  display: inline-block; background: var(--ok); color: var(--white);
+  font-size: .78rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; vertical-align: middle;
+}
+.day-card.drop-target { outline: 3px dashed var(--accent); outline-offset: -3px; }
+
+/* 地圖上的景點名稱／照片與路段時間標籤 */
+.map-poi { display: flex; align-items: center; gap: 6px; font-weight: 700; color: #4A3B2E; font-size: 13px; max-width: 170px; }
+.map-poi img { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; flex: none; }
+.map-leg { font-size: 12px; font-weight: 700; color: #4A3B2E; white-space: nowrap; }
+.mock-map .leg-label {
+  fill: #4A3B2E; font-size: 11px; font-weight: 700; text-anchor: middle;
+  paint-order: stroke; stroke: #FAF6F0; stroke-width: 3px;
+}
+.addr-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .spot-main { display: flex; align-items: flex-start; gap: 10px; }
 .spot-no {
   background: var(--main); color: var(--white); font-weight: 700; flex: none;
@@ -207,8 +241,9 @@ body.readonly .edit-only { display: none !important; }
 .spot-name .must { color: var(--accent); }
 .spot-times { color: var(--text-2); font-size: .95rem; }
 .leg-row { color: var(--text-2); font-size: .92rem; padding: 2px 0 2px 46px; display: flex; align-items: center; gap: 6px; }
-.spot-actions { display: flex; gap: 4px; flex: none; align-items: center; }
-.spot-actions button { padding: 6px; font-size: 1.05rem; color: var(--text-2); }
+.spot-actions { display: flex; gap: 4px; flex: none; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: 138px; }
+.spot-actions button { padding: 6px; font-size: 1.05rem; color: var(--text-2); border-radius: 8px; }
+.spot-actions button:active { background: var(--card); }
 .spot-actions .drag-grip { cursor: grab; touch-action: none; font-size: 1.2rem; }
 .stay-edit { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .stay-edit button {

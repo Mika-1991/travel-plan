@@ -9,12 +9,17 @@ const UI = (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  const gmapLink = p => p.placeId && !String(p.placeId).startsWith('m-')
+  const isRealPlaceId = p => p.placeId && !String(p.placeId).startsWith('m-') && !String(p.placeId).startsWith('custom-');
+  const gmapLink = p => isRealPlaceId(p)
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name)}&query_place_id=${p.placeId}`
-    : `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`;
+    : Logic.hasCoords(p)
+      ? `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name || p.address || '')}`;
   const navLink = p =>
-    `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}` +
-    (p.placeId && !String(p.placeId).startsWith('m-') ? `&destination_place_id=${p.placeId}` : '');
+    Logic.hasCoords(p)
+      ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}` +
+        (isRealPlaceId(p) ? `&destination_place_id=${p.placeId}` : '')
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name || p.address || '')}`;
   // Google 旅館頁：可切換日期看平日/假日房價（Google API 不直接提供房價）
   const hotelPriceLink = name =>
     `https://www.google.com/travel/hotels?q=${encodeURIComponent(name)}`;

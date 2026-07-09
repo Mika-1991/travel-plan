@@ -13,8 +13,23 @@ const Logic = (() => {
     return 2 * R * Math.asin(Math.sqrt(h));
   }
 
+  // 是否有有效座標（自訂景點/住宿可能沒填座標 → 不列入車程計算）
+  const hasCoords = p => !!p &&
+    p.lat !== null && p.lat !== undefined && p.lat !== '' &&
+    p.lng !== null && p.lng !== undefined && p.lng !== '' &&
+    Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng));
+
+  // 車程時間顯示：小於 60 分「xx 分鐘」，以上「x 時 x 分」
+  function fmtDur(min) {
+    min = Math.round(min);
+    if (min < 60) return `${min} 分鐘`;
+    const h = Math.floor(min / 60), m = min % 60;
+    return m ? `${h} 時 ${m} 分` : `${h} 小時`;
+  }
+
   // 模擬車程估算（正式模式改用 Directions API 回傳值）
   function travelMinutes(a, b, mode) {
+    if (!hasCoords(a) || !hasCoords(b)) return 0;
     const km = haversineKm(a, b) * 1.35; // 直線距離換算實際路徑的粗略係數
     let min;
     if (mode === 'walking') min = km / 4.5 * 60;
@@ -188,7 +203,7 @@ const Logic = (() => {
   }
 
   return {
-    haversineKm, travelMinutes, optimizeOrder, splitIntoDays,
+    haversineKm, travelMinutes, optimizeOrder, splitIntoDays, hasCoords, fmtDur,
     toMin, toHHMM, buildTimeline, settleExpenses, outfitAdvice,
     genEditCode, genViewCode, normalizeCode, isEditCodeFormat, isViewCodeFormat,
     uid, datesBetween

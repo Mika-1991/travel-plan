@@ -31,7 +31,7 @@ const Store = (() => {
       rainActive: {},    // {day: true} 已切換備案
       rainBackup: {},    // {day: [原本的 spots]}（供還原）
       expenses: [],      // [{id, date, item, amount, payer, participants:[]}]
-      creatorEmail: '',
+      creatorEmail: basic.creatorEmail || '',
       createdAt: Date.now(),
       updatedAt: Date.now(),
       baseUpdatedAt: 0   // 上次成功同步時的雲端時間戳（衝突偵測用）
