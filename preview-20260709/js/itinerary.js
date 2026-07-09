@@ -304,21 +304,23 @@ const Itin = (() => {
     if (!t) return;
     const days = Store.days();
     const anySpot = t.spots.length > 0;
-    $('tripEmpty').classList.toggle('hidden', anySpot);
-    $('tripSummaryBar').classList.toggle('hidden', !anySpot);
+    const hasRoutePlan = Boolean(t.meetPoint || t.endPoint || (t.hotels || []).length);
+    const showDays = anySpot || hasRoutePlan;
+    $('tripEmpty').classList.toggle('hidden', showDays);
+    $('tripSummaryBar').classList.toggle('hidden', !showDays);
 
     const fab = $('btnOptimize');
     fab.disabled = t.spots.length < 2;
     fab.classList.toggle('glow', t.spots.length >= 2 && !t.optimizedAt);
 
-    if (anySpot) renderSummaryBar();
+    if (showDays) renderSummaryBar();
 
     const wrap = $('dayList');
     wrap.innerHTML = '';
     const un = unassigned();
     if (un.length) wrap.appendChild(renderUnassignedCard(un));
     for (let d = 1; d <= days; d++) {
-      if (!anySpot) continue; // 完全沒景點時只顯示空狀態引導
+      if (!showDays) continue; // 完全沒景點與住宿/集合點時只顯示空狀態引導
       wrap.appendChild(renderDayCard(d, spotsOfDay(d)));
     }
     renderMiniMap();
@@ -336,6 +338,7 @@ const Itin = (() => {
           <span class="undo-btns edit-only">
             <button id="btnUndo" ${Store.canUndo() ? '' : 'disabled'}>↩ 上一步</button>
             <button id="btnRedo" ${Store.canRedo() ? '' : 'disabled'}>↪ 下一步</button>
+            <button id="btnManualSave">💾 儲存目前安排</button>
           </span>
           <button id="btnSwitchMode" class="chip" style="cursor:pointer">${modeTxt[t.transport]} ▾</button>
         </span>
@@ -343,6 +346,17 @@ const Itin = (() => {
       <p class="hint" style="margin:6px 0 0">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同</p>`;
     $('btnUndo').onclick = () => { if (Store.undo()) { render(); UI.toast('已復原上一步'); } };
     $('btnRedo').onclick = () => { if (Store.redo()) { render(); UI.toast('已重做下一步'); } };
+    $('btnManualSave').onclick = async () => {
+      try {
+        UI.loading(true, '儲存目前安排…');
+        await Store.cloudSaveNow();
+        UI.loading(false);
+        UI.toast('目前手動安排已儲存');
+      } catch (e) {
+        UI.loading(false);
+        UI.alert('儲存失敗', e.message || String(e));
+      }
+    };
     const dBtn = $('btnTripDates');
     if (Store.isReadonly()) dBtn.style.pointerEvents = 'none';
     else dBtn.onclick = () => Feat.editTripDates();
@@ -440,7 +454,8 @@ const Itin = (() => {
     }
     if (!list.length) {
       if (sp) card.appendChild(pointRow(sp, pointEmptyDayText(sp)));
-      if (sp && ep && !sameRoutePoint(sp, ep) && legs[0] > 0) card.appendChild(legRow(legs[0]));
+      const shouldShowEmptyLeg = sp && ep && !sameRoutePoint(sp, ep) && legs[0] > 0 && !(sp.kind === 'hotel' && ep.kind === 'hotel');
+      if (shouldShowEmptyLeg) card.appendChild(legRow(legs[0]));
       if (ep && !sameRoutePoint(sp, ep)) card.appendChild(pointRow(ep, pointEmptyDayText(ep)));
       const p = document.createElement('p');
       p.className = 'hint'; p.style.padding = '0 14px 12px';

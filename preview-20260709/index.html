@@ -233,16 +233,20 @@
         <button id="btnExportExcel" class="btn-primary" style="width:100%">下載 Excel</button>
       </div>
       <div class="card">
-        <div class="step-title"><span class="step-badge">2</span><span class="step-text">每日排版頁面</span></div>
-        <p class="hint">先提供簡易列印版：依日期列出天氣、住宿、景點、車程與備註。版面可再調整。</p>
+        <div class="step-title"><span class="step-badge">2</span><span class="step-text">每日行程 PDF</span></div>
+        <p class="hint">A4 列印版：依日期列出住宿、景點、車程與備註。可先預覽，再由瀏覽器輸出 PDF。</p>
         <div class="row-2">
           <button id="btnPreviewPrint" class="btn-outline">預覽列印頁</button>
-          <button id="btnDownloadPrint" class="btn-primary">下載 HTML</button>
+          <button id="btnDownloadPrint" class="btn-primary">輸出 PDF</button>
         </div>
       </div>
       <div class="card">
         <div class="step-title"><span class="step-badge">3</span><span class="step-text">攜帶物品清單</span></div>
-        <p class="hint">目前是前端初版範本；之後可改接 GAS，讓你在試算表維護項目。</p>
+        <p class="hint">不做互動勾選，提供可列印或下載的清單版；之後可改接 GAS，讓你在試算表維護項目。</p>
+        <div class="row-2" style="margin-bottom:10px">
+          <button id="btnPackingPreview" class="btn-outline">預覽列印清單</button>
+          <button id="btnPackingDownload" class="btn-primary">下載清單 HTML</button>
+        </div>
         <div id="packingListBox" class="resource-list"></div>
       </div>
       <div class="bottom-space"></div>

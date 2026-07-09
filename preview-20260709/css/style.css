@@ -325,6 +325,8 @@ body.readonly .edit-only { display: none !important; }
 .packing-group ul { list-style: none; margin-top: 6px; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
 .packing-group li label { font-weight: 400; margin: 0; display: flex; gap: 6px; align-items: center; }
 .packing-group input { width: auto; margin: 0; }
+.packing-line { display: flex; gap: 7px; align-items: flex-start; color: var(--text); }
+.print-check { color: var(--main); font-weight: 700; line-height: 1.4; }
 
 /* ---------- 地圖（模擬 SVG） ---------- */
 .mock-map { width: 100%; height: 100%; display: block; background: #EFE9DD; }
