@@ -527,21 +527,46 @@ const Itin = (() => {
 
   // ---------- 住宿拖曳到其他天（獨立於景點拖曳：住宿是「晚」不是「日間景點」） ----------
   let hotelDrag = null;
+  function hotelNightLabel(night) {
+    return `第 ${Number(night) + 1} 晚`;
+  }
+  function sortHotels() {
+    trip().hotels.sort((a, b) =>
+      (Number(a.night) || 0) - (Number(b.night) || 0) ||
+      String(a.name || '').localeCompare(String(b.name || '')));
+  }
+  function hotelAtNightExcept(hotel, night) {
+    return trip().hotels.find(x => x !== hotel && Number(x.night) === Number(night)) || null;
+  }
+  function applyHotelNightMove(hotel, newNight) {
+    const t = trip();
+    t.hotels = t.hotels.filter(x => x !== hotel && Number(x.night) !== Number(newNight));
+    hotel.night = Number(newNight);
+    t.hotels.push(hotel);
+    sortHotels();
+    t.legsByDay = {};
+  }
+  function hotelDropTargetAt(x, y) {
+    const el = document.elementFromPoint(x, y);
+    const card = el && el.closest ? el.closest('#dayList .day-card') : null;
+    return card && Number(card.dataset.day) > 0 ? card : null;
+  }
+  function markHotelDropTarget(target) {
+    document.querySelectorAll('#dayList .day-card').forEach(card =>
+      card.classList.toggle('drop-target', card === target));
+  }
   function startHotelDrag(e, hotel, rowEl) {
     if (Store.isReadonly()) return;
     e.preventDefault();
     rowEl.classList.add('dragging');
     hotelDrag = { hotel, rowEl };
+    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
     document.addEventListener('pointermove', onHotelDragMove);
     document.addEventListener('pointerup', onHotelDragEnd, { once: true });
   }
   function onHotelDragMove(e) {
     if (!hotelDrag) return;
-    document.querySelectorAll('#dayList .day-card').forEach(card => {
-      const rect = card.getBoundingClientRect();
-      const inside = e.clientY > rect.top && e.clientY < rect.bottom && Number(card.dataset.day) > 0;
-      card.classList.toggle('drop-target', inside);
-    });
+    markHotelDropTarget(hotelDropTargetAt(e.clientX, e.clientY));
   }
   function onHotelDragEnd(e) {
     document.removeEventListener('pointermove', onHotelDragMove);
@@ -549,7 +574,8 @@ const Itin = (() => {
     const { hotel, rowEl } = hotelDrag;
     hotelDrag = null;
     rowEl.classList.remove('dragging');
-    const target = [...document.querySelectorAll('#dayList .day-card.drop-target')][0];
+    const target = hotelDropTargetAt(e.clientX, e.clientY) ||
+      [...document.querySelectorAll('#dayList .day-card.drop-target')][0];
     document.querySelectorAll('#dayList .day-card').forEach(c => c.classList.remove('drop-target'));
     if (!target) return;
     const d = Number(target.dataset.day);
@@ -559,16 +585,14 @@ const Itin = (() => {
     if (newNight >= maxNight) { UI.toast(`第 ${d} 天是最後一天，沒有過夜，住宿無法移過去`); return; }
     if (newNight === hotel.night) return;
     const doMove = () => {
-      t.hotels = t.hotels.filter(x => !(x.night === newNight && x.placeId !== hotel.placeId)); // 覆蓋目標晚原住宿
-      hotel.night = newNight;
-      t.legsByDay = {};
+      applyHotelNightMove(hotel, newNight);
       Store.touch({ manual: true });
       render();
-      UI.alert('住宿已移動', `「${hotel.name}」已改為第 ${newNight + 1} 晚入住。\n\n⚠️ 住宿變動會改變路線的起終點，車程已重新估算；建議再按一次「一鍵排最佳路線」。`);
+      UI.alert('住宿已移動', `「${hotel.name}」已改為${hotelNightLabel(newNight)}入住。\n\n⚠️ 住宿變動會改變路線的起終點，車程已重新估算；建議再按一次「一鍵排最佳路線」。`);
     };
-    const occupied = t.hotels.find(x => x.night === newNight && x.placeId !== hotel.placeId);
+    const occupied = hotelAtNightExcept(hotel, newNight);
     if (occupied) {
-      UI.confirm('目標晚已有住宿', `第 ${newNight + 1} 晚已是「${occupied.name}」。要換成「${hotel.name}」嗎？`, doMove);
+      UI.confirm('目標晚已有住宿', `${hotelNightLabel(newNight)}已是「${occupied.name}」。要換成「${hotel.name}」嗎？`, doMove);
     } else doMove();
   }
 
@@ -594,7 +618,7 @@ const Itin = (() => {
         ${Object.entries(UI.PAY_LABELS).map(([v, lb]) =>
           `<option value="${v}" ${h.pay === v ? 'selected' : ''}>${lb}</option>`).join('')}
       </select>
-      <label>住宿夜晚</label>
+      <label>住宿夜晚（第 1 晚 = 第 1 天晚上）</label>
       <select id="hEditNight">
         ${Array.from({ length: Math.max(Store.days() - 1, 1) }, (_, i) =>
           `<option value="${i}" ${h.night === i ? 'selected' : ''}>第 ${i + 1} 晚</option>`).join('')}
@@ -637,6 +661,11 @@ const Itin = (() => {
           const pw = Number(document.getElementById('hEditPw').value) || '';
           const pe = Number(document.getElementById('hEditPe').value) || '';
           const addr = document.getElementById('hEditAddr').value.trim();
+          let nextLat = h.lat;
+          let nextLng = h.lng;
+          let nextHasCoords = h.hasCoords;
+          let nextEstimateWarning = h.estimateWarning || '';
+          let locatedByAddress = false;
           if (isCustom) {
             const latRaw = document.getElementById('hEditLat').value.trim();
             const lngRaw = document.getElementById('hEditLng').value.trim();
@@ -646,29 +675,41 @@ const Itin = (() => {
               if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
                 UI.toast('座標格式不對，請使用十進制度 DD'); return;
               }
-              h.lat = lat; h.lng = lng; h.hasCoords = true; h.estimateWarning = '';
+              nextLat = lat; nextLng = lng; nextHasCoords = true; nextEstimateWarning = '';
             } else if (addr) {
               // 沒填座標但有地址 → 用 Google 地圖自動定位
               UI.loading(true, '用地址定位中…');
               const geo = await Api.geocodeAddress(addr);
               UI.loading(false);
               if (geo) {
-                h.lat = geo.lat; h.lng = geo.lng; h.hasCoords = true; h.estimateWarning = '';
-                UI.toast('已從地址定位，路程可以估算了');
+                nextLat = geo.lat; nextLng = geo.lng; nextHasCoords = true; nextEstimateWarning = '';
+                locatedByAddress = true;
               } else {
-                h.lat = null; h.lng = null; h.hasCoords = false;
+                nextLat = null; nextLng = null; nextHasCoords = false;
+                nextEstimateWarning = '沒有座標，住宿路程無法精準估算';
               }
             } else {
-              h.lat = null; h.lng = null; h.hasCoords = false;
+              nextLat = null; nextLng = null; nextHasCoords = false;
+              nextEstimateWarning = '沒有座標，住宿路程無法精準估算';
             }
           }
-          h.address = addr;
-          h.note = note; h.pay = pay; h.night = night; h.priceWeekday = pw; h.priceWeekend = pe;
-          trip().legsByDay = {};
-          Store.touch({ manual: true });
-          UI.closeModal();
-          render();
-          UI.toast('住宿資訊已更新');
+          const applySave = () => {
+            h.address = addr;
+            if (isCustom) {
+              h.lat = nextLat; h.lng = nextLng; h.hasCoords = nextHasCoords; h.estimateWarning = nextEstimateWarning;
+            }
+            h.note = note; h.pay = pay; h.priceWeekday = pw; h.priceWeekend = pe;
+            if (night !== h.night) applyHotelNightMove(h, night);
+            else { trip().legsByDay = {}; sortHotels(); }
+            Store.touch({ manual: true });
+            UI.closeModal();
+            render();
+            UI.toast(locatedByAddress ? '已從地址定位，住宿資訊已更新' : '住宿資訊已更新');
+          };
+          const occupied = night !== h.night ? hotelAtNightExcept(h, night) : null;
+          if (occupied) {
+            UI.confirm('目標晚已有住宿', `${hotelNightLabel(night)}已是「${occupied.name}」。要換成「${h.name}」嗎？`, applySave);
+          } else applySave();
         }
       }
     ]);
