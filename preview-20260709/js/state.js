@@ -24,6 +24,7 @@ const Store = (() => {
       dayStart: basic.dayStart || CONFIG.defaults.dayStart,
       dayEnd: basic.dayEnd || CONFIG.defaults.dayEnd,
       dayStartOv: {},   // {day: 'HH:MM'} 個別天的出發時間（覆寫 dayStart）
+      dayEndOv: {},     // {day: 'HH:MM'} 個別天的結束時間（覆寫 dayEnd）
       hotels: [],        // [{night(0-based), placeId, name, address, rating, phone, lat, lng}]
       spots: [],         // [{id, placeId, name, address, lat, lng, stayMin, must, note, day(1-based|0未排), order}]
       legsByDay: {},     // {day: [分鐘,...]}（排完路線後快取，含飯店段）

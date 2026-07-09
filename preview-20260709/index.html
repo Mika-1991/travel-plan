@@ -184,6 +184,7 @@
   <section id="page-map" class="page hidden">
     <div id="fullMap" class="map-canvas full"></div>
     <div id="mapDayChips" class="map-day-chips"></div>
+    <div id="mapDaySummary" class="map-day-summary"></div>
   </section>
 
   <!-- 分帳頁 -->
@@ -225,19 +226,19 @@
   <!-- 下載資源頁 -->
   <section id="page-res" class="page hidden">
     <div class="page-pad">
-      <h2 class="page-title">📥 下載資源</h2>
+      <h2 class="page-title">📥 下載每日行程</h2>
       <div class="card">
-        <div class="step-title"><span class="step-badge">1</span><span class="step-text">Excel 匯出</span></div>
-        <p class="hint">輸出繁體中文欄位，分頁包含總覽、每日行程、住宿、景點、支出明細、結算與攜帶清單。</p>
-        <button id="btnExportExcel" class="btn-primary" style="width:100%">下載 Excel</button>
-      </div>
-      <div class="card">
-        <div class="step-title"><span class="step-badge">2</span><span class="step-text">每日行程 PDF</span></div>
+        <div class="step-title"><span class="step-badge">1</span><span class="step-text">每日行程 PDF</span></div>
         <p class="hint">A4 列印版：依日期列出住宿、景點、車程與備註。可先預覽，再由瀏覽器輸出 PDF。</p>
         <div class="row-2">
           <button id="btnPreviewPrint" class="btn-outline">預覽列印頁</button>
           <button id="btnDownloadPrint" class="btn-primary">輸出 PDF</button>
         </div>
+      </div>
+      <div class="card">
+        <div class="step-title"><span class="step-badge">2</span><span class="step-text">Excel 匯出</span></div>
+        <p class="hint">輸出繁體中文欄位，分頁包含總覽、每日行程、住宿、景點、支出明細、結算與攜帶清單。</p>
+        <button id="btnExportExcel" class="btn-primary" style="width:100%">下載 Excel</button>
       </div>
       <div class="card">
         <div class="step-title"><span class="step-badge">3</span><span class="step-text">攜帶物品清單</span></div>

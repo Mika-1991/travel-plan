@@ -78,6 +78,11 @@ const Itin = (() => {
     const t = trip();
     return (t.dayStartOv || {})[day] || t.dayStart;
   }
+  // 每一天的結束時間（可個別覆寫，預設用全域 dayEnd）
+  function dayEndOf(day) {
+    const t = trip();
+    return (t.dayEndOv || {})[day] || t.dayEnd;
+  }
 
   function dayCenter(day) {
     const list = spotsOfDay(day).filter(Logic.hasCoords);
@@ -486,6 +491,9 @@ const Itin = (() => {
     const sp = startPoint(d), ep = endPoint(d);
     const legs = legsForDay(d);
     const tl = Logic.buildTimeline(list, legs, dayStartOf(d));
+    // 用未折疊的原始結束分鐘（endTime 會 %24 折回，跨午夜時會誤判）
+    const rawEndMin = Logic.toMin(dayStartOf(d)) + tl.totalTravel + tl.totalStay;
+    const overTime = list.length > 0 && rawEndMin > Logic.toMin(dayEndOf(d));
     const noCoord = missingCoordNames(list, [sp && sp.p, ep && ep.p]);
     const estimateHint = noCoord.length
       ? `<div class="rain-alert" style="border-color:var(--danger);background:#FFF4EF">⚠️ ${noCoord.length} 個地點沒有座標，路程會略過或不精準：${noCoord.map(UI.esc).join('、')}</div>`
@@ -508,8 +516,9 @@ const Itin = (() => {
       ${estimateHint}
       <div data-rain-slot="${d}"></div>
       ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束</p>` : ''}
+      ${overTime ? `<div class="rain-alert" style="border-color:var(--danger);background:#FFF4EF">⚠️ 這天可能排不完：預計 ${tl.endTime} 結束，已超過設定的結束時間 ${dayEndOf(d)}。可調整出發／結束時間、縮短停留，或把景點移到其他天。</div>` : ''}
       <div class="day-tools">
-        <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)} 出發${(t.dayStartOv || {})[d] ? '＊' : ''}</button>
+        <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)}–${dayEndOf(d)}${((t.dayStartOv || {})[d] || (t.dayEndOv || {})[d]) ? '＊' : ''}</button>
         <button data-addspot="${d}" class="edit-only">➕ 加景點</button>
         <button data-food="${d}" class="edit-only">🍜 附近美食</button>
         ${list.length ? `<a href="${dayNavLink(d, list)}" target="_blank" rel="noopener">🧭 全日導航</a>` : ''}
@@ -550,7 +559,7 @@ const Itin = (() => {
     }
 
     const timeBtn = head.querySelector(`[data-daytime="${d}"]`);
-    if (timeBtn) timeBtn.onclick = () => editDayStart(d);
+    if (timeBtn) timeBtn.onclick = () => editDayTime(d);
     const addBtn = head.querySelector(`[data-addspot="${d}"]`);
     if (addBtn) addBtn.onclick = () => openAddSpot(d);
     const foodBtn = head.querySelector(`[data-food="${d}"]`);
@@ -563,38 +572,45 @@ const Itin = (() => {
     return card;
   }
 
-  // 調整某一天的出發時間（時間軸依停留＋車程重新推算）
-  function editDayStart(d) {
+  // 調整某一天的出發／結束時間（時間軸依停留＋車程重新推算；超時會提醒）
+  function editDayTime(d) {
     const t = trip();
     if (!t.dayStartOv) t.dayStartOv = {};
+    if (!t.dayEndOv) t.dayEndOv = {};
     const body = document.createElement('div');
     body.innerHTML = `
-      <label>第 ${d} 天幾點出發？</label>
+      <label>第 ${d} 天出發時間</label>
       <input id="dayStartInp" type="time" value="${dayStartOf(d)}">
-      <p class="hint">改了之後，這一天的抵達／出發時間會依停留時間與車程自動重排。全域預設是 ${t.dayStart}。</p>`;
+      <label style="margin-top:8px">第 ${d} 天結束時間</label>
+      <input id="dayEndInp" type="time" value="${dayEndOf(d)}">
+      <p class="hint">抵達／出發時間會依停留與車程自動重排。若行程排不進這個時段，會在該天卡片提醒你。全域預設 ${t.dayStart}–${t.dayEnd}。</p>`;
     const actions = [{
       label: '套用', primary: true,
       onClick: () => {
-        const v = document.getElementById('dayStartInp').value;
-        if (!v) { UI.toast('請選擇時間'); return; }
-        t.dayStartOv[d] = v;
+        const s = document.getElementById('dayStartInp').value;
+        const e = document.getElementById('dayEndInp').value;
+        if (!s || !e) { UI.toast('請選擇時間'); return; }
+        if (Logic.toMin(e) <= Logic.toMin(s)) { UI.toast('結束時間要晚於出發時間'); return; }
+        t.dayStartOv[d] = s;
+        t.dayEndOv[d] = e;
         Store.touch();
         UI.closeModal();
         render();
-        UI.toast(`第 ${d} 天改為 ${v} 出發，時間已重排`);
+        UI.toast(`第 ${d} 天改為 ${s}–${e}，時間已重排`);
       }
     }];
-    if (t.dayStartOv[d]) actions.push({
-      label: `還原預設 ${t.dayStart}`,
+    if ((t.dayStartOv[d] || t.dayEndOv[d])) actions.push({
+      label: `還原預設 ${t.dayStart}–${t.dayEnd}`,
       onClick: () => {
         delete t.dayStartOv[d];
+        delete t.dayEndOv[d];
         Store.touch();
         UI.closeModal();
         render();
-        UI.toast(`第 ${d} 天恢復 ${t.dayStart} 出發`);
+        UI.toast(`第 ${d} 天恢復預設 ${t.dayStart}–${t.dayEnd}`);
       }
     });
-    UI.modal(`🕘 第 ${d} 天出發時間`, body, actions);
+    UI.modal(`🕘 第 ${d} 天時間`, body, actions);
   }
 
   function legRow(min) {
@@ -859,6 +875,7 @@ const Itin = (() => {
             ${navAction}
           </div>
         </div>
+        ${s.photo ? `<img class="spot-thumb" src="${UI.esc(s.photo)}" alt="" loading="lazy" title="${UI.esc(s.name)}">` : ''}
         <div class="spot-actions edit-only">
           <button class="drag-grip" title="按住拖曳排序（可拖到其他天）">☰</button>
           <button data-act="visited" title="${s.visited ? '取消已去過' : '標記已去過'}">${s.visited ? '☑' : '☐'}</button>
@@ -887,6 +904,8 @@ const Itin = (() => {
     div.querySelector('[data-act="menu"]').onclick = () => spotMenu(s);
     const grip = div.querySelector('.drag-grip');
     grip.addEventListener('pointerdown', e => startDrag(e, s, div));
+    const thumb = div.querySelector('.spot-thumb');
+    if (thumb) thumb.onclick = () => UI.photoZoom(s.photo, s.name);
     return div;
   }
 
@@ -1047,6 +1066,25 @@ const Itin = (() => {
       `<span class="chip ${((selDay || 0) === i) ? 'on' : ''}" data-d="${i}" style="cursor:pointer;${(selDay || 0) === i ? '' : 'background:var(--white)'};${i > 0 ? `border-color:${dayColor(i)};${(selDay || 0) === i ? `background:${dayColor(i)}` : `color:${dayColor(i)}`}` : ''}">${tt}</span>`).join('');
     chips.querySelectorAll('.chip').forEach(c =>
       c.onclick = () => renderFullMap(Number(c.dataset.d)));
+    renderMapDaySummary(selDay);
+  }
+
+  // 路線頁：每日預估總車程
+  function renderMapDaySummary(selDay) {
+    const box = $('mapDaySummary');
+    if (!box) return;
+    const days = Store.days();
+    const dayTotal = d => legsForDay(d).reduce((a, b) => a + (b || 0), 0);
+    let total = 0;
+    const rows = [];
+    for (let d = 1; d <= days; d++) {
+      if (selDay && d !== selDay) continue;
+      const mins = dayTotal(d);
+      total += mins;
+      rows.push(`<div class="mds-row"><span class="mds-dot" style="background:${dayColor(d)}"></span>第 ${d} 天<b>${Logic.fmtDur(mins)}</b></div>`);
+    }
+    const head = `<div class="mds-head">🚗 預估每日總車程${!selDay ? `（全程 ${Logic.fmtDur(total)}）` : ''}</div>`;
+    box.innerHTML = head + rows.join('');
   }
 
   async function drawMap(el, selDay) {

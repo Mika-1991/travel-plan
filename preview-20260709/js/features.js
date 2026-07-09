@@ -1255,25 +1255,27 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
       '</div>';
   }
 
-  // 主要：寄送完整行程（唯讀連結＋每日行程）
+  // 主要：寄送完整行程（唯讀連結＋每日行程）；支援多位收件人
   function itineraryEmailBlock(t) {
     const div = document.createElement('div');
     div.innerHTML = `
-      <p style="margin:2px 0 4px"><b style="color:var(--accent)">📧 寄送完整行程</b>（唯讀檢視連結＋每日行程，寄給自己或親友）</p>
+      <p style="margin:2px 0 4px"><b style="color:var(--accent)">📧 寄送完整行程</b></p>
       <div class="row-add">
-        <input type="email" placeholder="收件人 Email" value="${UI.esc(t.creatorEmail || '')}">
+        <input type="email" placeholder="收件人 Email（多位用逗號分隔）" value="${UI.esc(t.creatorEmail || '')}">
         <button class="btn-small">寄送</button>
       </div>`;
     const inp = div.querySelector('input');
     div.querySelector('button').onclick = async () => {
-      const email = inp.value.trim();
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { UI.toast('Email 格式看起來不對，請再確認'); return; }
+      const list = inp.value.split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean);
+      if (!list.length) { UI.toast('請輸入至少一個 Email'); return; }
+      const bad = list.filter(e => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+      if (bad.length) { UI.toast(`這些 Email 格式怪怪的：${bad.join('、')}`); return; }
       try {
-        UI.loading(true, '寄送中…');
+        UI.loading(true, `寄送中…（${list.length} 位）`);
         const html = fullItineraryEmailHtml(t, shareLink(t.viewCode));
-        const r = await Api.cloudSendItinerary(email, `【Mika 旅遊路線規劃】${t.name} 完整行程`, html, t.editCode);
+        const r = await Api.cloudSendItinerary(list.join(','), `【Mika 旅遊路線規劃】${t.name} 完整行程`, html, t.editCode);
         UI.loading(false);
-        UI.toast(r.simulated ? '（模擬模式）正式版上線後會真的寄出唷' : '已寄出完整行程！請到信箱收信');
+        UI.toast(r.simulated ? '（模擬模式）正式版上線後會真的寄出唷' : `已寄出完整行程給 ${list.length} 位！`);
       } catch (e) { UI.loading(false); UI.alert('寄送失敗', e.message); }
     };
     return div;
@@ -1286,34 +1288,23 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
       body.innerHTML = `
         <div class="stack">
           <button class="btn-primary" data-copy="${shareLink(t.viewCode)}">👀 複製唯讀連結（分享給朋友一起看）</button>
-          <button class="btn-outline" data-copy="${t.viewCode}">複製唯讀代碼｜${t.viewCode}</button>
         </div>
         <p class="hint" style="margin-top:8px">你目前是唯讀模式，看不到編輯代碼。</p>`;
     } else {
-      // 1) 最主要：寄送完整行程
-      body.appendChild(itineraryEmailBlock(t));
-      // 2) 快速複製唯讀連結（給親友看）
-      const quick = document.createElement('div');
-      quick.className = 'stack';
-      quick.style.marginTop = '10px';
-      quick.innerHTML = `
-        <button class="btn-primary" data-copy="${shareLink(t.viewCode)}">👀 複製唯讀連結（給親友看）</button>
-        <button class="btn-outline" data-copy="${t.viewCode}">複製唯讀代碼｜${t.viewCode}</button>`;
-      body.appendChild(quick);
-      // 3) 次要：代碼備份（含可修改的編輯碼）寄給本人
-      const backup = document.createElement('div');
-      backup.style.marginTop = '16px';
-      backup.style.borderTop = '1px solid var(--line, #E8DDCD)';
-      backup.style.paddingTop = '12px';
-      backup.innerHTML = `<p class="hint" style="margin:0 0 4px">🔐 行程代碼備份（含<b>可修改行程的編輯碼</b>，建議只寄給自己保存）</p>`;
-      backup.appendChild(emailBlock(t));
-      const codes = document.createElement('div');
-      codes.innerHTML = codesBlock(t);
-      backup.appendChild(codes);
-      body.appendChild(backup);
+      // 順序：複製唯讀連結 → 複製編輯連結 → 寄送完整行程（代碼建立時已寄給本人，這裡不再列）
+      const links = document.createElement('div');
+      links.className = 'stack';
+      links.innerHTML = `
+        <button class="btn-primary" data-copy="${shareLink(t.viewCode)}">👀 複製唯讀連結（親友只能看）</button>
+        <button class="btn-outline" data-copy="${shareLink(t.editCode)}">✏️ 複製編輯連結（可修改行程）</button>`;
+      body.appendChild(links);
+      const mailWrap = document.createElement('div');
+      mailWrap.style.marginTop = '12px';
+      mailWrap.appendChild(itineraryEmailBlock(t));
+      body.appendChild(mailWrap);
     }
     bindCopyButtons(body);
-    UI.modal('分享行程', body, []);
+    UI.modal('📤 分享行程', body, []);
   }
 
   return {

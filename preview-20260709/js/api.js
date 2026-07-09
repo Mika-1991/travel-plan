@@ -483,9 +483,20 @@ const Api = (() => {
       const res = await svc.route({
         origin: { lat: origin.lat, lng: origin.lng },
         destination: { lat: destination.lat, lng: destination.lng },
-        waypoints, optimizeWaypoints: false, travelMode
+        waypoints, optimizeWaypoints: false, travelMode,
+        avoidFerries: true   // 避免路線繞到離島渡輪（例如飄到澎湖／七美）
       });
-      return res.routes[0].overview_path.map(ll => ({ lat: ll.lat(), lng: ll.lng() }));
+      const path = res.routes[0].overview_path.map(ll => ({ lat: ll.lat(), lng: ll.lng() }));
+      // 合理性防護：道路路徑長度若遠大於直線距離（繞太遠／怪路線），改用直線
+      let pathKm = 0;
+      for (let i = 1; i < path.length; i++) pathKm += Logic.haversineKm(path[i - 1], path[i]);
+      let directKm = 0;
+      for (let i = 1; i < seq.length; i++) directKm += Logic.haversineKm(seq[i - 1], seq[i]);
+      if (pathKm > directKm * 2.5 + 10) {
+        console.warn(`道路路徑異常（${Math.round(pathKm)}km vs 直線 ${Math.round(directKm)}km），改用直線`);
+        return null;
+      }
+      return path;
     } catch (e) {
       console.warn('道路路徑查詢失敗，改用直線', e);
       return null;
