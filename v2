@@ -1,1 +1,257 @@
 
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Mika 旅遊路線規劃</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ===== 頂部標題列 ===== -->
+<header class="app-header">
+  <h1 id="appTitle" title="回到行程主畫面">Mika 旅遊路線規劃</h1>
+  <div class="header-actions">
+    <span id="syncDot" class="sync-dot" title="同步狀態"></span>
+    <button id="btnShare" class="icon-btn hidden" title="分享行程" aria-label="分享行程">📤</button>
+    <button id="btnReload" class="icon-btn hidden" title="重新從雲端載入" aria-label="重新從雲端載入">🔄</button>
+    <button id="btnHome" class="icon-btn hidden" title="回到開始畫面" aria-label="回到開始畫面">🏠</button>
+    <button id="btnClear" class="icon-btn hidden" title="清除本機資料" aria-label="清除本機資料">🧹</button>
+  </div>
+</header>
+
+<!-- ===== 唯讀模式標示 ===== -->
+<div id="readonlyBanner" class="readonly-banner hidden">👀 唯讀模式：只能瀏覽，無法編輯</div>
+
+<!-- ===== 開站精靈 ===== -->
+<main id="wizard" class="wizard">
+
+  <!-- Step 0：行程選擇 -->
+  <section id="w-start" class="w-screen">
+    <div class="hero">
+      <div class="temp-logo" aria-label="Mika 暫用 logo">M</div>
+      <h2>要從哪裡開始？</h2>
+      <p class="hint">輸入景點，一鍵排出最佳路線</p>
+    </div>
+    <button id="btnNewTrip" class="btn-primary btn-big">🌟 建立新行程</button>
+    <button id="btnEnterCode" class="btn-outline btn-big">🔑 輸入代碼／Email 找回行程</button>
+    <button id="btnResume" class="btn-outline btn-big hidden">⏰ 繼續上次行程</button>
+    <div id="codeBox" class="code-box hidden">
+      <label for="codeInput">貼上行程代碼，或輸入建立行程時留的 Email</label>
+      <input id="codeInput" type="text" placeholder="例如 TPE826 或 mika@gmail.com" autocomplete="off">
+      <p class="hint">編輯代碼可修改、唯讀代碼只能看；用 Email 找回時，系統只會把行程代碼寄回該信箱，不會直接在畫面上開啟編輯權限。</p>
+      <button id="btnLoadCode" class="btn-primary">載入行程</button>
+    </div>
+  </section>
+
+  <!-- Step 1：旅遊基本資料 -->
+  <section id="w-basic" class="w-screen hidden">
+    <div class="step-title"><span class="step-badge">1</span><span class="step-text">旅遊基本資料</span></div>
+    <div class="card">
+      <label for="inpTripName">行程名稱</label>
+      <input id="inpTripName" type="text" placeholder="例如：台北三天兩夜" maxlength="30">
+
+      <label for="inpCreatorEmail">建立者 Email（必填，用來找回行程）</label>
+      <input id="inpCreatorEmail" type="email" placeholder="例如：mika@gmail.com" autocomplete="email">
+      <p class="hint">請填自己的 Email；之後找回行程會把代碼寄到這個信箱。</p>
+
+      <label>旅遊日期</label>
+      <div class="row-2">
+        <input id="inpStart" type="date" aria-label="開始日期">
+        <input id="inpEnd" type="date" aria-label="結束日期">
+      </div>
+      <p id="dayCountHint" class="hint"></p>
+
+      <label for="inpMember">成員（分帳會用到，一個一個加入；不可輸入「我」）</label>
+      <div class="row-add">
+        <input id="inpMember" type="text" placeholder="輸入暱稱，例如：Mika" maxlength="10">
+        <button id="btnAddMember" class="btn-small">加入</button>
+      </div>
+      <div id="memberChips" class="chips"></div>
+
+      <label>主要交通方式（之後可隨時切換）</label>
+      <div class="seg" id="segTransport">
+        <button data-v="driving" class="on">🚗 開車</button>
+        <button data-v="transit">🚇 大眾運輸</button>
+        <button data-v="walking">🚶 走路</button>
+      </div>
+
+      <label>每日活動時間</label>
+      <div class="row-2">
+        <input id="inpDayStart" type="time" value="09:00" aria-label="每日開始時間">
+        <input id="inpDayEnd" type="time" value="21:00" aria-label="每日結束時間">
+      </div>
+
+      <label>🚩 集合出發地（選填，第一天從這裡出發）</label>
+      <div class="row-add">
+        <input id="inpMeetPoint" type="text" placeholder="例如：台中火車站">
+        <button id="btnMeetSearch" class="btn-small">搜尋</button>
+      </div>
+      <div id="meetResults" class="result-list"></div>
+      <div id="meetChosen" class="chips"></div>
+
+      <label>🏁 解散地（選填，最後一天在這裡結束）</label>
+      <div class="row-add">
+        <input id="inpEndPoint" type="text" placeholder="例如：台中火車站">
+        <button id="btnEndSearch" class="btn-small">搜尋</button>
+      </div>
+      <div id="endResults" class="result-list"></div>
+      <div id="endChosen" class="chips"></div>
+    </div>
+    <div class="w-nav">
+      <button class="btn-outline" data-back="w-start">上一步</button>
+      <button id="btnBasicNext" class="btn-primary">下一步</button>
+    </div>
+  </section>
+
+  <!-- Step 2：飯店調查 -->
+  <section id="w-hotel" class="w-screen hidden">
+    <div class="step-title"><span class="step-badge">2</span><span class="step-text">飯店安排</span></div>
+    <div class="card">
+      <p class="q-text">🏨 飯店訂好了嗎？</p>
+      <div class="stack">
+        <button id="btnHotelYes" class="btn-outline btn-big">已經訂好了，我來輸入</button>
+        <button id="btnHotelNo" class="btn-outline btn-big">還沒訂，之後請系統推薦</button>
+        <button id="btnHotelSkip" class="btn-ghost">先跳過，稍後再設定</button>
+      </div>
+    </div>
+
+    <!-- 已訂 → 逐晚輸入 -->
+    <div id="hotelInputArea" class="hidden">
+      <div class="card">
+        <p class="hint" id="hotelNightHint"></p>
+        <div id="hotelNightTabs" class="chips"></div>
+        <label for="inpHotelSearch">輸入飯店名稱</label>
+        <div class="row-add">
+          <input id="inpHotelSearch" type="text" placeholder="例如：福容大飯店">
+          <button id="btnHotelSearch" class="btn-small">搜尋</button>
+        </div>
+        <div id="hotelResults" class="result-list"></div>
+        <div class="card" style="background:var(--white);margin-top:12px">
+          <label>搜尋不到時，改用自訂住宿</label>
+          <input id="inpCustomHotelName" type="text" placeholder="例如：朋友家、親戚家、民宿暫名">
+          <input id="inpCustomHotelAddress" type="text" placeholder="地址或位置備註，可空白">
+          <div class="row-2">
+            <input id="inpCustomHotelLat" type="number" step="any" placeholder="緯度 DD，可空白">
+            <input id="inpCustomHotelLng" type="number" step="any" placeholder="經度 DD，可空白">
+          </div>
+          <p class="hint">座標可以不填，但未填座標時，住宿到景點的路程會無法精準估算。</p>
+          <button id="btnCustomHotel" class="btn-outline" style="width:100%">使用自訂住宿</button>
+        </div>
+        <div id="hotelChosen" class="chosen-list"></div>
+        <label class="check-row"><input type="checkbox" id="chkSameHotel" checked> 每晚都住同一間</label>
+      </div>
+      <div class="w-nav">
+        <button class="btn-outline" id="btnHotelBack">上一步</button>
+        <button id="btnHotelDone" class="btn-primary">完成，開始規劃 →</button>
+      </div>
+    </div>
+
+    <div id="hotelNoArea" class="hidden">
+      <div class="card">
+        <p>沒問題！等你把景點加進來後，到行程頁點「🏨 推薦飯店」，系統會依景點位置推薦評分 4.0 以上的飯店。</p>
+      </div>
+      <div class="w-nav">
+        <button class="btn-outline" id="btnHotelBack2">上一步</button>
+        <button id="btnHotelDone2" class="btn-primary">完成，開始規劃 →</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ===== 主畫面 ===== -->
+<main id="app" class="app hidden">
+
+  <!-- 行程頁：上圖下表 -->
+  <section id="page-trip" class="page">
+    <div id="mapPane" class="map-pane"><div id="miniMap" class="map-canvas"></div></div>
+    <div id="dragHandle" class="drag-handle" title="上下拖曳調整地圖大小"><span></span></div>
+    <div class="trip-body">
+      <div class="add-spot-row edit-only">
+        <input id="inpSpot" type="text" placeholder="🔍 輸入想去的景點，例如：台北101" autocomplete="off">
+        <div id="spotSuggest" class="suggest hidden"></div>
+      </div>
+      <div id="tripSummaryBar" class="summary-bar hidden"></div>
+      <div id="dayList" class="day-list"></div>
+      <div id="tripEmpty" class="empty-state">
+        <p>👇 還沒有景點</p>
+        <p>在上方搜尋框輸入想去的地方，<br>加入 2 個以上景點，就能一鍵排出最佳路線！</p>
+      </div>
+      <div class="bottom-space"></div>
+    </div>
+  </section>
+
+  <!-- 地圖頁：全螢幕 -->
+  <section id="page-map" class="page hidden">
+    <div id="fullMap" class="map-canvas full"></div>
+    <div id="mapDayChips" class="map-day-chips"></div>
+  </section>
+
+  <!-- 分帳頁 -->
+  <section id="page-exp" class="page hidden">
+    <div class="page-pad">
+      <h2 class="page-title">💰 分帳（均分制）</h2>
+      <div class="card edit-only">
+        <div class="step-title"><span class="step-badge">1</span><span class="step-text">記一筆</span></div>
+        <label>快速選項（點一下自動填入項目）</label>
+        <div id="expQuick" class="chips"></div>
+        <div class="row-2">
+          <input id="expDate" type="date" aria-label="日期">
+          <input id="expItem" type="text" placeholder="項目，例如：午餐" maxlength="20">
+        </div>
+        <div class="row-2">
+          <input id="expAmount" type="number" placeholder="金額" min="1" inputmode="numeric">
+          <select id="expPayer" aria-label="誰付的"></select>
+        </div>
+        <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="expTreat"> 🎁 這筆是請客，不用分帳</label>
+        <div id="expPartsWrap">
+          <label>誰參與（預設全員）</label>
+          <div id="expParts" class="chips"></div>
+        </div>
+        <button id="btnAddExp" class="btn-primary">＋ 加入這筆</button>
+      </div>
+      <div class="card">
+        <div class="step-title"><span class="step-badge">2</span><span class="step-text">支出明細</span></div>
+        <div id="expList" class="exp-list"><p class="hint">還沒有任何支出</p></div>
+      </div>
+      <div class="card">
+        <div class="step-title"><span class="step-badge">3</span><span class="step-text">結算結果</span></div>
+        <div id="expSettle"><p class="hint">加入支出後，這裡會自動算出「誰付給誰多少」</p></div>
+        <button id="btnCopySettle" class="btn-outline hidden">📋 複製結算結果</button>
+      </div>
+      <div class="bottom-space"></div>
+    </div>
+  </section>
+
+  <!-- 懸浮主按鈕（行程頁專屬） -->
+  <div id="fabWrap" class="fab-wrap edit-only">
+    <button id="btnOptimize" class="fab">🧭 一鍵排最佳路線</button>
+  </div>
+
+  <!-- 頂部分頁列 -->
+  <nav id="tabbar" class="tabbar">
+    <button data-page="page-trip" class="on"><span>🗓️</span>行程</button>
+    <button data-page="page-map"><span>🗺️</span>路線</button>
+    <button data-page="page-exp"><span>💰</span>分帳</button>
+  </nav>
+</main>
+
+<!-- ===== 共用：彈窗與提示 ===== -->
+<div id="modalOverlay" class="modal-overlay hidden">
+  <div id="modalBox" class="modal-box"></div>
+</div>
+<div id="toast" class="toast hidden"></div>
+<div id="loading" class="loading hidden"><div class="spinner"></div><p id="loadingText">處理中…</p></div>
+
+<script src="js/config.js"></script>
+<script src="js/mock-data.js"></script>
+<script src="js/logic.js"></script>
+<script src="js/api.js"></script>
+<script src="js/state.js"></script>
+<script src="js/wizard.js"></script>
+<script src="js/itinerary.js"></script>
+<script src="js/features.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
