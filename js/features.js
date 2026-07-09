@@ -242,7 +242,7 @@ const Feat = (() => {
         if (mode === 'all') {
           t.hotels = Array.from({ length: nights }, (_, n) => ({ night: n, ...rec }));
         } else {
-          t.hotels = t.hotels.filter(x => x.night !== d - 1);
+          t.hotels = t.hotels.filter(x => Number(x.night) !== d - 1);
           t.hotels.push({ night: d - 1, ...rec });
         }
         t.legsByDay = {};
@@ -461,71 +461,139 @@ const Feat = (() => {
   }
 
   // ================= 附近美食（每日彈窗，直接加進該天） =================
+  function foodRadiusByMinutes(min, mode) {
+    const metersPerMin = mode === 'walking' ? 85 : mode === 'transit' ? 520 : 800;
+    return Math.min(50000, Math.max(1200, min * metersPerMin));
+  }
+  function addFoodSpot(p, d) {
+    const ok = Itin.addSpot({
+      ...p,
+      source: p.source || 'restaurant',
+      placeId: p.placeId || ('custom-food-' + Logic.uid()),
+      rating: p.rating || 0,
+      photo: p.photo || '',
+      note: p.note || '美食'
+    }, { day: d });
+    if (ok !== false) UI.toast(`已加入第 ${d} 天：「${p.name}」`);
+  }
   function openFood(d) {
     const t = trip();
     // 中心點選項：該天景點一帶、該天各景點、飯店
     const centers = [];
     const c = Itin.dayCenter(d);
     if (c && Itin.spotsOfDay(d).length) centers.push({ label: `第 ${d} 天景點一帶`, ...c });
-    Itin.spotsOfDay(d).forEach(s => centers.push({ label: s.name, lat: s.lat, lng: s.lng }));
+    Itin.spotsOfDay(d).filter(Logic.hasCoords).forEach(s => centers.push({ label: s.name, lat: s.lat, lng: s.lng }));
     const sh = Itin.startHotel(d);
-    if (sh) centers.push({ label: '🏨 ' + sh.name, lat: sh.lat, lng: sh.lng });
-    if (!centers.length) { UI.alert('先加入景點', `第 ${d} 天還沒有景點，先加 1 個景點，才能以它為中心找美食。`); return; }
+    if (Logic.hasCoords(sh)) centers.push({ label: '🏨 ' + sh.name, lat: sh.lat, lng: sh.lng });
+    const eh = Itin.endHotel(d);
+    if (Logic.hasCoords(eh) && !centers.some(x => x.lat === eh.lat && x.lng === eh.lng)) {
+      centers.push({ label: '🏨 ' + eh.name, lat: eh.lat, lng: eh.lng });
+    }
 
     const body = document.createElement('div');
     body.innerHTML = `
+      ${centers.length ? '' : `<div class="rain-alert" style="margin-bottom:10px">這天沒有可定位的景點或住宿；可先用下方「自訂餐廳」輸入地址加入路線。</div>`}
       <label>以哪裡為中心？</label>
-      <select id="foodCenter">${centers.map((x, i) => `<option value="${i}">${UI.esc(x.label)}</option>`).join('')}</select>
+      <select id="foodCenter" ${centers.length ? '' : 'disabled'}>${centers.map((x, i) => `<option value="${i}">${UI.esc(x.label)}</option>`).join('')}</select>
       <div class="row-2">
         <div>
-          <label>距離範圍</label>
-          <select id="foodDist">
-            <option value="500">500 公尺內</option>
-            <option value="1000" selected>1 公里內</option>
-            <option value="2000">2 公里內</option>
+          <label>路程時間上限</label>
+          <select id="foodMaxMin" ${centers.length ? '' : 'disabled'}>
+            <option value="15">15 分鐘內</option>
+            <option value="30" selected>30 分鐘內</option>
+            <option value="45">45 分鐘內</option>
+            <option value="60">1 小時內</option>
           </select>
         </div>
         <div>
           <label>想吃什麼？（可留空）</label>
-          <input id="foodKind" type="text" placeholder="例如：牛肉麵">
+          <input id="foodKind" type="text" placeholder="例如：牛肉麵、咖啡、火鍋" ${centers.length ? '' : 'disabled'}>
         </div>
       </div>
-      <button id="foodGo" class="btn-primary" style="width:100%">找美食</button>
+      <button id="foodGo" class="btn-primary" style="width:100%" ${centers.length ? '' : 'disabled'}>找美食</button>
       <div class="result-list" id="foodRes"></div>`;
+
+    const custom = document.createElement('div');
+    custom.className = 'card';
+    custom.style.background = 'var(--white)';
+    custom.style.marginTop = '12px';
+    custom.innerHTML = `
+      <label>自訂餐廳</label>
+      <input id="customFoodName" type="text" placeholder="餐廳名稱，例如：阿霞飯店">
+      <input id="customFoodAddr" type="text" placeholder="餐廳地址，會用 Google 定位後加入路線">
+      <div class="row-2" style="margin-top:8px">
+        <button id="btnCustomFoodMap" class="btn-outline" type="button">Google 搜尋</button>
+        <button id="btnCustomFoodAdd" class="btn-primary" type="button">定位並加到第 ${d} 天</button>
+      </div>
+      <p class="hint">自訂餐廳一定要填地址；定位成功後才會參與一鍵最佳路線。</p>`;
+    body.appendChild(custom);
 
     body.querySelector('#foodGo').onclick = async () => {
       const center = centers[Number(body.querySelector('#foodCenter').value) || 0];
-      const radius = Number(body.querySelector('#foodDist').value);
+      const maxMin = Math.min(60, Number(body.querySelector('#foodMaxMin').value) || 30);
+      const radius = foodRadiusByMinutes(maxMin, t.transport);
       const kind = body.querySelector('#foodKind').value.trim();
       const res = body.querySelector('#foodRes');
       try {
-        UI.loading(true, '搜尋美食中…');
-        let list = await Api.nearbySearch(center, 'restaurant', radius);
+        UI.loading(true, '搜尋美食與路程時間…');
+        let list = kind ? await Api.searchFood(kind, center, radius) : await Api.nearbySearch(center, 'restaurant', radius);
         list = list.filter(r => (r.rating || 0) >= CONFIG.defaults.minRating);
-        if (kind) list = list.filter(r => (r.name + (r.kind || '')).includes(kind));
-        list = list.filter(r => (r.distKm || 0) * 1000 <= radius * 1.2).slice(0, 12);
+        list = list.filter(Logic.hasCoords).slice(0, 18);
+        const timed = [];
+        for (const r of list) {
+          const travelMin = await Api.travelTime(center, r, t.transport);
+          if (travelMin !== null && travelMin <= maxMin) timed.push({ ...r, travelMin });
+        }
+        list = timed.sort((a, b) => (a.travelMin - b.travelMin) || ((b.rating || 0) - (a.rating || 0))).slice(0, 12);
         UI.loading(false);
         res.innerHTML = list.length ? list.map((r, i) => `
           <div class="result-item ${r.photo ? 'with-photo' : ''}">
             ${r.photo ? `<img class="thumb" src="${r.photo}" alt="" data-zoom="${i}">` : ''}
             <div class="r-body">
               <div class="r-name">${UI.esc(r.name)}</div>
-              <div class="r-meta"><span class="star">★ ${r.rating}</span>（${(r.reviews || 0).toLocaleString()} 則）｜${'$'.repeat(r.price || 1)}｜約 ${(r.distKm * 1000).toFixed(0)} 公尺${r.kind ? '｜' + r.kind : ''}</div>
+              <div class="r-meta"><span class="star">★ ${r.rating}</span>（${(r.reviews || 0).toLocaleString()} 則）｜路程約 ${Logic.fmtDur(r.travelMin)}｜直線約 ${r.distKm ? r.distKm.toFixed(1) : '?'} 公里${r.kind ? '｜' + r.kind : ''}</div>
               <div class="r-actions">
+                <a href="${UI.gmapLink(r)}" target="_blank" rel="noopener">📍 Google</a>
                 <a href="${UI.navLink(r)}" target="_blank" rel="noopener">🧭 導航</a>
                 ${Store.isReadonly() ? '' : `<button class="primary" data-i="${i}">＋ 加到第 ${d} 天</button>`}
               </div>
             </div>
           </div>`).join('')
-          : `<p class="hint" style="margin-top:10px">這個範圍內找不到符合的餐廳，試著加大距離或換個關鍵字。</p>`;
+          : `<p class="hint" style="margin-top:10px">${Logic.fmtDur(maxMin)}內找不到符合餐廳，請改成 1 小時內或換關鍵字。</p>`;
         res.querySelectorAll('[data-zoom]').forEach(img =>
           img.onclick = () => UI.photoZoom(list[Number(img.dataset.zoom)].photo, list[Number(img.dataset.zoom)].name));
         res.querySelectorAll('button[data-i]').forEach(b =>
           b.onclick = () => {
-            Itin.addSpot({ ...list[Number(b.dataset.i)] }, { day: d });
+            addFoodSpot(list[Number(b.dataset.i)], d);
             UI.closeModal();
           });
       } catch (e) { UI.loading(false); UI.alert('搜尋失敗', e.message); }
+    };
+    body.querySelector('#foodKind')?.addEventListener('keydown', e => { if (e.key === 'Enter') body.querySelector('#foodGo').click(); });
+    body.querySelector('#btnCustomFoodMap').onclick = () => {
+      const name = body.querySelector('#customFoodName').value.trim();
+      const address = body.querySelector('#customFoodAddr').value.trim();
+      if (!name && !address) { UI.toast('請先輸入餐廳名稱或地址'); return; }
+      window.open(UI.gmapLink({ name, address }), '_blank', 'noopener');
+    };
+    body.querySelector('#btnCustomFoodAdd').onclick = async () => {
+      const name = body.querySelector('#customFoodName').value.trim();
+      const address = body.querySelector('#customFoodAddr').value.trim();
+      if (!name) { UI.toast('請輸入餐廳名稱'); return; }
+      if (!address) { UI.toast('請輸入餐廳地址，才能定位加入路線'); return; }
+      try {
+        UI.loading(true, '用地址定位餐廳…');
+        const geo = await Api.geocodeAddress(address);
+        UI.loading(false);
+        if (!geo) { UI.toast('地址定位失敗，請先按 Google 搜尋確認地址'); return; }
+        addFoodSpot({
+          source: 'custom-food',
+          placeId: 'custom-food-' + Logic.uid(),
+          name, address, lat: geo.lat, lng: geo.lng,
+          rating: 0, photo: '', note: '自訂美食'
+        }, d);
+        UI.closeModal();
+      } catch (e) { UI.loading(false); UI.alert('定位失敗', e.message); }
     };
     UI.modal(`第 ${d} 天附近美食`, body, []);
   }

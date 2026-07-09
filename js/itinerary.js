@@ -35,6 +35,20 @@ const Itin = (() => {
     return trip().spots.filter(s => !s.day || s.day === 0);
   }
 
+  function sameRoutePoint(a, b) {
+    if (!a || !b || a.kind !== b.kind) return false;
+    const ap = a.p || {}, bp = b.p || {};
+    if (ap === bp) return true;
+    if (a.kind === 'hotel') return String(ap.placeId || '') === String(bp.placeId || '') &&
+      Number(ap.night) === Number(bp.night);
+    return String(ap.placeId || ap.name || '') === String(bp.placeId || bp.name || '');
+  }
+
+  function pointEmptyDayText(point) {
+    if (point.kind === 'hotel') return `${hotelNightLabel(point.p.night)}住宿`;
+    return point.kind === 'meet' ? '集合地' : '解散地';
+  }
+
   // 各路段時間：優先用排路線時存下的，否則即時估算
   function legsForDay(day) {
     const list = spotsOfDay(day);
@@ -425,9 +439,13 @@ const Itin = (() => {
       card.appendChild(pointRow(ep, `${tl.endTime} ${ep.kind === 'end' ? '抵達解散地' : '回到飯店'}`));
     }
     if (!list.length) {
+      if (sp) card.appendChild(pointRow(sp, pointEmptyDayText(sp)));
+      if (ep && !sameRoutePoint(sp, ep)) card.appendChild(pointRow(ep, pointEmptyDayText(ep)));
       const p = document.createElement('p');
       p.className = 'hint'; p.style.padding = '0 14px 12px';
-      p.textContent = '這天還沒有景點：按上面的「➕ 加景點」，或按住 ☰ 把景點拖過來。';
+      p.textContent = (sp || ep)
+        ? '這天還沒有景點，但住宿已列出。按上面的「➕ 加景點」，或按住 ☰ 把景點拖過來。'
+        : '這天還沒有景點：按上面的「➕ 加景點」，或按住 ☰ 把景點拖過來。';
       card.appendChild(p);
     }
 
@@ -621,7 +639,7 @@ const Itin = (() => {
       <label>住宿夜晚（第 1 晚 = 第 1 天晚上）</label>
       <select id="hEditNight">
         ${Array.from({ length: Math.max(Store.days() - 1, 1) }, (_, i) =>
-          `<option value="${i}" ${h.night === i ? 'selected' : ''}>第 ${i + 1} 晚</option>`).join('')}
+          `<option value="${i}" ${Number(h.night) === i ? 'selected' : ''}>第 ${i + 1} 晚</option>`).join('')}
       </select>
       <label>房價紀錄（選填，會顯示在行程上）</label>
       <div class="row-2">

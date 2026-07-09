@@ -44,10 +44,29 @@ const Store = (() => {
   const isReadonly = () => role === 'view';
   const days = () => trip ? Logic.datesBetween(trip.startDate, trip.endDate).length : 0;
   const dateOfDay = d => Logic.datesBetween(trip.startDate, trip.endDate)[d - 1]; // d: 1-based
-  const hotelOfNight = night => trip.hotels.find(h => h.night === night) || null;
+  const hotelOfNight = night => (trip.hotels || []).find(h => Number(h.night) === Number(night)) || null;
+
+  function normalizeTrip(t) {
+    if (!t) return t;
+    t.hotels = Array.isArray(t.hotels) ? t.hotels : [];
+    t.spots = Array.isArray(t.spots) ? t.spots : [];
+    t.expenses = Array.isArray(t.expenses) ? t.expenses : [];
+    t.hotels.forEach(h => { h.night = Number(h.night) || 0; });
+    t.spots.forEach(s => {
+      s.day = Number(s.day) || 0;
+      s.order = Number(s.order) || 0;
+      s.stayMin = Number(s.stayMin) || CONFIG.defaults.stayMin;
+    });
+    t.legsByDay = t.legsByDay || {};
+    t.rainPlans = t.rainPlans || {};
+    t.rainActive = t.rainActive || {};
+    t.rainBackup = t.rainBackup || {};
+    return t;
+  }
 
   function create(basic) {
     trip = newTrip(basic);
+    normalizeTrip(trip);
     trip.viewCode = Logic.genViewCode(trip.editCode);
     if (basic.meetPoint) trip.meetPoint = basic.meetPoint;
     if (basic.endPoint) trip.endPoint = basic.endPoint;
@@ -59,7 +78,7 @@ const Store = (() => {
   }
 
   function load(t, r) {
-    trip = t;
+    trip = normalizeTrip(t);
     role = r || 'edit';
     manualDirty = false;
     resetHistory();

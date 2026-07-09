@@ -49,10 +49,10 @@ const Api = (() => {
   }
 
   // ---------- 地點搜尋 ----------
-  async function searchPlaces(query, kind) { // kind: 'spot' | 'hotel'
+  async function searchPlaces(query, kind) { // kind: 'spot' | 'hotel' | 'restaurant'
     if (isMock()) {
       await delay(200);
-      const pool = kind === 'hotel' ? MOCK.hotels : MOCK.spots;
+      const pool = kind === 'hotel' ? MOCK.hotels : kind === 'restaurant' ? MOCK.restaurants : MOCK.spots;
       const q = (query || '').trim();
       if (!q) return [];
       // 名稱互相包含，或每個字都出現在名稱中，才算符合
@@ -64,9 +64,30 @@ const Api = (() => {
     await loadGoogleMaps();
     return new Promise((resolve, reject) => {
       placesSvc().textSearch(
-        { query: query, type: kind === 'hotel' ? 'lodging' : undefined },
+        { query: query, type: kind === 'hotel' ? 'lodging' : kind === 'restaurant' ? 'restaurant' : undefined },
         (results, status) => okStatus(status) ? resolve((results || []).map(mapPlace))
           : reject(new Error('地點搜尋暫時無法使用，請稍後再試'))
+      );
+    });
+  }
+
+  async function searchFood(query, center, radiusM) {
+    const q = String(query || '').trim();
+    if (!q) return nearbySearch(center, 'restaurant', radiusM);
+    if (isMock()) {
+      await delay(220);
+      return MOCK.restaurants
+        .map(p => ({ ...p, distKm: Logic.haversineKm(center, p) }))
+        .filter(p => (p.name + (p.kind || '') + (p.address || '')).includes(q))
+        .sort((a, b) => a.distKm - b.distKm);
+    }
+    await loadGoogleMaps();
+    return new Promise((resolve, reject) => {
+      placesSvc().textSearch(
+        { query: q, location: center, radius: radiusM, type: 'restaurant' },
+        (results, status) => okStatus(status) ? resolve((results || []).map(mapPlace)
+          .map(p => ({ ...p, distKm: Logic.haversineKm(center, p) })))
+          : reject(new Error('美食搜尋暫時無法使用，請稍後再試'))
       );
     });
   }
@@ -270,6 +291,20 @@ const Api = (() => {
     return routeLegsSync(origin, destination, orderedSpots, mode, !!origin, !!destination);
   }
 
+  async function travelTime(a, b, mode) {
+    if (!Logic.hasCoords(a) || !Logic.hasCoords(b)) return null;
+    if (isMock()) { await delay(20); return Logic.travelMinutes(a, b, mode); }
+    try {
+      await loadGoogleMaps();
+      const svc = new google.maps.DirectionsService();
+      const travelMode = mode === 'walking' ? 'WALKING' : mode === 'transit' ? 'TRANSIT' : 'DRIVING';
+      return routeDuration(svc, a, b, travelMode, mode);
+    } catch (e) {
+      console.warn('路程時間查詢失敗，改用估算', e);
+      return Logic.travelMinutes(a, b, mode);
+    }
+  }
+
   // ---------- 天氣（Open-Meteo，永遠真實資料） ----------
   const weatherCache = {};
   // 回傳 {tmax,tmin,rainProb,code} 或 null（超出預報範圍/失敗）
@@ -432,8 +467,8 @@ const Api = (() => {
 
   return {
     isMock, loadGoogleMaps, geocodeAddress,
-    searchPlaces, nearbySearch,
-    optimizeRoute, routeLegs,
+    searchPlaces, searchFood, nearbySearch,
+    optimizeRoute, routeLegs, travelTime,
     weatherOn,
     cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudFindByEmail,
     cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail
