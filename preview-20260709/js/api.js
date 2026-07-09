@@ -487,7 +487,17 @@ const Api = (() => {
         avoidFerries: true   // 避免路線繞到離島渡輪（例如飄到澎湖／七美）
       });
       const path = res.routes[0].overview_path.map(ll => ({ lat: ll.lat(), lng: ll.lng() }));
-      // 合理性防護：道路路徑長度若遠大於直線距離（繞太遠／怪路線），改用直線
+      // 防護 1：幾何邊界——道路路徑若跑出景點群經緯度範圍太多（例如飄到澎湖／七美），視為異常
+      const lats = seq.map(p => p.lat), lngs = seq.map(p => p.lng);
+      const M = 0.2; // 約 20km 邊界寬容度（容許正常繞路）
+      const minLat = Math.min(...lats) - M, maxLat = Math.max(...lats) + M;
+      const minLng = Math.min(...lngs) - M, maxLng = Math.max(...lngs) + M;
+      const escaped = path.some(p => p.lat < minLat || p.lat > maxLat || p.lng < minLng || p.lng > maxLng);
+      if (escaped) {
+        console.warn('道路路徑跑出景點範圍（可能繞到離島／渡輪），改用直線');
+        return null;
+      }
+      // 防護 2：道路路徑長度遠大於直線距離（繞太遠／怪路線），改用直線
       let pathKm = 0;
       for (let i = 1; i < path.length; i++) pathKm += Logic.haversineKm(path[i - 1], path[i]);
       let directKm = 0;

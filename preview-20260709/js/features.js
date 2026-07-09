@@ -519,14 +519,18 @@ const Feat = (() => {
     custom.style.background = 'var(--white)';
     custom.style.marginTop = '12px';
     custom.innerHTML = `
-      <label>自訂餐廳</label>
-      <input id="customFoodName" type="text" placeholder="餐廳名稱，例如：阿霞飯店">
-      <input id="customFoodAddr" type="text" placeholder="餐廳地址，會用 Google 定位後加入路線">
-      <div class="row-2" style="margin-top:8px">
-        <button id="btnCustomFoodMap" class="btn-outline" type="button">Google 搜尋</button>
-        <button id="btnCustomFoodAdd" class="btn-primary" type="button">定位並加到第 ${d} 天</button>
-      </div>
-      <p class="hint">自訂餐廳一定要填地址；定位成功後才會參與一鍵最佳路線。</p>`;
+      <details class="collapse">
+        <summary>➕ 自訂餐廳（找不到才用，點開）</summary>
+        <div style="margin-top:10px">
+          <input id="customFoodName" type="text" placeholder="餐廳名稱，例如：阿霞飯店">
+          <input id="customFoodAddr" type="text" placeholder="餐廳地址，會用 Google 定位後加入路線">
+          <div class="row-2" style="margin-top:8px">
+            <button id="btnCustomFoodMap" class="btn-outline" type="button">Google 搜尋</button>
+            <button id="btnCustomFoodAdd" class="btn-primary" type="button">定位並加到第 ${d} 天</button>
+          </div>
+          <p class="hint">自訂餐廳一定要填地址；定位成功後才會參與一鍵最佳路線。</p>
+        </div>
+      </details>`;
     body.appendChild(custom);
 
     body.querySelector('#foodGo').onclick = async () => {
@@ -849,20 +853,20 @@ const Feat = (() => {
     const sp = Itin.startHotel(d);
     const ep = Itin.endHotel(d);
     const legs = Itin.legsForDay(d);
-    if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '' });
-    else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: '' });
+    if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '', photo: t.meetPoint.photo || '' });
+    else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: '', photo: sp.photo || '' });
     const shouldShowEmptyLeg = !list.length && sp && ep && sp !== ep && legs[0] > 0 &&
       ((d === 1 && t.meetPoint) || (d === Store.days() && t.endPoint));
     if (shouldShowEmptyLeg) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[0])}`, address: '', note: '' });
     list.forEach((s, i) => {
       if (legs[i] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[i])}`, address: '', note: '' });
-      rows.push({ type: s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點', name: s.name, address: s.address || '', note: s.note || '' });
+      rows.push({ type: s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點', name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
     });
     if (list.length && ep) {
       if (legs[list.length] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[list.length])}`, address: '', note: '' });
-      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '' });
+      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '', photo: ep.photo || '' });
     } else if (!list.length && ep && ep !== sp) {
-      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '' });
+      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '', photo: ep.photo || '' });
     }
     return rows;
   }
@@ -1086,14 +1090,15 @@ h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{bo
         <tr>
           <td class="type">${textEsc(r.type)}</td>
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
+          <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="">` : ''}</td>
         </tr>`).join('');
-      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="2">尚未安排內容</td></tr>'}</table></section>`;
+      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
     }).join('');
     return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 每日行程 PDF</title>
 <style>
 @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
 h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.day{page-break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:12px;margin:0 0 12px}
-h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:8px;vertical-align:top}.type{width:86px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:13px;margin-top:3px}
+h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:8px;vertical-align:top}.type{width:86px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:13px;margin-top:3px}.pic{width:64px;text-align:right}.pic img{width:60px;height:60px;object-fit:cover;border-radius:6px}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.day{break-inside:avoid}}
 </style></head><body><main class="sheet"><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</main></body></html>`;
   }

@@ -339,6 +339,26 @@ const Itin = (() => {
     }
     renderMiniMap();
     Feat.fillWeather();
+    notifyOverflowDays();
+  }
+
+  // 某一天的行程是否排不進設定時段
+  function dayOverflows(d) {
+    const list = spotsOfDay(d);
+    if (!list.length) return false;
+    const tl = Logic.buildTimeline(list, legsForDay(d), dayStartOf(d));
+    return (Logic.toMin(dayStartOf(d)) + tl.totalTravel + tl.totalStay) > Logic.toMin(dayEndOf(d));
+  }
+  // 有天數新變成「排不完」時，底部彈出提醒 3 秒（不重複洗版）
+  let lastOverDays = new Set();
+  function notifyOverflowDays() {
+    const now = new Set();
+    for (let d = 1; d <= Store.days(); d++) if (dayOverflows(d)) now.add(d);
+    const newly = [...now].filter(d => !lastOverDays.has(d));
+    lastOverDays = now;
+    if (newly.length && !Store.isReadonly()) {
+      UI.toast(`⚠️ 第 ${newly.join('、')} 天可能排不完`);
+    }
   }
 
   function bindRouteActions() {
@@ -515,8 +535,7 @@ const Itin = (() => {
       <div class="day-outfit" data-day-outfit="${d}"></div>
       ${estimateHint}
       <div data-rain-slot="${d}"></div>
-      ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束</p>` : ''}
-      ${overTime ? `<div class="rain-alert" style="border-color:var(--danger);background:#FFF4EF">⚠️ 這天可能排不完：預計 ${tl.endTime} 結束，已超過設定的結束時間 ${dayEndOf(d)}。可調整出發／結束時間、縮短停留，或把景點移到其他天。</div>` : ''}
+      ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ' <span style="color:var(--danger);font-weight:700">⚠️ 可能排不完</span>' : ''}</p>` : ''}
       <div class="day-tools">
         <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)}–${dayEndOf(d)}${((t.dayStartOv || {})[d] || (t.dayEndOv || {})[d]) ? '＊' : ''}</button>
         <button data-addspot="${d}" class="edit-only">➕ 加景點</button>
