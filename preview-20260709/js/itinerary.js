@@ -242,16 +242,24 @@ const Itin = (() => {
       const g = await Api.optimizeRoute(o1, oN, routable, t.transport);
       const ordered = g.order.map(i => routable[i]);
 
-      // 2) 依每日活動時間切天
-      const dayArrs = Logic.splitIntoDays(ordered, {
+      // 2) 分天：優先「依每晚飯店錨點」分配（多晚不同城市時才合理），
+      //    完全沒有錨點時退回「依活動時間」切天
+      const hc = p => Logic.hasCoords(p) ? p : null;
+      const dayAnchors = [];
+      for (let d = 1; d <= days; d++) dayAnchors.push({ start: hc(startHotel(d)), end: hc(endHotel(d)) });
+      let dayArrs = Logic.assignDaysByAnchors(ordered, dayAnchors, {
         days,
         dayStartMin: Logic.toMin(t.dayStart),
         dayEndMin: Logic.toMin(t.dayEnd),
         travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
-        hotelOfDay: d => {
-          const h = startHotel(d + 1);
-          return Logic.hasCoords(h) ? h : null;
-        }
+        stayMin: s => s.stayMin || 60
+      });
+      if (!dayArrs) dayArrs = Logic.splitIntoDays(ordered, {
+        days,
+        dayStartMin: Logic.toMin(t.dayStart),
+        dayEndMin: Logic.toMin(t.dayEnd),
+        travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
+        hotelOfDay: d => hc(startHotel(d + 1))
       });
 
       // 3) 每天以起終點（集合地/飯店/解散地）再最佳化
@@ -340,22 +348,28 @@ const Itin = (() => {
       refreshBtn.disabled = !(t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length);
       refreshBtn.onclick = refreshRoutes;
     }
+    const restoreBtn = $('btnRestoreSaved');
+    if (restoreBtn) {
+      const show = Store.canRestoreSaved();
+      restoreBtn.classList.toggle('hidden', !show);
+      restoreBtn.title = show ? `還原到 ${savedTimeTxt()} 儲存的安排` : '';
+      restoreBtn.onclick = confirmRestoreSaved;
+    }
     const saveBtn = $('btnManualSave');
     if (saveBtn) saveBtn.onclick = saveCurrentArrangement;
+    const shareBtn = $('btnShareBottom');
+    if (shareBtn) shareBtn.onclick = () => Feat.showShare();
   }
 
-  async function saveCurrentArrangement() {
-    try {
-      UI.loading(true, '儲存目前安排…');
-      await Store.cloudSaveNow();
-      Store.markSaved();
-      UI.loading(false);
-      render();
-      UI.toast('目前手動安排已儲存');
-    } catch (e) {
-      UI.loading(false);
-      UI.alert('儲存失敗', e.message || String(e));
-    }
+  function saveCurrentArrangement() {
+    // 樂觀儲存：本機立即建立可還原快照並回饋，雲端在背景同步（右上同步點顯示狀態），不卡畫面
+    Store.markSaved();
+    render();
+    UI.toast('已儲存目前安排');
+    Store.cloudSaveNow().catch(e => {
+      console.warn('雲端儲存失敗', e);
+      UI.toast('已存在本機，雲端稍後自動重試');
+    });
   }
 
   function savedTimeTxt() {
@@ -425,10 +439,7 @@ const Itin = (() => {
           <button id="btnSwitchMode" class="chip" style="cursor:pointer">${modeTxt[t.transport]} ▾</button>
         </span>
       </div>
-      ${Store.canRestoreSaved() ? `<div class="restore-bar"><span>🔖 已儲存版本 ${savedTimeTxt()}</span><button id="btnRestoreSaved" class="chip restore-chip" style="cursor:pointer">↺ 還原到上次儲存</button></div>` : ''}
       <p class="hint" style="margin:6px 0 0">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同</p>`;
-    const rBtn = $('btnRestoreSaved');
-    if (rBtn) rBtn.onclick = confirmRestoreSaved;
     const dBtn = $('btnTripDates');
     if (Store.isReadonly()) dBtn.style.pointerEvents = 'none';
     else dBtn.onclick = () => Feat.editTripDates();
@@ -481,15 +492,16 @@ const Itin = (() => {
       : '';
 
     const card = document.createElement('div');
-    card.className = 'day-card';
+    card.className = 'day-card' + (d % 2 === 0 ? ' day-shade' : '');
     card.dataset.day = d;
+    card.style.borderLeftColor = dayColor(d);
 
     const dateTxt = `${Number(dateISO.slice(5, 7))}/${Number(dateISO.slice(8, 10))}`;
     const head = document.createElement('div');
     head.className = 'day-head';
     head.innerHTML = `
       <div class="day-head-top">
-        <span class="day-title" style="color:${dayColor(d)}">第 ${d} 天 <span style="font-weight:400;color:var(--text-2);font-size:.95rem">${dateTxt}</span>${list.some(s => s.visited) ? ` <span style="font-size:.9rem;color:var(--ok)">✅ ${list.filter(s => s.visited).length}/${list.length}</span>` : ''}</span>
+        <span class="day-title" style="color:${dayColor(d)}">第 ${d} 天 <span class="day-date" style="color:var(--text-2)">${dateTxt}</span>${list.some(s => s.visited) ? ` <span style="font-size:.9rem;color:var(--ok)">✅ ${list.filter(s => s.visited).length}/${list.length}</span>` : ''}</span>
         <span class="day-weather" data-day-weather="${d}">☁️ 查天氣中…</span>
       </div>
       <div class="day-outfit" data-day-outfit="${d}"></div>
@@ -1074,10 +1086,15 @@ const Itin = (() => {
       seq.push(...g.list);
       if (g.ep && g.ep !== g.sp) seq.push(g.ep);
       if (seq.length > 1) {
-        add(new google.maps.Polyline({
+        // 先畫直線當備援，再用 Google Directions 取實際道路（走國道／省道）替換
+        const poly = new google.maps.Polyline({
           map: el._gmap, path: seq.map(p => ({ lat: p.lat, lng: p.lng })),
           strokeColor: color, strokeOpacity: .85, strokeWeight: 4
-        }));
+        });
+        add(poly);
+        Api.routePath(seq, trip().transport).then(path => {
+          if (path && path.length > 1) poly.setPath(path);
+        });
       }
       const boundaryMarker = (p, label) => add(new google.maps.Marker({
         map: el._gmap, position: { lat: p.lat, lng: p.lng }, title: p.name,

@@ -465,12 +465,39 @@ const Api = (() => {
     });
   }
 
+  // 寄送完整行程（唯讀連結＋每日行程明細）。html 由前端組好，GAS 直接寄出
+  async function cloudSendItinerary(email, subject, html, code) {
+    if (isMock()) { await delay(400); return { simulated: true }; }
+    return gasCall('sendItinerary', { email, subject, html, code });
+  }
+
+  // 沿實際道路的路徑座標（Google Directions overview_path）；失敗或模擬回 null → 呼叫端改用直線
+  async function routePath(seq, mode) {
+    if (isMock() || !seq || seq.length < 2) return null;
+    try {
+      await loadGoogleMaps();
+      const svc = new google.maps.DirectionsService();
+      const travelMode = mode === 'walking' ? 'WALKING' : mode === 'transit' ? 'TRANSIT' : 'DRIVING';
+      const origin = seq[0], destination = seq[seq.length - 1];
+      const waypoints = seq.slice(1, -1).map(p => ({ location: { lat: p.lat, lng: p.lng }, stopover: true }));
+      const res = await svc.route({
+        origin: { lat: origin.lat, lng: origin.lng },
+        destination: { lat: destination.lat, lng: destination.lng },
+        waypoints, optimizeWaypoints: false, travelMode
+      });
+      return res.routes[0].overview_path.map(ll => ({ lat: ll.lat(), lng: ll.lng() }));
+    } catch (e) {
+      console.warn('道路路徑查詢失敗，改用直線', e);
+      return null;
+    }
+  }
+
   return {
     isMock, loadGoogleMaps, geocodeAddress,
     searchPlaces, searchFood, nearbySearch,
-    optimizeRoute, routeLegs, travelTime,
+    optimizeRoute, routeLegs, routePath, travelTime,
     weatherOn,
-    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudFindByEmail,
+    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail,
     cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail
   };
 })();

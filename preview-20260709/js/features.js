@@ -1216,6 +1216,69 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     ], { noClose: true });
   }
 
+  // 每晚飯店 / 集合地 / 解散地當作每天起訖
+  function dayAnchors(t, d, totalDays) {
+    const hotelNight = n => (t.hotels || []).find(h => Number(h.night) === n) || null;
+    const start = (d === 1 && t.meetPoint) ? t.meetPoint : (hotelNight(d - 2) || hotelNight(d - 1) || null);
+    const end = (d === totalDays && t.endPoint) ? t.endPoint : hotelNight(d - 1);
+    return { start, end };
+  }
+
+  // 組出「每日行程」HTML（寄信用）
+  function itineraryRowsHtml(t) {
+    const days = Logic.datesBetween(t.startDate, t.endDate);
+    return days.map((dateISO, i) => {
+      const d = i + 1;
+      const list = t.spots.filter(s => Number(s.day) === d).sort((a, b) => a.order - b.order);
+      const { start, end } = dayAnchors(t, d, days.length);
+      const items = [];
+      if (start) items.push(`<li style="color:#8C7B6B">🏁 出發：${UI.esc(start.name)}</li>`);
+      list.forEach((s, idx) => items.push(
+        `<li style="margin:2px 0"><b>${idx + 1}. ${UI.esc(s.name)}</b>` +
+        (s.address ? `<br><span style="color:#8C7B6B;font-size:13px">${UI.esc(s.address)}</span>` : '') + `</li>`));
+      if (end) items.push(`<li style="color:#8C7B6B">🏨 住宿：${UI.esc(end.name)}</li>`);
+      const dTxt = `${Number(dateISO.slice(5, 7))}/${Number(dateISO.slice(8, 10))}`;
+      return `<div style="margin:14px 0"><h3 style="color:#A9805B;margin:0 0 6px;font-size:17px">第 ${d} 天 <span style="font-weight:400;color:#8C7B6B;font-size:14px">${dTxt}</span></h3>` +
+        `<ul style="margin:0;padding-left:18px;line-height:1.7">${items.join('') || '<li style="color:#8C7B6B">尚未安排景點</li>'}</ul></div>`;
+    }).join('');
+  }
+
+  function fullItineraryEmailHtml(t, viewUrl) {
+    const dTxt = t.startDate.slice(5).replace('-', '/') + '–' + t.endDate.slice(5).replace('-', '/');
+    return '<div style="font-family:sans-serif;color:#4A3B2E;max-width:640px">' +
+      `<h2 style="color:#A9805B;margin:0 0 4px">🧋 ${UI.esc(t.name)}</h2>` +
+      `<p style="color:#8C7B6B;margin:0 0 12px">${dTxt}</p>` +
+      `<p><a href="${viewUrl}" style="display:inline-block;background:#A9805B;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:700">👀 打開完整行程（可看地圖、天氣）</a></p>` +
+      `<hr style="border:none;border-top:1px solid #E8DDCD;margin:14px 0">` +
+      `<h3 style="color:#4A3B2E">📅 每日行程</h3>` + itineraryRowsHtml(t) +
+      `<p style="color:#8C7B6B;font-size:13px;margin-top:16px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
+      '</div>';
+  }
+
+  // 主要：寄送完整行程（唯讀連結＋每日行程）
+  function itineraryEmailBlock(t) {
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <p style="margin:2px 0 4px"><b style="color:var(--accent)">📧 寄送完整行程</b>（唯讀檢視連結＋每日行程，寄給自己或親友）</p>
+      <div class="row-add">
+        <input type="email" placeholder="收件人 Email" value="${UI.esc(t.creatorEmail || '')}">
+        <button class="btn-small">寄送</button>
+      </div>`;
+    const inp = div.querySelector('input');
+    div.querySelector('button').onclick = async () => {
+      const email = inp.value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { UI.toast('Email 格式看起來不對，請再確認'); return; }
+      try {
+        UI.loading(true, '寄送中…');
+        const html = fullItineraryEmailHtml(t, shareLink(t.viewCode));
+        const r = await Api.cloudSendItinerary(email, `【Mika 旅遊路線規劃】${t.name} 完整行程`, html, t.editCode);
+        UI.loading(false);
+        UI.toast(r.simulated ? '（模擬模式）正式版上線後會真的寄出唷' : '已寄出完整行程！請到信箱收信');
+      } catch (e) { UI.loading(false); UI.alert('寄送失敗', e.message); }
+    };
+    return div;
+  }
+
   function showShare() {
     const t = trip();
     const body = document.createElement('div');
@@ -1227,10 +1290,27 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
         </div>
         <p class="hint" style="margin-top:8px">你目前是唯讀模式，看不到編輯代碼。</p>`;
     } else {
-      body.appendChild(emailBlock(t));
+      // 1) 最主要：寄送完整行程
+      body.appendChild(itineraryEmailBlock(t));
+      // 2) 快速複製唯讀連結（給親友看）
+      const quick = document.createElement('div');
+      quick.className = 'stack';
+      quick.style.marginTop = '10px';
+      quick.innerHTML = `
+        <button class="btn-primary" data-copy="${shareLink(t.viewCode)}">👀 複製唯讀連結（給親友看）</button>
+        <button class="btn-outline" data-copy="${t.viewCode}">複製唯讀代碼｜${t.viewCode}</button>`;
+      body.appendChild(quick);
+      // 3) 次要：代碼備份（含可修改的編輯碼）寄給本人
+      const backup = document.createElement('div');
+      backup.style.marginTop = '16px';
+      backup.style.borderTop = '1px solid var(--line, #E8DDCD)';
+      backup.style.paddingTop = '12px';
+      backup.innerHTML = `<p class="hint" style="margin:0 0 4px">🔐 行程代碼備份（含<b>可修改行程的編輯碼</b>，建議只寄給自己保存）</p>`;
+      backup.appendChild(emailBlock(t));
       const codes = document.createElement('div');
       codes.innerHTML = codesBlock(t);
-      body.appendChild(codes);
+      backup.appendChild(codes);
+      body.appendChild(backup);
     }
     bindCopyButtons(body);
     UI.modal('分享行程', body, []);

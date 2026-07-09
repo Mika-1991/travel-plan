@@ -146,7 +146,7 @@ const App = (() => {
     $('wizard').classList.add('hidden');
     $('app').classList.remove('hidden');
     document.body.classList.add('in-app');
-    ['btnShare', 'btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
+    ['btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
     applyRole();
     Itin.render();
     switchPage('page-trip');
@@ -161,7 +161,6 @@ const App = (() => {
         switchPage('page-trip');
       }
     };
-    $('btnShare').onclick = () => Feat.showShare();
     $('btnReload').onclick = async () => {
       try {
         UI.loading(true, '重新載入中…');

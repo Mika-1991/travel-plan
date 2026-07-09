@@ -133,12 +133,6 @@ body.readonly .edit-only { display: none !important; }
 }
 .chip.on { background: var(--main); color: var(--white); }
 .chip .x { color: var(--danger); font-weight: 700; }
-.restore-bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
-  margin-top: 8px; padding: 8px 10px; border-radius: 10px;
-  background: #FDF1E3; border: 1.5px solid var(--accent); color: var(--text); font-size: .95rem;
-}
-.chip.restore-chip { border-color: var(--accent); color: var(--accent); background: var(--white); cursor: pointer; }
 .seg { display: flex; background: var(--white); border-radius: 12px; padding: 4px; gap: 4px; margin-bottom: 10px; }
 .seg button { flex: 1; padding: 9px 4px; border-radius: 9px; font-weight: 700; color: var(--text-2); }
 .seg button.on { background: var(--main); color: var(--white); }
@@ -199,10 +193,12 @@ body.readonly .edit-only { display: none !important; }
 
 /* 天卡片 */
 .day-list { display: flex; flex-direction: column; gap: 14px; }
-.day-card { background: var(--card); border-radius: var(--radius); overflow: hidden; }
+.day-card { background: var(--card); border-radius: var(--radius); overflow: hidden; border-left: 6px solid var(--main); }
+.day-card.day-shade { background: #E7D5C0; }   /* 相鄰天深淺交錯，易讀性更好 */
 .day-head { padding: 10px 14px 8px; }
 .day-head-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.day-title { font-weight: 700; color: var(--main); font-size: 1.1rem; }
+.day-title { font-weight: 800; color: var(--main); font-size: 1.5rem; line-height: 1.25; }
+.day-title .day-date { font-weight: 600; font-size: 1.1rem; }
 .day-weather { font-size: .95rem; color: var(--text-2); }
 .day-outfit { font-size: .92rem; color: var(--text-2); margin-top: 2px; }
 .rain-alert {
@@ -312,6 +308,8 @@ body.readonly .edit-only { display: none !important; }
 .route-action:disabled {
   opacity: .45; box-shadow: none;
 }
+.route-action.restore { border-color: var(--accent); color: var(--accent); }
+.route-action.share { border-color: var(--accent); color: var(--accent); padding: 12px 14px; }
 .fab {
   pointer-events: auto;
   background: var(--main); color: var(--white); font-size: 1.15rem; font-weight: 700;
