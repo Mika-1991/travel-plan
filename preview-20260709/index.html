@@ -255,7 +255,12 @@
 
   <!-- 懸浮主按鈕（行程頁專屬） -->
   <div id="fabWrap" class="fab-wrap edit-only">
-    <button id="btnOptimize" class="fab">🧭 一鍵排最佳路線</button>
+    <div class="route-actions">
+      <button id="btnUndo" class="route-action" disabled>↩ 上一步</button>
+      <button id="btnRefreshRoutes" class="route-action">🔄 更新車程</button>
+      <button id="btnManualSave" class="route-action">💾 儲存目前安排</button>
+      <button id="btnOptimize" class="fab">🧭 自動安排最佳路線</button>
+    </div>
   </div>
 
   <!-- 頂部分頁列 -->

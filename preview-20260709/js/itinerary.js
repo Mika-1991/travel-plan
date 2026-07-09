@@ -312,6 +312,7 @@ const Itin = (() => {
     const fab = $('btnOptimize');
     fab.disabled = t.spots.length < 2;
     fab.classList.toggle('glow', t.spots.length >= 2 && !t.optimizedAt);
+    bindRouteActions();
 
     if (showDays) renderSummaryBar();
 
@@ -327,6 +328,73 @@ const Itin = (() => {
     Feat.fillWeather();
   }
 
+  function bindRouteActions() {
+    const t = trip();
+    const undoBtn = $('btnUndo');
+    if (undoBtn) {
+      undoBtn.disabled = !Store.canUndo();
+      undoBtn.onclick = () => { if (Store.undo()) { render(); UI.toast('已復原上一步'); } };
+    }
+    const refreshBtn = $('btnRefreshRoutes');
+    if (refreshBtn) {
+      refreshBtn.disabled = !(t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length);
+      refreshBtn.onclick = refreshRoutes;
+    }
+    const saveBtn = $('btnManualSave');
+    if (saveBtn) saveBtn.onclick = saveCurrentArrangement;
+  }
+
+  async function saveCurrentArrangement() {
+    try {
+      UI.loading(true, '儲存目前安排…');
+      await Store.cloudSaveNow();
+      UI.loading(false);
+      UI.toast('目前手動安排已儲存');
+    } catch (e) {
+      UI.loading(false);
+      UI.alert('儲存失敗', e.message || String(e));
+    }
+  }
+
+  async function routeMinute(a, b) {
+    if (!a || !b) return 0;
+    const live = Logic.hasCoords(a) && Logic.hasCoords(b)
+      ? await Api.travelTime(a, b, trip().transport)
+      : null;
+    return live ?? Logic.travelMinutes(a, b, trip().transport);
+  }
+
+  async function refreshRoutes() {
+    const t = trip();
+    try {
+      let updated = 0;
+      t.legsByDay = {};
+      for (let d = 1; d <= Store.days(); d++) {
+        const list = spotsOfDay(d);
+        const sp = startHotel(d);
+        const ep = endHotel(d);
+        if (!list.length && !sp && !ep) continue;
+        UI.loading(true, `更新第 ${d} 天車程…`);
+        const legs = [];
+        let prev = sp || null;
+        for (const s of list) {
+          legs.push(prev ? await routeMinute(prev, s) : 0);
+          prev = s;
+        }
+        legs.push(ep && prev ? await routeMinute(prev, ep) : 0);
+        t.legsByDay[d] = legs;
+        updated++;
+      }
+      Store.touch();
+      UI.loading(false);
+      render();
+      UI.toast(updated ? '車程已更新' : '目前沒有可更新的車程');
+    } catch (e) {
+      UI.loading(false);
+      UI.alert('更新車程失敗', e.message || String(e));
+    }
+  }
+
   function renderSummaryBar() {
     const t = trip();
     const modeTxt = { driving: '🚗 開車', transit: '🚇 大眾運輸', walking: '🚶 走路' };
@@ -335,28 +403,10 @@ const Itin = (() => {
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
         <span>${UI.esc(t.name)}｜<button id="btnTripDates" class="chip" style="cursor:pointer" title="變更旅遊天數">🗓️ ${t.startDate.slice(5).replace('-', '/')}–${t.endDate.slice(5).replace('-', '/')} ▾</button>｜${t.spots.length} 個景點${visitedCount ? `｜✅ 已去 ${visitedCount}/${t.spots.length}` : ''}</span>
         <span style="display:flex;gap:6px;align-items:center">
-          <span class="undo-btns edit-only">
-            <button id="btnUndo" ${Store.canUndo() ? '' : 'disabled'}>↩ 上一步</button>
-            <button id="btnRedo" ${Store.canRedo() ? '' : 'disabled'}>↪ 下一步</button>
-            <button id="btnManualSave">💾 儲存目前安排</button>
-          </span>
           <button id="btnSwitchMode" class="chip" style="cursor:pointer">${modeTxt[t.transport]} ▾</button>
         </span>
       </div>
       <p class="hint" style="margin:6px 0 0">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同</p>`;
-    $('btnUndo').onclick = () => { if (Store.undo()) { render(); UI.toast('已復原上一步'); } };
-    $('btnRedo').onclick = () => { if (Store.redo()) { render(); UI.toast('已重做下一步'); } };
-    $('btnManualSave').onclick = async () => {
-      try {
-        UI.loading(true, '儲存目前安排…');
-        await Store.cloudSaveNow();
-        UI.loading(false);
-        UI.toast('目前手動安排已儲存');
-      } catch (e) {
-        UI.loading(false);
-        UI.alert('儲存失敗', e.message || String(e));
-      }
-    };
     const dBtn = $('btnTripDates');
     if (Store.isReadonly()) dBtn.style.pointerEvents = 'none';
     else dBtn.onclick = () => Feat.editTripDates();
@@ -386,7 +436,7 @@ const Itin = (() => {
         <div class="day-head-top">
           <span class="day-title">🧺 待排景點（${list.length}）</span>
         </div>
-        <p class="hint">按下方「一鍵排最佳路線」自動分天，或按住 ☰ 直接拖到某一天</p>
+        <p class="hint">按下方「自動安排最佳路線」自動分天，或按住 ☰ 直接拖到某一天</p>
       </div>`;
     list.forEach(s => card.appendChild(spotRow(s, null, 0)));
     return card;
@@ -622,7 +672,7 @@ const Itin = (() => {
       applyHotelNightMove(hotel, newNight);
       Store.touch({ manual: true });
       render();
-      UI.alert('住宿已移動', `「${hotel.name}」已改為${hotelNightLabel(newNight)}入住。\n\n⚠️ 住宿變動會改變路線的起終點，車程已重新估算；建議再按一次「一鍵排最佳路線」。`);
+      UI.alert('住宿已移動', `「${hotel.name}」已改為${hotelNightLabel(newNight)}入住。\n\n⚠️ 住宿變動會改變路線的起終點，車程已重新估算；建議再按一次「自動安排最佳路線」。`);
     };
     const occupied = hotelAtNightExcept(hotel, newNight);
     if (occupied) {
