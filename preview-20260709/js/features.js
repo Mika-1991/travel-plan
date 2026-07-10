@@ -1097,9 +1097,10 @@ h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{bo
         </tr>`).join('');
       return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
     }).join('');
-    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 每日行程 PDF</title>
+    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 每日行程 PDF</title>
 <style>
 @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
+@media screen and (max-width:820px){.sheet{width:100%;min-height:0;padding:14px}}
 h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.day{page-break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:12px;margin:0 0 12px}
 h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:8px;vertical-align:top}.type{width:86px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:13px;margin-top:3px}.pic{width:64px;text-align:right}.pic img{width:60px;height:60px;object-fit:cover;border-radius:6px}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.day{break-inside:avoid}}
@@ -1108,9 +1109,10 @@ h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:
   function packingHtml() {
     const t = trip();
     const groups = packingTemplate.map(g => `<section class="group"><h2>${textEsc(g.cat)}</h2><ul>${g.items.map(i => `<li><span>□</span>${textEsc(i)}</li>`).join('')}</ul></section>`).join('');
-    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 攜帶物品清單</title>
+    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 攜帶物品清單</title>
 <style>
 @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
+@media screen and (max-width:820px){.sheet{width:100%;min-height:0;padding:14px}}
 h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.group{break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:10px}
 h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}li{display:flex;gap:7px;align-items:flex-start;font-size:14px}li span{color:#A9805B;font-weight:700}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.group{break-inside:avoid}}

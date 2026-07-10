@@ -370,25 +370,42 @@ const Itin = (() => {
     }
   }
 
+  const isMobile = () => window.matchMedia('(max-width: 560px)').matches;
+
   function bindRouteActions() {
+    const t = trip();
     const moreBtn = $('btnMoreActions');
     if (moreBtn) moreBtn.onclick = openMoreActions;
+    const undoBtn = $('btnUndo');
+    if (undoBtn) { undoBtn.disabled = !Store.canUndo(); undoBtn.onclick = doUndo; }
+    const refreshBtn = $('btnRefreshRoutes');
+    if (refreshBtn) {
+      refreshBtn.disabled = !(t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length);
+      refreshBtn.onclick = refreshRoutes;
+    }
     const saveBtn = $('btnManualSave');
     if (saveBtn) saveBtn.onclick = saveCurrentArrangement;
+    const shareBtn = $('btnShareBottom');
+    if (shareBtn) shareBtn.onclick = () => Feat.showShare();
   }
 
-  // 底部「⋯ 更多」：把次要動作收在一個選單，避免手機底部按鈕擁擠
+  function doUndo() { if (Store.undo()) { render(); UI.toast('已復原上一步'); } }
+
+  // 底部「⋯ 更多」：手機把次要動作收在這裡（桌面多按鈕已外露，這裡只補還原）
   function openMoreActions() {
-    const t = trip();
     const opts = [];
-    if (Store.canUndo()) opts.push({ label: '↩ 上一步（復原）', value: 'undo' });
-    if (t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length)
-      opts.push({ label: '🔄 更新車程（不重排）', value: 'refresh' });
-    if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
-    opts.push({ label: '📤 分享行程', value: 'share' });
+    if (isMobile()) {
+      if (Store.canUndo()) opts.push({ label: '↩ 上一步（復原）', value: 'undo' });
+      opts.push({ label: '💾 儲存目前安排', value: 'save' });
+      if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
+      opts.push({ label: '📤 分享行程', value: 'share' });
+    } else {
+      if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
+      if (!opts.length) { UI.toast('沒有更多操作（都在下方按鈕）'); return; }
+    }
     UI.choose('更多操作', opts, v => {
-      if (v === 'undo') { if (Store.undo()) { render(); UI.toast('已復原上一步'); } }
-      else if (v === 'refresh') refreshRoutes();
+      if (v === 'undo') doUndo();
+      else if (v === 'save') saveCurrentArrangement();
       else if (v === 'restore') confirmRestoreSaved();
       else if (v === 'share') Feat.showShare();
     });
@@ -792,15 +809,15 @@ const Itin = (() => {
       <a class="btn-outline" style="display:block;text-align:center;text-decoration:none;margin-top:4px"
          href="${UI.hotelPriceLink(h.name)}" target="_blank" rel="noopener">💲 查即時房價（可切平日／假日）</a>
       <p class="hint" style="margin-top:4px">房價由訂房網站提供，查到後可回來記在上面兩格。</p>`;
-    UI.modal(`🏨 ${h.name}`, body, [
+    UI.modal(`🏨 ${h.name.length > 10 ? h.name.slice(0, 10) + '…' : h.name}`, body, [
       {
-        label: '💰 記房費到分帳', onClick: () => {
+        label: '記帳', onClick: () => {
           UI.closeModal();
           Feat.quickExpense({ item: `${h.name} 房費`, date: trip().startDate });
         }
       },
       {
-        label: '刪除這晚住宿', danger: true,
+        label: '刪除', danger: true,
         onClick: () => {
           UI.confirm('刪除住宿？', `確定要刪除「${h.name}」這晚住宿嗎？相關天數的路程會重新估算。`, () => {
             const t = trip();
@@ -888,7 +905,7 @@ const Itin = (() => {
       <div class="spot-main">
         <span class="spot-no" style="background:${s.visited ? 'var(--ok)' : (d ? dayColor(d) : 'var(--text-2)')}">${s.visited ? '✓' : (no || '·')}</span>
         <div class="spot-info">
-          <div class="spot-name">${s.locked ? '<span class="lock-badge" title="已鎖定：自動安排不會移動它">🔒</span> ' : ''}${s.must ? '<span class="must">⭐</span> ' : ''}${UI.esc(s.name)}${s.visited ? ' <span class="visited-badge">已去過</span>' : ''}</div>
+          <div class="spot-name">${s.locked ? '<span class="lock-badge" title="已鎖定：當天必去，自動安排不會移動它">🔒</span> ' : ''}${UI.esc(s.name)}${s.visited ? ' <span class="visited-badge">已去過</span>' : ''}</div>
           <div class="spot-times">${tlRow ? `${tlRow.arrive} 抵達（停留 ${stayH}）→ ${tlRow.depart} 出發` : `停留 ${stayH}`}</div>
           ${noteLine}
           ${coordWarning}
@@ -935,7 +952,7 @@ const Itin = (() => {
     Store.touch();
     render();
     UI.toast(s.locked
-      ? `🔒 已鎖定「${s.name}」在第 ${s.day} 天，自動安排不會移動它`
+      ? `🔒 鎖定=第 ${s.day} 天必去，自動安排不會移動它`
       : `🔓 已解除「${s.name}」的鎖定`);
   }
 
@@ -975,8 +992,7 @@ const Itin = (() => {
     const days = Store.days();
     const opts = [
       { label: s.visited ? '☑ 取消「已去過」' : '☐ 標記「已去過」', value: 'visited' },
-      { label: '📝 編輯備註', value: 'note' },
-      { label: s.must ? '⭐ 取消必去' : '☆ 標記必去', value: 'must' }
+      { label: '📝 編輯備註', value: 'note' }
     ];
     for (let d = 1; d <= days; d++) {
       if (d !== s.day) opts.push({ label: `📅 移到第 ${d} 天`, value: 'day' + d });
@@ -988,8 +1004,6 @@ const Itin = (() => {
         if (s.visited) UI.toast(`✅ 「${s.name}」打卡完成！`);
       } else if (v === 'note') {
         editSpotNote(s);
-      } else if (v === 'must') {
-        s.must = !s.must; Store.touch(); render();
       } else if (v === 'del') {
         deleteSpot(s);
       } else if (v.startsWith('day')) {

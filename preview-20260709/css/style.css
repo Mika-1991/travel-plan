@@ -249,6 +249,13 @@ body.readonly .edit-only { display: none !important; }
 .spot-actions button:active, .spot-actions .ico-link:active { background: var(--card); }
 .spot-actions .drag-grip { cursor: grab; touch-action: none; font-size: 1.25rem; }
 .lock-badge { font-size: .9rem; }
+/* 手機：景點動作圖示換到下一行（名稱才有完整寬度、不跑版）；並關閉拖曳（手機拖不動） */
+@media (max-width: 560px) {
+  .spot-main { flex-wrap: wrap; }
+  .spot-info { flex: 1 1 60%; }
+  .spot-actions { flex-basis: 100%; justify-content: flex-start; margin-top: 4px; gap: 12px; padding-left: 36px; }
+  .spot-actions .drag-grip { display: none; }
+}
 .stay-edit { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .stay-edit button {
   border: 1.5px solid var(--main); color: var(--main); width: 30px; height: 30px;
@@ -325,6 +332,7 @@ body.readonly .edit-only { display: none !important; }
 @media (max-width: 560px) {
   .route-actions { gap: 6px; }
   .route-action, .fab { font-size: .9rem; padding: 10px 12px; }
+  .only-desktop { display: none !important; }   /* 手機只留 ⋯更多／更新車程／自動安排 */
 }
 
 .tabbar {
