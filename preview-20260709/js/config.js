@@ -14,7 +14,7 @@ const CONFIG = {
   gasUrl: 'https://script.google.com/macros/s/AKfycbwXlINLai6MSUtRtM2j7TqVQGIGxwXX2sab7G_-0ysEfnFTN85t4Hm2gh_hquNXC3_pWg/exec',
 
   // 版本號（改版只更這裡，標題列自動帶出）
-  version: 'v2.1.3',
+  version: 'v2.1.4',
 
   // 天氣（Open-Meteo 免費免 Key，模擬/正式模式都直接用真資料）
   weatherApi: 'https://api.open-meteo.com/v1/forecast',

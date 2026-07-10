@@ -20,7 +20,7 @@
 </header>
 
 <!-- ===== 唯讀模式標示 ===== -->
-<div id="readonlyBanner" class="readonly-banner hidden">👀 唯讀模式：只能瀏覽，無法編輯</div>
+<div id="readonlyBanner" class="readonly-banner hidden">👀 唯讀模式：只能瀏覽 <button id="btnCopyTripRO" class="ro-copy-btn">📋 複製成我的行程</button></div>
 
 <!-- ===== 開站精靈 ===== -->
 <main id="wizard" class="wizard">
@@ -68,7 +68,7 @@
       </div>
       <div id="memberChips" class="chips"></div>
 
-      <label>主要交通方式（之後可隨時切換）</label>
+      <label>交通方式（之後可隨時切換）</label>
       <div class="seg" id="segTransport">
         <button data-v="driving" class="on">🚗 開車</button>
         <button data-v="transit">🚇 大眾運輸</button>
@@ -229,11 +229,8 @@
       <h2 class="page-title">📥 參考資料</h2>
       <div class="card">
         <div class="step-title"><span class="step-badge">1</span><span class="step-text">每日行程 PDF</span></div>
-        <p class="hint">A4 列印版：依日期列出住宿、景點、車程與備註。可先預覽，再由瀏覽器輸出 PDF。</p>
-        <div class="row-2">
-          <button id="btnPreviewPrint" class="btn-outline">預覽列印頁</button>
-          <button id="btnDownloadPrint" class="btn-primary">輸出 PDF</button>
-        </div>
+        <p class="hint">A4 列印版：依日期列出住宿、景點、車程與備註。點「預覽 PDF」後，在預覽頁左下角按「列印／存 PDF」即可輸出或列印。</p>
+        <button id="btnPreviewPrint" class="btn-primary" style="width:100%">📄 預覽 PDF</button>
       </div>
       <div class="card">
         <div class="step-title"><span class="step-badge">2</span><span class="step-text">Excel 匯出</span></div>
@@ -242,11 +239,8 @@
       </div>
       <div class="card">
         <div class="step-title"><span class="step-badge">3</span><span class="step-text">攜帶物品清單</span></div>
-        <p class="hint">不做互動勾選，提供可列印或下載的清單版；之後可改接 GAS，讓你在試算表維護項目。</p>
-        <div class="row-2" style="margin-bottom:10px">
-          <button id="btnPackingPreview" class="btn-outline">預覽列印清單</button>
-          <button id="btnPackingDownload" class="btn-primary">下載清單 HTML</button>
-        </div>
+        <p class="hint">點「預覽 PDF」後，在預覽頁左下角按「列印／存 PDF」即可輸出或列印，不需要下載 HTML 檔。</p>
+        <button id="btnPackingPreview" class="btn-primary" style="width:100%;margin-bottom:10px">📄 預覽 PDF</button>
         <div id="packingListBox" class="resource-list"></div>
       </div>
       <div class="bottom-space"></div>
@@ -270,7 +264,7 @@
     <button data-page="page-trip" class="on"><span>🗓️</span>行程</button>
     <button data-page="page-map"><span>🗺️</span>路線</button>
     <button data-page="page-exp"><span>💰</span>分帳</button>
-    <button data-page="page-res"><span>📥</span>下載每日行程</button>
+    <button data-page="page-res"><span>📥</span>下載行程</button>
   </nav>
 </main>
 

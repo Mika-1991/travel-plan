@@ -206,11 +206,13 @@ const Itin = (() => {
               <div class="r-body">
                 <div class="r-name">${UI.esc(r.name)} <span class="star">★ ${r.rating}</span></div>
                 <div class="r-meta">${UI.esc(r.address)}</div>
+                <div class="r-hours" data-hours-i="${i}">🕒 查營業時間…</div>
                 <div class="r-actions"><button class="primary" data-i="${i}">＋ 加到第 ${d} 天</button></div>
               </div>
             </div>`).join('') : '<p class="hint">找不到符合的地點</p>';
           res.querySelectorAll('button[data-i]').forEach(b =>
             b.onclick = () => { if (addSpot(rs[Number(b.dataset.i)], { day: d })) inp.value = ''; res.innerHTML = ''; });
+          UI.fillResultHours(res, rs);
         } catch (e) { console.warn(e); }
       }, 250);
     });
@@ -356,6 +358,7 @@ const Itin = (() => {
     renderMiniMap();
     Feat.fillWeather();
     notifyOverflowDays();
+    backfillHours();
   }
 
   // 某一天的行程是否排不進設定時段
@@ -408,13 +411,14 @@ const Itin = (() => {
       opts.push({ label: '📤 分享行程', value: 'share' });
     } else {
       if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
-      if (!opts.length) { UI.toast('沒有更多操作（都在下方按鈕）'); return; }
     }
+    opts.push({ label: '📋 複製成我的行程', value: 'copy' });
     UI.choose('更多操作', opts, v => {
       if (v === 'undo') doUndo();
       else if (v === 'save') saveCurrentArrangement();
       else if (v === 'restore') confirmRestoreSaved();
       else if (v === 'share') Feat.showShare();
+      else if (v === 'copy') Feat.copyTrip();
     });
   }
 
@@ -537,12 +541,41 @@ const Itin = (() => {
     return all.filter(p => !Logic.hasCoords(p)).map(p => p.name || '未命名地點');
   }
 
-  // 每天三餐摘要：已安排顯示 ✓，未安排淡淡提醒「未定」（不硬 show 空列）
+  // 每天三餐摘要：已安排顯示 ✓，未安排淡淡提醒「未定」（不硬 show 空列）；有點心才顯示點心
   function mealSummaryHtml(list) {
     const badge = (key, label) => list.some(s => s.meal === key)
       ? `<b style="color:var(--ok)">${label}✓</b>`
       : `<span style="color:var(--text-2)">${label}未定</span>`;
-    return `<p class="hint" style="margin:2px 0 0">🍽 ${badge('breakfast', '早餐')}｜${badge('lunch', '午餐')}｜${badge('dinner', '晚餐')}</p>`;
+    const snack = list.some(s => s.meal === 'snack') ? `｜<b style="color:var(--ok)">點心✓</b>` : '';
+    return `<p class="hint" style="margin:2px 0 0">🍽 ${badge('breakfast', '早餐')}｜${badge('lunch', '午餐')}｜${badge('dinner', '晚餐')}${snack}</p>`;
+  }
+
+  // 依景點當天的星期，從已存的營業時間文字取「今日」那一行（天卡直接顯示，不用進備註）
+  const WEEK_ZH = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  function todayHoursLine(s) {
+    if (!s.hoursText || !s.day) return '';
+    const wd = new Date(Store.dateOfDay(s.day) + 'T00:00:00').getDay();
+    const line = s.hoursText.split('\n').find(l => l.startsWith(WEEK_ZH[wd]));
+    if (!line) return '';
+    return line.replace(/^[^:：]*[:：]\s*/, '').trim();
+  }
+
+  // 既有景點（v2.1.3 之前加入、還沒抓過營業時間）→ 載入後回補一次，天卡才顯示得出來
+  const hoursFetching = new Set();
+  function backfillHours() {
+    const t = trip();
+    if (!t || Api.isMock()) return;
+    t.spots.forEach(s => {
+      if (s.hoursText !== undefined || hoursFetching.has(s.id)) return;
+      const pid = s.placeId;
+      if (!pid || String(pid).startsWith('custom') || String(pid).startsWith('m-')) { s.hoursText = ''; return; }
+      hoursFetching.add(s.id);
+      Api.placeHours(pid).then(h => {
+        s.hoursText = h ? (h.weekdayText || []).join('\n') : '';
+        s.closedDays = h ? (h.closedDays || []) : [];
+        render();
+      }).catch(() => { s.hoursText = ''; });
+    });
   }
 
   function renderDayCard(d, list) {
@@ -707,6 +740,7 @@ const Itin = (() => {
         <div class="spot-actions">
           ${kind === 'hotel' ? `<button class="drag-grip edit-only" data-act="hdrag" title="按住拖曳，把住宿移到其他天">☰</button>
           <button class="edit-only" data-act="hedit" title="編輯住宿備註">✎</button>` : ''}
+          ${(kind === 'meet' || kind === 'end') ? `<button class="edit-only" data-act="ptmenu" title="更多：更改地點／移除／導航／記帳">⋯</button>` : ''}
           ${mapLink}
         </div>
       </div>`;
@@ -716,7 +750,36 @@ const Itin = (() => {
     if (he) he.onclick = () => editHotelInfo(p);
     const hd = div.querySelector('[data-act="hdrag"]');
     if (hd && kind === 'hotel') hd.addEventListener('pointerdown', e => startHotelDrag(e, p, div));
+    const pm = div.querySelector('[data-act="ptmenu"]');
+    if (pm) pm.onclick = () => pointMenu(spObj);
     return div;
+  }
+
+  // 集合地／解散地的功能選單（比照景點的 ⋯）
+  function pointMenu(spObj) {
+    const p = spObj.p, isMeet = spObj.kind === 'meet';
+    const opts = [
+      { label: '✏️ 更改地點', value: 'edit' },
+      { label: '💰 記一筆帳（交通）', value: 'exp' }
+    ];
+    if (Logic.hasCoords(p) || p.name) opts.push({ label: '🧭 導航到這裡', value: 'nav' });
+    opts.push({ label: isMeet ? '🗑 移除集合地' : '🗑 移除解散地', value: 'del', danger: true });
+    UI.choose(isMeet ? '🚩 集合出發地' : '🏁 解散地', opts, v => {
+      const t = trip();
+      if (v === 'edit') Feat.openRoutePoints();
+      else if (v === 'exp') Feat.quickExpense({ item: p.name, date: isMeet ? t.startDate : Store.dateOfDay(Store.days()) });
+      else if (v === 'nav') window.open(UI.navLink(p), '_blank', 'noopener');
+      else if (v === 'del') {
+        UI.confirm(isMeet ? '移除集合地？' : '移除解散地？',
+          `確定要移除「${p.name}」嗎？之後這天會改用飯店當起／終點。`, () => {
+            if (isMeet) t.meetPoint = null; else t.endPoint = null;
+            delete t.legsByDay[1]; delete t.legsByDay[Store.days()];
+            Store.touch();
+            render();
+            UI.toast(isMeet ? '已移除集合地' : '已移除解散地');
+          });
+      }
+    });
   }
 
   // ---------- 住宿拖曳到其他天（獨立於景點拖曳：住宿是「晚」不是「日間景點」） ----------
@@ -842,7 +905,7 @@ const Itin = (() => {
             Store.touch({ manual: true });
             UI.closeModal();
             render();
-            UI.toast('住宿已刪除');
+            UI.toast('住宿已刪除；車程已重估，需要精準時間請按下方「🔄 更新車程」');
           });
         }
       },
@@ -916,6 +979,8 @@ const Itin = (() => {
     const stayH = Logic.fmtDur(s.stayMin);
     const coordWarning = Logic.hasCoords(s) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;
     const noteLine = s.note ? `<div class="spot-times">備註：${UI.esc(s.note)}</div>` : '';
+    const hoursLine = todayHoursLine(s);
+    const hoursHtml = hoursLine ? `<div class="spot-times">🕒 今日 ${UI.esc(hoursLine)}</div>` : '';
     const closedWarn = (s.closedDays && s.day && s.closedDays.includes(new Date(Store.dateOfDay(s.day) + 'T00:00:00').getDay()))
       ? `<div class="spot-times" style="color:var(--danger);font-weight:700">⚠️ 這天是公休日，出發前請再確認！</div>` : '';
     if (s.visited) div.classList.add('visited');
@@ -925,6 +990,7 @@ const Itin = (() => {
         <div class="spot-info">
           <div class="spot-name">${s.locked ? '<span class="lock-badge" title="已鎖定：當天必去，自動安排不會移動它">🔒</span> ' : ''}${UI.esc(s.name)}${s.visited ? ' <span class="visited-badge">已去過</span>' : ''}</div>
           <div class="spot-times">${tlRow ? `${tlRow.arrive} 抵達（停留 ${stayH}）→ ${tlRow.depart} 出發` : `停留 ${stayH}`}</div>
+          ${hoursHtml}
           ${noteLine}
           ${coordWarning}
           ${closedWarn}
@@ -1011,6 +1077,7 @@ const Itin = (() => {
       delete t.legsByDay[s.day];
       Store.touch({ manual: true });
       render();
+      UI.toast('已移除；車程已重估，需要精準時間請按下方「🔄 更新車程」');
     });
   }
 

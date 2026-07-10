@@ -568,6 +568,7 @@ const Feat = (() => {
             <div class="r-body">
               <div class="r-name">${UI.esc(r.name)}</div>
               <div class="r-meta"><span class="star">★ ${r.rating}</span>（${(r.reviews || 0).toLocaleString()} 則）｜路程約 ${Logic.fmtDur(r.travelMin)}｜直線約 ${r.distKm ? r.distKm.toFixed(1) : '?'} 公里${r.kind ? '｜' + r.kind : ''}</div>
+              <div class="r-hours" data-hours-i="${i}">🕒 查營業時間…</div>
               <div class="r-actions">
                 <a href="${UI.gmapLink(r)}" target="_blank" rel="noopener">📍 Google</a>
                 <a href="${UI.navLink(r)}" target="_blank" rel="noopener">🧭 導航</a>
@@ -576,6 +577,7 @@ const Feat = (() => {
             </div>
           </div>`).join('')
           : `<p class="hint" style="margin-top:10px">${noLimit ? '找不到符合的餐廳，請換關鍵字。' : `${Logic.fmtDur(maxMin)}內找不到符合餐廳，請改成不設限或換關鍵字。`}</p>`;
+        UI.fillResultHours(res, list);
         res.querySelectorAll('[data-zoom]').forEach(img =>
           img.onclick = () => UI.photoZoom(list[Number(img.dataset.zoom)].photo, list[Number(img.dataset.zoom)].name));
         res.querySelectorAll('button[data-i]').forEach(b =>
@@ -1157,10 +1159,8 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     }
     $('page-res').dataset.ready = '1';
     $('btnExportExcel').onclick = () => downloadBlob(`${trip().name || '旅遊行程'}-資料匯出.xlsx`, xlsxBlob());
-    $('btnPreviewPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程預覽', false);
-    $('btnDownloadPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程 PDF', true);
+    $('btnPreviewPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程 PDF', false);
     $('btnPackingPreview').onclick = () => openPreview(packingHtml(), '攜帶物品清單', false);
-    $('btnPackingDownload').onclick = () => downloadFile(`${trip().name || '旅遊行程'}-攜帶物品清單.html`, packingHtml(), 'text/html;charset=utf-8');
     renderPackingList();
   }
 
@@ -1306,6 +1306,40 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     return div;
   }
 
+  // 複製此份行程 → 產生一份「自己的」新行程（新代碼、可編輯保存、寄到自己 Email）
+  function copyTrip() {
+    const t = trip();
+    if (!t) return;
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <p style="margin-bottom:8px">會複製「${UI.esc(t.name)}」的完整行程（景點、住宿、備註…），變成一份<b style="color:var(--accent)">你自己的新行程</b>，可以自由編輯、儲存，並用你的 Email 找回。<br>
+      <span class="hint">原行程不受影響。</span></p>
+      <label>新行程名稱</label>
+      <input id="copyName" type="text" maxlength="30" value="${UI.esc(t.name + '（我的複本）')}">
+      <label>你的 Email（用來找回這份複本）</label>
+      <input id="copyEmail" type="email" placeholder="例如：you@gmail.com">`;
+    UI.modal('📋 複製成我的行程', body, [{
+      label: '建立我的複本', primary: true,
+      onClick: async () => {
+        const name = body.querySelector('#copyName').value.trim() || (t.name + '（複本）');
+        const email = body.querySelector('#copyEmail').value.trim();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { UI.toast('Email 格式看起來不對，請再確認'); return; }
+        try {
+          UI.loading(true, '建立你的複本中…');
+          const copy = Store.cloneAsNew(t, name, email);
+          copy.codesAutoSent = true; // 這裡自己寄，避免 showTripCreated 又寄一次
+          Store.load(copy, 'edit');
+          await Store.cloudSaveNow();       // 建立到雲端
+          try { await Api.cloudSendCodes(email, copy); } catch (e) { console.warn('複本寄送代碼失敗', e); }
+          UI.loading(false);
+          UI.closeAllModals();
+          App.enterMain();
+          UI.toast(Api.isMock() ? '已複製成你的行程！（模擬模式不會真的寄信）' : '已複製成你的行程！代碼已寄到你的信箱');
+        } catch (e) { UI.loading(false); UI.alert('複製失敗', e.message || String(e)); }
+      }
+    }]);
+  }
+
   function showShare() {
     const t = trip();
     const body = document.createElement('div');
@@ -1335,6 +1369,6 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
   return {
     fillWeather, openRainPlan, recommendHotel, openRoutePoints, editTripDates,
     openFood, renderExpensePage, quickExpense, renderResourcePage,
-    initExpense, showTripCreated, showShare
+    initExpense, showTripCreated, showShare, copyTrip
   };
 })();

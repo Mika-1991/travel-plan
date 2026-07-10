@@ -142,6 +142,37 @@ const Api = (() => {
     } catch (e) { console.warn('營業時間查詢失敗', e); return null; }
   }
 
+  // ---------- 今日營業時間（搜尋結果即時顯示用） ----------
+  // 回傳 { todayText:'09:00–18:00'|'本日公休'|'24 小時營業', openNow:true|false|undefined } 或 null
+  const hm = t => (t && t.length === 4) ? (t.slice(0, 2) + ':' + t.slice(2)) : (t || '');
+  async function placeToday(placeId) {
+    if (isMock() || !placeId) { await delay(20); return null; }
+    try {
+      await loadGoogleMaps();
+      return await new Promise(resolve => {
+        placesSvc().getDetails({ placeId, fields: ['opening_hours', 'utc_offset_minutes'] }, (res, status) => {
+          const oh = res && res.opening_hours;
+          if (!okStatus(status) || !oh) { resolve(null); return; }
+          const periods = oh.periods || [];
+          const today = new Date().getDay(); // 0=週日
+          let todayText;
+          if (periods.length === 1 && periods[0].open && !periods[0].close &&
+              (periods[0].open.time === '0000' || periods[0].open.time === undefined)) {
+            todayText = '24 小時營業';
+          } else {
+            const todays = periods.filter(p => p.open && p.open.day === today);
+            todayText = todays.length
+              ? todays.map(p => `${hm(p.open.time)}${p.close ? '–' + hm(p.close.time) : ''}`).join('、')
+              : '本日公休';
+          }
+          let openNow;
+          try { openNow = typeof oh.isOpen === 'function' ? oh.isOpen() : undefined; } catch { openNow = undefined; }
+          resolve({ todayText, openNow });
+        });
+      });
+    } catch (e) { console.warn('營業時間查詢失敗', e); return null; }
+  }
+
   // ---------- 地址轉座標（自訂住宿補地址後可估算路程） ----------
   async function geocodeAddress(address) {
     address = String(address || '').trim();
@@ -534,7 +565,7 @@ const Api = (() => {
 
   return {
     isMock, loadGoogleMaps, geocodeAddress,
-    searchPlaces, searchFood, nearbySearch, placeHours,
+    searchPlaces, searchFood, nearbySearch, placeHours, placeToday,
     optimizeRoute, routeLegs, routePath, travelTime,
     weatherOn,
     cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail,

@@ -43,6 +43,7 @@ const UI = (() => {
   const modalStack = [];
   let guardPushed = false;   // 是否已在 history 放一個「返回鍵先關彈窗」的守衛
   let suppressPop = false;   // 我們自己呼叫 history.back() 造成的 popstate，忽略之
+  let backTimer = null;      // 延後清 guard 的計時器（避免關閉後同一輪又開彈窗時 back()+pushState 打架）
 
   function modal(title, body, actions, opts) {
     opts = opts || {};
@@ -79,6 +80,7 @@ const UI = (() => {
     overlay.appendChild(box);
     modalStack.push({ box, opts });
     overlay.classList.remove('hidden');
+    clearTimeout(backTimer); // 上一個彈窗剛關又立刻開新彈窗（choose→onPick→再開）→ 取消那次返回，續用同一個 guard
     if (!guardPushed) { guardPushed = true; try { history.pushState({ mikaModal: 1 }, ''); } catch {} }
   }
 
@@ -99,7 +101,16 @@ const UI = (() => {
   }
   function finishModals() {
     $('modalOverlay').classList.add('hidden');
-    if (guardPushed) { guardPushed = false; suppressPop = true; try { history.back(); } catch { suppressPop = false; } }
+    if (!guardPushed) return;
+    // 延後一拍才清 guard：若同一輪又開了新彈窗，modal() 會 clearTimeout 取消這次返回，
+    // 避免 history.back() 與同步的 pushState 在同一個 tick 打架（桌機會誤跳上一頁）。
+    clearTimeout(backTimer);
+    backTimer = setTimeout(() => {
+      if (!modalStack.length && guardPushed) {
+        guardPushed = false; suppressPop = true;
+        try { history.back(); } catch { suppressPop = false; }
+      }
+    }, 0);
   }
   // 供 App 初始化時掛：點背景關、手機返回鍵先關彈窗
   function initModalDismiss() {
@@ -165,7 +176,22 @@ const UI = (() => {
     modal(title || '照片', body, []);
   }
 
-  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, modal, closeModal, closeAllModals, initModalDismiss, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom };
+  // 搜尋結果卡片：非同步補上「今日營業時間」（每筆一次 Google 查詢；模擬模式自動略過）
+  function fillResultHours(container, results) {
+    if (!container) return;
+    container.querySelectorAll('[data-hours-i]').forEach(el => {
+      const r = results[Number(el.dataset.hoursI)];
+      if (!r || !r.placeId) { el.remove(); return; }
+      Api.placeToday(r.placeId).then(h => {
+        if (!h) { el.remove(); return; }
+        const status = h.openNow === true ? '<span class="open">營業中</span>'
+          : h.openNow === false ? '<span class="closed">休息中</span>' : '';
+        el.innerHTML = `🕒 今日 ${esc(h.todayText)}${status ? '｜' + status : ''}`;
+      }).catch(() => el.remove());
+    });
+  }
+
+  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, modal, closeModal, closeAllModals, initModalDismiss, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom, fillResultHours };
 })();
 
 // ---------- App 主控 ----------
@@ -219,6 +245,8 @@ const App = (() => {
         UI.toast('已載入最新版本');
       } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
     };
+    const roCopy = $('btnCopyTripRO');
+    if (roCopy) roCopy.onclick = () => Feat.copyTrip();
     $('btnHome').onclick = () => { location.href = location.pathname; };
     $('btnClear').onclick = () => {
       UI.confirm('清除本機資料？',
