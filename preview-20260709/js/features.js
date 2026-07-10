@@ -465,6 +465,14 @@ const Feat = (() => {
     const metersPerMin = mode === 'walking' ? 85 : mode === 'transit' ? 520 : 800;
     return Math.min(50000, Math.max(1200, min * metersPerMin));
   }
+  // 加入美食時自動猜餐別（午→晚→早→點心；使用者可在「📝 備註」改）
+  function guessMeal(d) {
+    const have = Itin.spotsOfDay(d).map(s => s.meal).filter(Boolean);
+    if (!have.includes('lunch')) return 'lunch';
+    if (!have.includes('dinner')) return 'dinner';
+    if (!have.includes('breakfast')) return 'breakfast';
+    return 'snack';
+  }
   function addFoodSpot(p, d) {
     const ok = Itin.addSpot({
       ...p,
@@ -472,6 +480,7 @@ const Feat = (() => {
       placeId: p.placeId || ('custom-food-' + Logic.uid()),
       rating: p.rating || 0,
       photo: p.photo || '',
+      meal: p.meal || guessMeal(d),
       note: p.note || '美食'
     }, { day: d });
     if (ok !== false) UI.toast(`已加入第 ${d} 天：「${p.name}」`);
@@ -863,7 +872,9 @@ const Feat = (() => {
     if (shouldShowEmptyLeg) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[0])}`, address: '', note: '' });
     list.forEach((s, i) => {
       if (legs[i] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[i])}`, address: '', note: '' });
-      rows.push({ type: s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點', name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
+      const mealLbl = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '點心' }[s.meal];
+      const rowType = mealLbl || (s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點');
+      rows.push({ type: rowType, name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
     });
     if (list.length && ep) {
       if (legs[list.length] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[list.length])}`, address: '', note: '' });

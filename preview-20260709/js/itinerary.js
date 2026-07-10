@@ -131,18 +131,25 @@ const Itin = (() => {
     if (t.spots.some(s => s.placeId === placeId)) { UI.toast('這個景點已經在清單裡囉'); return false; }
     const day = (opt && opt.day) || 0;
     const hasCoords = Logic.hasCoords(place);
-    t.spots.push({
+    const spot = {
       id: Logic.uid(), placeId, source: place.source || (String(placeId).startsWith('custom-') ? 'custom' : 'google'),
       name: place.name, address: place.address || '',
       lat: place.lat, lng: place.lng, rating: place.rating || 0, photo: place.photo || '',
       hasCoords, estimateWarning: hasCoords ? '' : '沒有座標，路程無法精準估算',
-      stayMin: CONFIG.defaults.stayMin, must: false, note: place.note || '',
+      stayMin: CONFIG.defaults.stayMin, must: false, meal: place.meal || '', note: place.note || '',
       day, order: day ? spotsOfDay(day).length : t.spots.length
-    });
+    };
+    t.spots.push(spot);
     if (day) delete t.legsByDay[day];
     Store.touch(day ? { manual: true } : undefined);
     UI.toast(hasCoords ? `已加入「${place.name}」${day ? `到第 ${day} 天` : ''}` : `已加入「${place.name}」，但沒有座標，路程會略過估算`);
     render();
+    // 加入時抓一次營業時間（真實地點），存起來給行程顯示＋公休日提醒
+    if (placeId && !String(placeId).startsWith('custom') && !String(placeId).startsWith('m-')) {
+      Api.placeHours(placeId).then(h => {
+        if (h) { spot.hoursText = (h.weekdayText || []).join('\n'); spot.closedDays = h.closedDays || []; Store.touch(); render(); }
+      }).catch(() => {});
+    }
     return true;
   }
 
@@ -530,6 +537,14 @@ const Itin = (() => {
     return all.filter(p => !Logic.hasCoords(p)).map(p => p.name || '未命名地點');
   }
 
+  // 每天三餐摘要：已安排顯示 ✓，未安排淡淡提醒「未定」（不硬 show 空列）
+  function mealSummaryHtml(list) {
+    const badge = (key, label) => list.some(s => s.meal === key)
+      ? `<b style="color:var(--ok)">${label}✓</b>`
+      : `<span style="color:var(--text-2)">${label}未定</span>`;
+    return `<p class="hint" style="margin:2px 0 0">🍽 ${badge('breakfast', '早餐')}｜${badge('lunch', '午餐')}｜${badge('dinner', '晚餐')}</p>`;
+  }
+
   function renderDayCard(d, list) {
     const t = trip();
     const dateISO = Store.dateOfDay(d);
@@ -561,6 +576,7 @@ const Itin = (() => {
       ${estimateHint}
       <div data-rain-slot="${d}"></div>
       ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ' <span style="color:var(--danger);font-weight:700">⚠️ 可能排不完</span>' : ''}</p>` : ''}
+      ${list.length ? mealSummaryHtml(list) : ''}
       <div class="day-tools">
         <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)}–${dayEndOf(d)}${((t.dayStartOv || {})[d] || (t.dayEndOv || {})[d]) ? '＊' : ''}</button>
         <button data-addspot="${d}" class="edit-only">➕ 加景點</button>
@@ -900,6 +916,8 @@ const Itin = (() => {
     const stayH = Logic.fmtDur(s.stayMin);
     const coordWarning = Logic.hasCoords(s) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;
     const noteLine = s.note ? `<div class="spot-times">備註：${UI.esc(s.note)}</div>` : '';
+    const closedWarn = (s.closedDays && s.day && s.closedDays.includes(new Date(Store.dateOfDay(s.day) + 'T00:00:00').getDay()))
+      ? `<div class="spot-times" style="color:var(--danger);font-weight:700">⚠️ 這天是公休日，出發前請再確認！</div>` : '';
     if (s.visited) div.classList.add('visited');
     div.innerHTML = `
       <div class="spot-main">
@@ -909,6 +927,7 @@ const Itin = (() => {
           <div class="spot-times">${tlRow ? `${tlRow.arrive} 抵達（停留 ${stayH}）→ ${tlRow.depart} 出發` : `停留 ${stayH}`}</div>
           ${noteLine}
           ${coordWarning}
+          ${closedWarn}
           <div class="stay-edit edit-only">
             <button data-act="stay-" aria-label="減少停留時間">−</button>
             <span class="stay-val">${stayH}</span>
@@ -956,17 +975,24 @@ const Itin = (() => {
       : `🔓 已解除「${s.name}」的鎖定`);
   }
 
+  const MEALS = [['', '不是正餐'], ['breakfast', '🍳 早餐'], ['lunch', '🍜 午餐'], ['dinner', '🍽 晚餐'], ['snack', '🍡 點心']];
   function editSpotNote(s) {
     const body = document.createElement('div');
     body.innerHTML = `
-      <label>景點備註</label>
+      <label>餐別（會帶進每日行程的三餐摘要）</label>
+      <select id="spotMealInput">
+        ${MEALS.map(([v, lb]) => `<option value="${v}" ${(s.meal || '') === v ? 'selected' : ''}>${lb}</option>`).join('')}
+      </select>
+      <label style="margin-top:8px">景點備註</label>
       <input id="spotNoteInput" type="text" maxlength="120" placeholder="例：必買伴手禮、停車位置、門票提醒" value="${UI.esc(s.note || '')}">
       <label>地址 / 位置備註</label>
       <input id="spotAddressInput" type="text" maxlength="120" placeholder="可補充地址或集合點" value="${UI.esc(s.address || '')}">
+      ${s.hoursText ? `<label style="margin-top:8px">🕒 營業時間（Google 提供）</label><p class="hint" style="white-space:pre-line;line-height:1.6">${UI.esc(s.hoursText)}</p>` : ''}
       <p class="hint">備註會顯示在景點卡片上。</p>`;
     UI.modal(`📝 ${s.name}`, body, [{
       label: '儲存', primary: true,
       onClick: () => {
+        s.meal = document.getElementById('spotMealInput').value;
         s.note = document.getElementById('spotNoteInput').value.trim();
         s.address = document.getElementById('spotAddressInput').value.trim();
         Store.touch({ manual: true });

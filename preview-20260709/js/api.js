@@ -123,6 +123,25 @@ const Api = (() => {
       .sort((a, b) => a.distKm - b.distKm);
   }
 
+  // ---------- 營業時間／公休日（加入景點時抓一次） ----------
+  // 回傳 { weekdayText:[...], closedDays:[0..6] }（0=週日）或 null
+  async function placeHours(placeId) {
+    if (isMock() || !placeId) { await delay(30); return null; }
+    try {
+      await loadGoogleMaps();
+      return await new Promise(resolve => {
+        placesSvc().getDetails({ placeId, fields: ['opening_hours'] }, (res, status) => {
+          const oh = res && res.opening_hours;
+          if (!okStatus(status) || !oh) { resolve(null); return; }
+          const periods = oh.periods || [];
+          const openDays = new Set(periods.map(p => p.open && p.open.day).filter(d => d !== undefined && d !== null));
+          const closedDays = periods.length ? [0, 1, 2, 3, 4, 5, 6].filter(d => !openDays.has(d)) : [];
+          resolve({ weekdayText: oh.weekday_text || [], closedDays });
+        });
+      });
+    } catch (e) { console.warn('營業時間查詢失敗', e); return null; }
+  }
+
   // ---------- 地址轉座標（自訂住宿補地址後可估算路程） ----------
   async function geocodeAddress(address) {
     address = String(address || '').trim();
@@ -515,7 +534,7 @@ const Api = (() => {
 
   return {
     isMock, loadGoogleMaps, geocodeAddress,
-    searchPlaces, searchFood, nearbySearch,
+    searchPlaces, searchFood, nearbySearch, placeHours,
     optimizeRoute, routeLegs, routePath, travelTime,
     weatherOn,
     cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail,
