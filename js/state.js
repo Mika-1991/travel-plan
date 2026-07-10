@@ -88,6 +88,22 @@ const Store = (() => {
     persistLocal();
   }
 
+  // 複製一份行程成「全新的獨立行程」（新代碼、新 Email；原行程不受影響）
+  function cloneAsNew(source, name, email) {
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.tripId = Logic.uid();
+    copy.editCode = Logic.genEditCode();
+    copy.viewCode = Logic.genViewCode(copy.editCode);
+    copy.name = name || (source.name + '（複本）');
+    copy.creatorEmail = email || '';
+    delete copy.codesAutoSent;
+    delete copy.deletedAt;
+    copy.createdAt = Date.now();
+    copy.updatedAt = Date.now();
+    copy.baseUpdatedAt = 0;
+    return normalizeTrip(copy);
+  }
+
   // ---------- 上一步 / 下一步（復原最近 30 步） ----------
   let histPrev = [], histNext = [], lastSnap = null;
   const snap = () => JSON.stringify(trip);
@@ -242,7 +258,7 @@ const Store = (() => {
 
   return {
     get, getRole, isReadonly, days, dateOfDay, hotelOfNight,
-    create, load, loadLocal, clearLocal,
+    create, load, cloneAsNew, loadLocal, clearLocal,
     prefs, setPref,
     touch, isManualDirty, clearManualDirty,
     undo, redo, canUndo, canRedo,

@@ -465,6 +465,14 @@ const Feat = (() => {
     const metersPerMin = mode === 'walking' ? 85 : mode === 'transit' ? 520 : 800;
     return Math.min(50000, Math.max(1200, min * metersPerMin));
   }
+  // 加入美食時自動猜餐別（午→晚→早→點心；使用者可在「📝 備註」改）
+  function guessMeal(d) {
+    const have = Itin.spotsOfDay(d).map(s => s.meal).filter(Boolean);
+    if (!have.includes('lunch')) return 'lunch';
+    if (!have.includes('dinner')) return 'dinner';
+    if (!have.includes('breakfast')) return 'breakfast';
+    return 'snack';
+  }
   function addFoodSpot(p, d) {
     const ok = Itin.addSpot({
       ...p,
@@ -472,6 +480,7 @@ const Feat = (() => {
       placeId: p.placeId || ('custom-food-' + Logic.uid()),
       rating: p.rating || 0,
       photo: p.photo || '',
+      meal: p.meal || guessMeal(d),
       note: p.note || '美食'
     }, { day: d });
     if (ok !== false) UI.toast(`已加入第 ${d} 天：「${p.name}」`);
@@ -559,6 +568,7 @@ const Feat = (() => {
             <div class="r-body">
               <div class="r-name">${UI.esc(r.name)}</div>
               <div class="r-meta"><span class="star">★ ${r.rating}</span>（${(r.reviews || 0).toLocaleString()} 則）｜路程約 ${Logic.fmtDur(r.travelMin)}｜直線約 ${r.distKm ? r.distKm.toFixed(1) : '?'} 公里${r.kind ? '｜' + r.kind : ''}</div>
+              <div class="r-hours" data-hours-i="${i}">🕒 查營業時間…</div>
               <div class="r-actions">
                 <a href="${UI.gmapLink(r)}" target="_blank" rel="noopener">📍 Google</a>
                 <a href="${UI.navLink(r)}" target="_blank" rel="noopener">🧭 導航</a>
@@ -567,12 +577,16 @@ const Feat = (() => {
             </div>
           </div>`).join('')
           : `<p class="hint" style="margin-top:10px">${noLimit ? '找不到符合的餐廳，請換關鍵字。' : `${Logic.fmtDur(maxMin)}內找不到符合餐廳，請改成不設限或換關鍵字。`}</p>`;
+        UI.fillResultHours(res, list);
         res.querySelectorAll('[data-zoom]').forEach(img =>
           img.onclick = () => UI.photoZoom(list[Number(img.dataset.zoom)].photo, list[Number(img.dataset.zoom)].name));
         res.querySelectorAll('button[data-i]').forEach(b =>
           b.onclick = () => {
+            if (b.disabled) return;
             addFoodSpot(list[Number(b.dataset.i)], d);
-            UI.closeModal();
+            b.textContent = '已加入 ✓';
+            b.disabled = true;
+            UI.toast('已加入！可繼續加其他家，按「關閉」結束');
           });
       } catch (e) { UI.loading(false); UI.alert('搜尋失敗', e.message); }
     };
@@ -860,7 +874,9 @@ const Feat = (() => {
     if (shouldShowEmptyLeg) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[0])}`, address: '', note: '' });
     list.forEach((s, i) => {
       if (legs[i] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[i])}`, address: '', note: '' });
-      rows.push({ type: s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點', name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
+      const mealLbl = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '點心' }[s.meal];
+      const rowType = mealLbl || (s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點');
+      rows.push({ type: rowType, name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
     });
     if (list.length && ep) {
       if (legs[list.length] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[list.length])}`, address: '', note: '' });
@@ -1094,9 +1110,10 @@ h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{bo
         </tr>`).join('');
       return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
     }).join('');
-    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 每日行程 PDF</title>
+    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 每日行程 PDF</title>
 <style>
 @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
+@media screen and (max-width:820px){.sheet{width:100%;min-height:0;padding:14px}}
 h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.day{page-break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:12px;margin:0 0 12px}
 h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:8px;vertical-align:top}.type{width:86px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:13px;margin-top:3px}.pic{width:64px;text-align:right}.pic img{width:60px;height:60px;object-fit:cover;border-radius:6px}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.day{break-inside:avoid}}
@@ -1105,25 +1122,30 @@ h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:
   function packingHtml() {
     const t = trip();
     const groups = packingTemplate.map(g => `<section class="group"><h2>${textEsc(g.cat)}</h2><ul>${g.items.map(i => `<li><span>□</span>${textEsc(i)}</li>`).join('')}</ul></section>`).join('');
-    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 攜帶物品清單</title>
+    return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 攜帶物品清單</title>
 <style>
 @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
+@media screen and (max-width:820px){.sheet{width:100%;min-height:0;padding:14px}}
 h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.group{break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:10px}
 h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}li{display:flex;gap:7px;align-items:flex-start;font-size:14px}li span{color:#A9805B;font-weight:700}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.group{break-inside:avoid}}
 </style></head><body><main class="sheet"><h1>${textEsc(t.name)} 攜帶物品清單</h1><div class="meta">${t.startDate} ~ ${t.endDate}</div><div class="grid">${groups}</div></main></body></html>`;
   }
-  function openPrintWindow(html, autoPrint, fallbackName) {
-    const w = window.open('', '_blank');
-    if (!w) {
-      UI.toast('瀏覽器阻擋新視窗，已改下載 HTML');
-      downloadFile(fallbackName, html, 'text/html;charset=utf-8');
-      return;
-    }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    if (autoPrint) setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.warn(e); } }, 350);
+  // app 內全螢幕預覽（手機也能用返回鍵/返回按鈕退出）：iframe 裝列印頁＋「列印／存 PDF」
+  function openPreview(html, title, autoPrint) {
+    const wrap = document.createElement('div');
+    wrap.className = 'preview-wrap';
+    const frame = document.createElement('iframe');
+    frame.className = 'preview-frame';
+    frame.title = title;
+    wrap.appendChild(frame);
+    const doPrint = () => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+      catch (e) { UI.toast('列印失敗，請用瀏覽器選單列印'); }
+    };
+    frame.onload = () => { if (autoPrint) setTimeout(doPrint, 300); };
+    UI.modal(title, wrap, [{ label: '🖨 列印／存 PDF', primary: true, onClick: doPrint }], { fullscreen: true });
+    frame.srcdoc = html;   // 掛進 DOM 後再載入內容
   }
   function renderPackingList() {
     const box = $('packingListBox');
@@ -1137,10 +1159,8 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     }
     $('page-res').dataset.ready = '1';
     $('btnExportExcel').onclick = () => downloadBlob(`${trip().name || '旅遊行程'}-資料匯出.xlsx`, xlsxBlob());
-    $('btnPreviewPrint').onclick = () => openPrintWindow(printableDailyHtml(), false, `${trip().name || '旅遊行程'}-每日行程.html`);
-    $('btnDownloadPrint').onclick = () => openPrintWindow(printableDailyHtml(), true, `${trip().name || '旅遊行程'}-每日行程.html`);
-    $('btnPackingPreview').onclick = () => openPrintWindow(packingHtml(), true, `${trip().name || '旅遊行程'}-攜帶物品清單.html`);
-    $('btnPackingDownload').onclick = () => downloadFile(`${trip().name || '旅遊行程'}-攜帶物品清單.html`, packingHtml(), 'text/html;charset=utf-8');
+    $('btnPreviewPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程 PDF', false);
+    $('btnPackingPreview').onclick = () => openPreview(packingHtml(), '攜帶物品清單', false);
     renderPackingList();
   }
 
@@ -1286,6 +1306,63 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     return div;
   }
 
+  // 複製行程寄出的信：含編輯連結、網站入口連結、唯讀連結與代碼備份
+  function copyEmailHtml(t, editUrl, viewUrl, siteUrl) {
+    const dTxt = t.startDate.slice(5).replace('-', '/') + '–' + t.endDate.slice(5).replace('-', '/');
+    return '<div style="font-family:sans-serif;color:#4A3B2E;max-width:640px">' +
+      `<h2 style="color:#A9805B;margin:0 0 4px">🧋 ${UI.esc(t.name)}</h2>` +
+      `<p style="color:#8C7B6B;margin:0 0 12px">${dTxt}</p>` +
+      `<p>這是你複製的專屬行程，可以自由編輯、儲存。點下面的連結就能直接開啟：</p>` +
+      `<p><a href="${editUrl}" style="display:inline-block;background:#A9805B;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:700">✏️ 開啟並編輯我的行程</a></p>` +
+      `<p><a href="${viewUrl}" style="display:inline-block;background:#D98E4A;color:#fff;text-decoration:none;padding:9px 18px;border-radius:8px;font-weight:700">👀 唯讀連結（分享給親友看）</a></p>` +
+      `<p style="margin:14px 0 4px">🏠 網站入口：<a href="${siteUrl}" style="color:#A9805B">${siteUrl}</a></p>` +
+      `<hr style="border:none;border-top:1px solid #E8DDCD;margin:14px 0">` +
+      `<p style="color:#8C7B6B;font-size:14px;margin:0">代碼備份（在網站首頁「輸入代碼」也能開啟）：<br>` +
+      `✏️ 編輯代碼 <b style="color:#A9805B;letter-spacing:1px">${t.editCode}</b>　｜　👀 唯讀代碼 <b style="color:#D98E4A;letter-spacing:1px">${t.viewCode}</b></p>` +
+      `<p style="color:#8C7B6B;font-size:13px;margin-top:14px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
+      '</div>';
+  }
+
+  // 複製此份行程 → 產生一份「自己的」新行程（新代碼、可編輯保存、寄到自己 Email）
+  function copyTrip() {
+    const t = trip();
+    if (!t) return;
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <p style="margin-bottom:8px">會複製「${UI.esc(t.name)}」的完整行程（景點、住宿、備註…），變成一份<b style="color:var(--accent)">你自己的新行程</b>，可以自由編輯、儲存，並用你的 Email 找回。<br>
+      <span class="hint">原行程不受影響。</span></p>
+      <label>新行程名稱</label>
+      <input id="copyName" type="text" maxlength="30" value="${UI.esc(t.name + '（我的複本）')}">
+      <label>你的 Email（用來找回這份複本）</label>
+      <input id="copyEmail" type="email" placeholder="例如：you@gmail.com">`;
+    UI.modal('📋 複製成我的行程', body, [{
+      label: '建立我的複本', primary: true,
+      onClick: async () => {
+        const name = body.querySelector('#copyName').value.trim() || (t.name + '（複本）');
+        const email = body.querySelector('#copyEmail').value.trim();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { UI.toast('Email 格式看起來不對，請再確認'); return; }
+        try {
+          UI.loading(true, '建立你的複本中…');
+          const copy = Store.cloneAsNew(t, name, email);
+          copy.codesAutoSent = true; // 這裡自己寄，避免 showTripCreated 又寄一次
+          Store.load(copy, 'edit');
+          await Store.cloudSaveNow();       // 建立到雲端（sendItinerary 會用編輯代碼找這份行程）
+          const editUrl = shareLink(copy.editCode);
+          const viewUrl = shareLink(copy.viewCode);
+          const siteUrl = shareLink('').replace(/\?code=$/, ''); // 網站入口（去掉 ?code=）
+          const html = copyEmailHtml(copy, editUrl, viewUrl, siteUrl);
+          try {
+            await Api.cloudSendItinerary(email, `【Mika 旅遊路線規劃】${copy.name}`, html, copy.editCode);
+          } catch (e) { console.warn('複本寄送失敗', e); }
+          UI.loading(false);
+          UI.closeAllModals();
+          App.enterMain();
+          UI.toast(Api.isMock() ? '已複製成你的行程！（模擬模式不會真的寄信）' : '已複製成你的行程！編輯連結已寄到你的信箱');
+        } catch (e) { UI.loading(false); UI.alert('複製失敗', e.message || String(e)); }
+      }
+    }]);
+  }
+
   function showShare() {
     const t = trip();
     const body = document.createElement('div');
@@ -1315,6 +1392,6 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
   return {
     fillWeather, openRainPlan, recommendHotel, openRoutePoints, editTripDates,
     openFood, renderExpensePage, quickExpense, renderResourcePage,
-    initExpense, showTripCreated, showShare
+    initExpense, showTripCreated, showShare, copyTrip
   };
 })();

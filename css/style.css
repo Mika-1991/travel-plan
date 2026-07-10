@@ -70,6 +70,16 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
 body:not(.in-app) .readonly-banner { top: var(--header-h); }
 body.readonly { --header-extra: 36px; }
 body.readonly .edit-only { display: none !important; }
+.ro-copy-btn {
+  margin-left: 8px; background: var(--white); color: var(--main);
+  font-weight: 700; border-radius: 8px; padding: 3px 10px;
+  border: 1px solid rgba(255, 255, 255, .6); white-space: nowrap;
+}
+
+/* 搜尋結果的今日營業時間 */
+.r-hours { color: var(--text-2); font-size: .9rem; margin-top: 2px; }
+.r-hours .open { color: var(--ok); font-weight: 700; }
+.r-hours .closed { color: var(--danger); font-weight: 700; }
 
 /* ---------- 精靈 ---------- */
 .wizard { max-width: 520px; margin: 0 auto; padding: calc(var(--header-h) + 20px) 18px 40px; }
@@ -89,7 +99,14 @@ body.readonly .edit-only { display: none !important; }
 .btn-big { padding: 15px; font-size: 1.1rem; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 .q-text { font-size: 1.15rem; font-weight: 700; margin-bottom: 12px; }
-.w-nav { display: flex; gap: 10px; margin-top: 6px; }
+/* 主要操作固定在視窗底部，內容再長也看得到「下一步」 */
+.w-nav {
+  display: flex; gap: 10px;
+  position: sticky; bottom: 0; z-index: 6;
+  margin: 6px -18px 0;
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, rgba(250, 246, 240, 0), var(--bg) 34%);
+}
 .w-nav .btn-primary { flex: 1; }
 .code-box { background: var(--card); border-radius: var(--radius); padding: 16px; }
 
@@ -244,10 +261,18 @@ body.readonly .edit-only { display: none !important; }
 .spot-name .must { color: var(--accent); }
 .spot-times { color: var(--text-2); font-size: .95rem; }
 .leg-row { color: var(--text-2); font-size: .92rem; padding: 2px 0 2px 46px; display: flex; align-items: center; gap: 6px; }
-.spot-actions { display: flex; gap: 4px; flex: none; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: 138px; }
-.spot-actions button { padding: 6px; font-size: 1.05rem; color: var(--text-2); border-radius: 8px; }
-.spot-actions button:active { background: var(--card); }
-.spot-actions .drag-grip { cursor: grab; touch-action: none; font-size: 1.2rem; }
+.spot-actions { display: flex; gap: 6px; flex: none; align-items: center; justify-content: flex-end; }
+.spot-actions button, .spot-actions .ico-link { padding: 7px; font-size: 1.15rem; color: var(--text-2); border-radius: 8px; text-decoration: none; line-height: 1; }
+.spot-actions button:active, .spot-actions .ico-link:active { background: var(--card); }
+.spot-actions .drag-grip { cursor: grab; touch-action: none; font-size: 1.25rem; }
+.lock-badge { font-size: .9rem; }
+/* 手機：景點動作圖示換到下一行（名稱才有完整寬度、不跑版）；並關閉拖曳（手機拖不動） */
+@media (max-width: 560px) {
+  .spot-main { flex-wrap: wrap; }
+  .spot-info { flex: 1 1 60%; }
+  .spot-actions { flex-basis: 100%; justify-content: flex-start; margin-top: 4px; gap: 12px; padding-left: 36px; }
+  .spot-actions .drag-grip { display: none; }
+}
 .stay-edit { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .stay-edit button {
   border: 1.5px solid var(--main); color: var(--main); width: 30px; height: 30px;
@@ -324,6 +349,7 @@ body.readonly .edit-only { display: none !important; }
 @media (max-width: 560px) {
   .route-actions { gap: 6px; }
   .route-action, .fab { font-size: .9rem; padding: 10px 12px; }
+  .only-desktop { display: none !important; }   /* 手機只留 ⋯更多／更新車程／自動安排 */
 }
 
 .tabbar {
@@ -422,6 +448,12 @@ body.readonly .edit-only { display: none !important; }
 .modal-x:active { color: var(--main); background: var(--card); }
 .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
 .modal-actions button { flex: 1; }
+/* 全螢幕預覽（每日行程 / 攜帶清單）：app 內開，手機可返回 */
+.modal-box.fullscreen { max-width: 760px; height: 88vh; max-height: 88vh; display: flex; flex-direction: column; padding: 16px; }
+.modal-box.fullscreen > h3 { flex: none; }
+.modal-box.fullscreen .modal-actions { flex: none; }
+.preview-wrap { flex: 1; min-height: 0; display: flex; margin-top: 6px; }
+.preview-frame { flex: 1; width: 100%; border: 1px solid #e3d7c8; border-radius: 8px; background: #fff; }
 .code-line {
   background: var(--white); border: 1.5px dashed var(--main); border-radius: 10px;
   padding: 10px 12px; margin: 6px 0 2px; display: flex; align-items: center; justify-content: space-between; gap: 8px;

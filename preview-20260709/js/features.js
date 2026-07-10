@@ -1306,6 +1306,23 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     return div;
   }
 
+  // 複製行程寄出的信：含編輯連結、網站入口連結、唯讀連結與代碼備份
+  function copyEmailHtml(t, editUrl, viewUrl, siteUrl) {
+    const dTxt = t.startDate.slice(5).replace('-', '/') + '–' + t.endDate.slice(5).replace('-', '/');
+    return '<div style="font-family:sans-serif;color:#4A3B2E;max-width:640px">' +
+      `<h2 style="color:#A9805B;margin:0 0 4px">🧋 ${UI.esc(t.name)}</h2>` +
+      `<p style="color:#8C7B6B;margin:0 0 12px">${dTxt}</p>` +
+      `<p>這是你複製的專屬行程，可以自由編輯、儲存。點下面的連結就能直接開啟：</p>` +
+      `<p><a href="${editUrl}" style="display:inline-block;background:#A9805B;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:700">✏️ 開啟並編輯我的行程</a></p>` +
+      `<p><a href="${viewUrl}" style="display:inline-block;background:#D98E4A;color:#fff;text-decoration:none;padding:9px 18px;border-radius:8px;font-weight:700">👀 唯讀連結（分享給親友看）</a></p>` +
+      `<p style="margin:14px 0 4px">🏠 網站入口：<a href="${siteUrl}" style="color:#A9805B">${siteUrl}</a></p>` +
+      `<hr style="border:none;border-top:1px solid #E8DDCD;margin:14px 0">` +
+      `<p style="color:#8C7B6B;font-size:14px;margin:0">代碼備份（在網站首頁「輸入代碼」也能開啟）：<br>` +
+      `✏️ 編輯代碼 <b style="color:#A9805B;letter-spacing:1px">${t.editCode}</b>　｜　👀 唯讀代碼 <b style="color:#D98E4A;letter-spacing:1px">${t.viewCode}</b></p>` +
+      `<p style="color:#8C7B6B;font-size:13px;margin-top:14px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
+      '</div>';
+  }
+
   // 複製此份行程 → 產生一份「自己的」新行程（新代碼、可編輯保存、寄到自己 Email）
   function copyTrip() {
     const t = trip();
@@ -1329,12 +1346,18 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
           const copy = Store.cloneAsNew(t, name, email);
           copy.codesAutoSent = true; // 這裡自己寄，避免 showTripCreated 又寄一次
           Store.load(copy, 'edit');
-          await Store.cloudSaveNow();       // 建立到雲端
-          try { await Api.cloudSendCodes(email, copy); } catch (e) { console.warn('複本寄送代碼失敗', e); }
+          await Store.cloudSaveNow();       // 建立到雲端（sendItinerary 會用編輯代碼找這份行程）
+          const editUrl = shareLink(copy.editCode);
+          const viewUrl = shareLink(copy.viewCode);
+          const siteUrl = shareLink('').replace(/\?code=$/, ''); // 網站入口（去掉 ?code=）
+          const html = copyEmailHtml(copy, editUrl, viewUrl, siteUrl);
+          try {
+            await Api.cloudSendItinerary(email, `【Mika 旅遊路線規劃】${copy.name}`, html, copy.editCode);
+          } catch (e) { console.warn('複本寄送失敗', e); }
           UI.loading(false);
           UI.closeAllModals();
           App.enterMain();
-          UI.toast(Api.isMock() ? '已複製成你的行程！（模擬模式不會真的寄信）' : '已複製成你的行程！代碼已寄到你的信箱');
+          UI.toast(Api.isMock() ? '已複製成你的行程！（模擬模式不會真的寄信）' : '已複製成你的行程！編輯連結已寄到你的信箱');
         } catch (e) { UI.loading(false); UI.alert('複製失敗', e.message || String(e)); }
       }
     }]);
