@@ -256,12 +256,9 @@
   <!-- 懸浮主按鈕（行程頁專屬） -->
   <div id="fabWrap" class="fab-wrap edit-only">
     <div class="route-actions">
-      <button id="btnUndo" class="route-action" disabled>↩ 上一步</button>
-      <button id="btnRefreshRoutes" class="route-action">🔄 更新車程</button>
-      <button id="btnRestoreSaved" class="route-action restore hidden">↺ 還原</button>
-      <button id="btnManualSave" class="route-action">💾 儲存目前安排</button>
+      <button id="btnMoreActions" class="route-action">⋯ 更多</button>
+      <button id="btnManualSave" class="route-action">💾 儲存</button>
       <button id="btnOptimize" class="fab">🧭 自動安排最佳路線</button>
-      <button id="btnShareBottom" class="route-action share" title="分享行程">📤 分享</button>
     </div>
   </div>
 
@@ -275,9 +272,7 @@
 </main>
 
 <!-- ===== 共用：彈窗與提示 ===== -->
-<div id="modalOverlay" class="modal-overlay hidden">
-  <div id="modalBox" class="modal-box"></div>
-</div>
+<div id="modalOverlay" class="modal-overlay hidden"></div>
 <div id="toast" class="toast hidden"></div>
 <div id="loading" class="loading hidden"><div class="spinner"></div><p id="loadingText">處理中…</p></div>
 

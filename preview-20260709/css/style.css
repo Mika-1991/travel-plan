@@ -244,10 +244,11 @@ body.readonly .edit-only { display: none !important; }
 .spot-name .must { color: var(--accent); }
 .spot-times { color: var(--text-2); font-size: .95rem; }
 .leg-row { color: var(--text-2); font-size: .92rem; padding: 2px 0 2px 46px; display: flex; align-items: center; gap: 6px; }
-.spot-actions { display: flex; gap: 4px; flex: none; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: 138px; }
-.spot-actions button { padding: 6px; font-size: 1.05rem; color: var(--text-2); border-radius: 8px; }
-.spot-actions button:active { background: var(--card); }
-.spot-actions .drag-grip { cursor: grab; touch-action: none; font-size: 1.2rem; }
+.spot-actions { display: flex; gap: 6px; flex: none; align-items: center; justify-content: flex-end; }
+.spot-actions button, .spot-actions .ico-link { padding: 7px; font-size: 1.15rem; color: var(--text-2); border-radius: 8px; text-decoration: none; line-height: 1; }
+.spot-actions button:active, .spot-actions .ico-link:active { background: var(--card); }
+.spot-actions .drag-grip { cursor: grab; touch-action: none; font-size: 1.25rem; }
+.lock-badge { font-size: .9rem; }
 .stay-edit { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .stay-edit button {
   border: 1.5px solid var(--main); color: var(--main); width: 30px; height: 30px;
@@ -422,6 +423,12 @@ body.readonly .edit-only { display: none !important; }
 .modal-x:active { color: var(--main); background: var(--card); }
 .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
 .modal-actions button { flex: 1; }
+/* 全螢幕預覽（每日行程 / 攜帶清單）：app 內開，手機可返回 */
+.modal-box.fullscreen { max-width: 760px; height: 88vh; max-height: 88vh; display: flex; flex-direction: column; padding: 16px; }
+.modal-box.fullscreen > h3 { flex: none; }
+.modal-box.fullscreen .modal-actions { flex: none; }
+.preview-wrap { flex: 1; min-height: 0; display: flex; margin-top: 6px; }
+.preview-frame { flex: 1; width: 100%; border: 1px solid #e3d7c8; border-radius: 8px; background: #fff; }
 .code-line {
   background: var(--white); border: 1.5px dashed var(--main); border-radius: 10px;
   padding: 10px 12px; margin: 6px 0 2px; display: flex; align-items: center; justify-content: space-between; gap: 8px;

@@ -571,8 +571,11 @@ const Feat = (() => {
           img.onclick = () => UI.photoZoom(list[Number(img.dataset.zoom)].photo, list[Number(img.dataset.zoom)].name));
         res.querySelectorAll('button[data-i]').forEach(b =>
           b.onclick = () => {
+            if (b.disabled) return;
             addFoodSpot(list[Number(b.dataset.i)], d);
-            UI.closeModal();
+            b.textContent = '已加入 ✓';
+            b.disabled = true;
+            UI.toast('已加入！可繼續加其他家，按「關閉」結束');
           });
       } catch (e) { UI.loading(false); UI.alert('搜尋失敗', e.message); }
     };
@@ -1113,17 +1116,21 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.group{break-inside:avoid}}
 </style></head><body><main class="sheet"><h1>${textEsc(t.name)} 攜帶物品清單</h1><div class="meta">${t.startDate} ~ ${t.endDate}</div><div class="grid">${groups}</div></main></body></html>`;
   }
-  function openPrintWindow(html, autoPrint, fallbackName) {
-    const w = window.open('', '_blank');
-    if (!w) {
-      UI.toast('瀏覽器阻擋新視窗，已改下載 HTML');
-      downloadFile(fallbackName, html, 'text/html;charset=utf-8');
-      return;
-    }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-    if (autoPrint) setTimeout(() => { try { w.focus(); w.print(); } catch (e) { console.warn(e); } }, 350);
+  // app 內全螢幕預覽（手機也能用返回鍵/返回按鈕退出）：iframe 裝列印頁＋「列印／存 PDF」
+  function openPreview(html, title, autoPrint) {
+    const wrap = document.createElement('div');
+    wrap.className = 'preview-wrap';
+    const frame = document.createElement('iframe');
+    frame.className = 'preview-frame';
+    frame.title = title;
+    wrap.appendChild(frame);
+    const doPrint = () => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+      catch (e) { UI.toast('列印失敗，請用瀏覽器選單列印'); }
+    };
+    frame.onload = () => { if (autoPrint) setTimeout(doPrint, 300); };
+    UI.modal(title, wrap, [{ label: '🖨 列印／存 PDF', primary: true, onClick: doPrint }], { fullscreen: true });
+    frame.srcdoc = html;   // 掛進 DOM 後再載入內容
   }
   function renderPackingList() {
     const box = $('packingListBox');
@@ -1137,9 +1144,9 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     }
     $('page-res').dataset.ready = '1';
     $('btnExportExcel').onclick = () => downloadBlob(`${trip().name || '旅遊行程'}-資料匯出.xlsx`, xlsxBlob());
-    $('btnPreviewPrint').onclick = () => openPrintWindow(printableDailyHtml(), false, `${trip().name || '旅遊行程'}-每日行程.html`);
-    $('btnDownloadPrint').onclick = () => openPrintWindow(printableDailyHtml(), true, `${trip().name || '旅遊行程'}-每日行程.html`);
-    $('btnPackingPreview').onclick = () => openPrintWindow(packingHtml(), true, `${trip().name || '旅遊行程'}-攜帶物品清單.html`);
+    $('btnPreviewPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程預覽', false);
+    $('btnDownloadPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程 PDF', true);
+    $('btnPackingPreview').onclick = () => openPreview(packingHtml(), '攜帶物品清單', false);
     $('btnPackingDownload').onclick = () => downloadFile(`${trip().name || '旅遊行程'}-攜帶物品清單.html`, packingHtml(), 'text/html;charset=utf-8');
     renderPackingList();
   }

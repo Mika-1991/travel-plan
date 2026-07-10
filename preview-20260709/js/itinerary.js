@@ -231,41 +231,49 @@ const Itin = (() => {
     try {
       UI.loading(true, '正在計算最佳路線…');
       const all = [...t.spots].sort((a, b) => (a.day || 99) - (b.day || 99) || a.order - b.order);
-      const routable = all.filter(Logic.hasCoords);
+      const routableAll = all.filter(Logic.hasCoords);
       const skipped = all.filter(s => !Logic.hasCoords(s));
-      if (routable.length < 2) {
+      if (routableAll.length < 2) {
         UI.loading(false);
         UI.alert('座標不足', '至少需要 2 個有座標的景點，才能計算最佳路線。\n\n沒有座標的自訂景點會保留在原本天數，但不參與路線排序。');
         return;
       }
-      const prevDayOf = {}; routable.forEach(s => prevDayOf[s.id] = s.day);
       const days = Store.days();
+      // 🔒 鎖定景點：保持在原本的天，不參與重新分配（其餘未鎖定的才重排）
+      const isLocked = s => s.locked && s.day >= 1 && s.day <= days;
+      const lockedSpots = routableAll.filter(isLocked);
+      const routable = routableAll.filter(s => !isLocked(s));
+      const prevDayOf = {}; routableAll.forEach(s => prevDayOf[s.id] = s.day);
       const o1 = Logic.hasCoords(startHotel(1)) ? startHotel(1) : null;
       const oN = Logic.hasCoords(endHotel(days)) ? endHotel(days) : o1;
-
-      // 1) 全體排序
-      const g = await Api.optimizeRoute(o1, oN, routable, t.transport);
-      const ordered = g.order.map(i => routable[i]);
-
-      // 2) 分天：優先「依每晚飯店錨點」分配（多晚不同城市時才合理），
-      //    完全沒有錨點時退回「依活動時間」切天
       const hc = p => Logic.hasCoords(p) ? p : null;
       const dayAnchors = [];
       for (let d = 1; d <= days; d++) dayAnchors.push({ start: hc(startHotel(d)), end: hc(endHotel(d)) });
-      let dayArrs = Logic.assignDaysByAnchors(ordered, dayAnchors, {
-        days,
-        dayStartMin: Logic.toMin(t.dayStart),
-        dayEndMin: Logic.toMin(t.dayEnd),
-        travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
-        stayMin: s => s.stayMin || 60
-      });
-      if (!dayArrs) dayArrs = Logic.splitIntoDays(ordered, {
-        days,
-        dayStartMin: Logic.toMin(t.dayStart),
-        dayEndMin: Logic.toMin(t.dayEnd),
-        travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
-        hotelOfDay: d => hc(startHotel(d + 1))
-      });
+
+      // 1)+2) 只把「未鎖定」的景點排序＋分天
+      let dayArrs;
+      if (routable.length) {
+        const g = await Api.optimizeRoute(o1, oN, routable, t.transport);
+        const ordered = g.order.map(i => routable[i]);
+        dayArrs = Logic.assignDaysByAnchors(ordered, dayAnchors, {
+          days,
+          dayStartMin: Logic.toMin(t.dayStart),
+          dayEndMin: Logic.toMin(t.dayEnd),
+          travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
+          stayMin: s => s.stayMin || 60
+        });
+        if (!dayArrs) dayArrs = Logic.splitIntoDays(ordered, {
+          days,
+          dayStartMin: Logic.toMin(t.dayStart),
+          dayEndMin: Logic.toMin(t.dayEnd),
+          travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
+          hotelOfDay: d => hc(startHotel(d + 1))
+        });
+      } else {
+        dayArrs = Array.from({ length: days }, () => []);
+      }
+      // 把鎖定景點放回它們原本的天（一起參與當天順序最佳化，但不會被移到別天）
+      lockedSpots.forEach(s => { const di = s.day - 1; if (di >= 0 && di < days) dayArrs[di].push(s); });
 
       // 3) 每天以起終點（集合地/飯店/解散地）再最佳化
       t.legsByDay = {};
@@ -292,18 +300,19 @@ const Itin = (() => {
       $('btnOptimize').classList.remove('glow');
       render();
 
+      const lockNote = lockedSpots.length ? `（🔒 ${lockedSpots.length} 個鎖定景點已保留在原本的天）` : '';
       const pushed = routable.filter(s => s.must && prevDayOf[s.id] > 0 && s.day > prevDayOf[s.id]);
       if (pushed.length) {
         UI.alert('必去景點被移到隔天了',
           `因為一天排不下，這些「必去」景點被移到後面的天數：\n\n` +
           pushed.map(s => `⭐ ${s.name}（第 ${s.day} 天）`).join('\n') +
-          `\n\n可以縮短其他景點的停留時間，或手動把它拖回想去的那天。`);
+          `\n\n可以縮短其他景點的停留時間、把它鎖定在想去的那天（🔒），或手動拖回。`);
       } else if (skipped.length) {
         UI.alert('最佳路線排好了',
-          `已排序有座標的景點。\n\n以下 ${skipped.length} 個地點沒有座標，已保留在原本天數，未納入路線計算：\n\n` +
+          `已排序有座標的景點。${lockNote}\n\n以下 ${skipped.length} 個地點沒有座標，已保留在原本天數，未納入路線計算：\n\n` +
           skipped.map(s => `・${s.name}`).join('\n'));
       } else {
-        UI.toast('最佳路線排好了！');
+        UI.toast('最佳路線排好了！' + lockNote);
       }
     } catch (e) {
       UI.loading(false);
@@ -362,28 +371,27 @@ const Itin = (() => {
   }
 
   function bindRouteActions() {
-    const t = trip();
-    const undoBtn = $('btnUndo');
-    if (undoBtn) {
-      undoBtn.disabled = !Store.canUndo();
-      undoBtn.onclick = () => { if (Store.undo()) { render(); UI.toast('已復原上一步'); } };
-    }
-    const refreshBtn = $('btnRefreshRoutes');
-    if (refreshBtn) {
-      refreshBtn.disabled = !(t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length);
-      refreshBtn.onclick = refreshRoutes;
-    }
-    const restoreBtn = $('btnRestoreSaved');
-    if (restoreBtn) {
-      const show = Store.canRestoreSaved();
-      restoreBtn.classList.toggle('hidden', !show);
-      restoreBtn.title = show ? `還原到 ${savedTimeTxt()} 儲存的安排` : '';
-      restoreBtn.onclick = confirmRestoreSaved;
-    }
+    const moreBtn = $('btnMoreActions');
+    if (moreBtn) moreBtn.onclick = openMoreActions;
     const saveBtn = $('btnManualSave');
     if (saveBtn) saveBtn.onclick = saveCurrentArrangement;
-    const shareBtn = $('btnShareBottom');
-    if (shareBtn) shareBtn.onclick = () => Feat.showShare();
+  }
+
+  // 底部「⋯ 更多」：把次要動作收在一個選單，避免手機底部按鈕擁擠
+  function openMoreActions() {
+    const t = trip();
+    const opts = [];
+    if (Store.canUndo()) opts.push({ label: '↩ 上一步（復原）', value: 'undo' });
+    if (t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length)
+      opts.push({ label: '🔄 更新車程（不重排）', value: 'refresh' });
+    if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
+    opts.push({ label: '📤 分享行程', value: 'share' });
+    UI.choose('更多操作', opts, v => {
+      if (v === 'undo') { if (Store.undo()) { render(); UI.toast('已復原上一步'); } }
+      else if (v === 'refresh') refreshRoutes();
+      else if (v === 'restore') confirmRestoreSaved();
+      else if (v === 'share') Feat.showShare();
+    });
   }
 
   function saveCurrentArrangement() {
@@ -875,15 +883,12 @@ const Itin = (() => {
     const stayH = Logic.fmtDur(s.stayMin);
     const coordWarning = Logic.hasCoords(s) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;
     const noteLine = s.note ? `<div class="spot-times">備註：${UI.esc(s.note)}</div>` : '';
-    const navAction = Logic.hasCoords(s)
-      ? `<a href="${UI.navLink(s)}" target="_blank" rel="noopener" style="margin-left:auto;color:var(--main);font-weight:700;text-decoration:none">🧭 導航</a>`
-      : `<span class="hint" style="margin-left:auto">無座標不可導航</span>`;
     if (s.visited) div.classList.add('visited');
     div.innerHTML = `
       <div class="spot-main">
         <span class="spot-no" style="background:${s.visited ? 'var(--ok)' : (d ? dayColor(d) : 'var(--text-2)')}">${s.visited ? '✓' : (no || '·')}</span>
         <div class="spot-info">
-          <div class="spot-name">${s.must ? '<span class="must">⭐</span> ' : ''}${UI.esc(s.name)}${s.visited ? ' <span class="visited-badge">已去過</span>' : ''}</div>
+          <div class="spot-name">${s.locked ? '<span class="lock-badge" title="已鎖定：自動安排不會移動它">🔒</span> ' : ''}${s.must ? '<span class="must">⭐</span> ' : ''}${UI.esc(s.name)}${s.visited ? ' <span class="visited-badge">已去過</span>' : ''}</div>
           <div class="spot-times">${tlRow ? `${tlRow.arrive} 抵達（停留 ${stayH}）→ ${tlRow.depart} 出發` : `停留 ${stayH}`}</div>
           ${noteLine}
           ${coordWarning}
@@ -891,35 +896,24 @@ const Itin = (() => {
             <button data-act="stay-" aria-label="減少停留時間">−</button>
             <span class="stay-val">${stayH}</span>
             <button data-act="stay+" aria-label="增加停留時間">＋</button>
-            ${navAction}
           </div>
         </div>
         ${s.photo ? `<img class="spot-thumb" src="${UI.esc(s.photo)}" alt="" loading="lazy" title="${UI.esc(s.name)}">` : ''}
         <div class="spot-actions edit-only">
           <button class="drag-grip" title="按住拖曳排序（可拖到其他天）">☰</button>
-          <button data-act="visited" title="${s.visited ? '取消已去過' : '標記已去過'}">${s.visited ? '☑' : '☐'}</button>
-          <button data-act="note" title="編輯備註">📝</button>
-          <button data-act="must" title="標記必去">${s.must ? '★' : '☆'}</button>
+          <button data-act="lock" title="${s.locked ? '解除鎖定' : '鎖定在這天（自動安排不會移動）'}">${s.locked ? '🔒' : '🔓'}</button>
           <button data-act="exp" title="記一筆帳">💰</button>
-          <button data-act="del" title="刪除景點">🗑</button>
-          <button data-act="menu" title="更多選項">⋯</button>
+          ${Logic.hasCoords(s) ? `<a class="ico-link" href="${UI.navLink(s)}" target="_blank" rel="noopener" title="導航">🧭</a>` : ''}
+          <button data-act="menu" title="更多：打卡／備註／必去／移到某天／刪除">⋯</button>
         </div>
         ${Store.isReadonly() ? `<div class="spot-actions"><a href="${UI.navLink(s)}" target="_blank" rel="noopener" style="padding:6px">🧭</a></div>` : ''}
       </div>`;
 
     div.querySelector('[data-act="stay-"]').onclick = () => changeStay(s, -15);
     div.querySelector('[data-act="stay+"]').onclick = () => changeStay(s, 15);
-    div.querySelector('[data-act="visited"]').onclick = () => {
-      s.visited = !s.visited;
-      Store.touch();
-      render();
-      if (s.visited) UI.toast(`✅ 「${s.name}」打卡完成！`);
-    };
-    div.querySelector('[data-act="note"]').onclick = () => editSpotNote(s);
-    div.querySelector('[data-act="must"]').onclick = () => { s.must = !s.must; Store.touch(); render(); };
+    div.querySelector('[data-act="lock"]').onclick = () => toggleLock(s);
     div.querySelector('[data-act="exp"]').onclick = () =>
       Feat.quickExpense({ item: s.name, date: s.day ? Store.dateOfDay(s.day) : trip().startDate });
-    div.querySelector('[data-act="del"]').onclick = () => deleteSpot(s);
     div.querySelector('[data-act="menu"]').onclick = () => spotMenu(s);
     const grip = div.querySelector('.drag-grip');
     grip.addEventListener('pointerdown', e => startDrag(e, s, div));
@@ -932,6 +926,17 @@ const Itin = (() => {
     s.stayMin = Math.min(600, Math.max(15, s.stayMin + delta));
     Store.touch();
     render();
+  }
+
+  // 鎖定景點：自動安排最佳路線不會移動它，除非解鎖
+  function toggleLock(s) {
+    if (!s.locked && !(s.day >= 1)) { UI.toast('先把景點排到某一天，才能鎖定'); return; }
+    s.locked = !s.locked;
+    Store.touch();
+    render();
+    UI.toast(s.locked
+      ? `🔒 已鎖定「${s.name}」在第 ${s.day} 天，自動安排不會移動它`
+      : `🔓 已解除「${s.name}」的鎖定`);
   }
 
   function editSpotNote(s) {
@@ -968,13 +973,26 @@ const Itin = (() => {
 
   function spotMenu(s) {
     const days = Store.days();
-    const opts = [];
+    const opts = [
+      { label: s.visited ? '☑ 取消「已去過」' : '☐ 標記「已去過」', value: 'visited' },
+      { label: '📝 編輯備註', value: 'note' },
+      { label: s.must ? '⭐ 取消必去' : '☆ 標記必去', value: 'must' }
+    ];
     for (let d = 1; d <= days; d++) {
       if (d !== s.day) opts.push({ label: `📅 移到第 ${d} 天`, value: 'day' + d });
     }
-    if (!opts.length) { UI.toast('沒有其他天可移動'); return; }
+    opts.push({ label: '🗑 刪除景點', value: 'del', danger: true });
     UI.choose(s.name, opts, v => {
-      if (v.startsWith('day')) {
+      if (v === 'visited') {
+        s.visited = !s.visited; Store.touch(); render();
+        if (s.visited) UI.toast(`✅ 「${s.name}」打卡完成！`);
+      } else if (v === 'note') {
+        editSpotNote(s);
+      } else if (v === 'must') {
+        s.must = !s.must; Store.touch(); render();
+      } else if (v === 'del') {
+        deleteSpot(s);
+      } else if (v.startsWith('day')) {
         const d = Number(v.slice(3));
         const t = trip();
         delete t.legsByDay[s.day]; delete t.legsByDay[d];

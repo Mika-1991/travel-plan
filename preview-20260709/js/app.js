@@ -38,11 +38,20 @@ const UI = (() => {
     if (text) $('loadingText').textContent = text;
   }
 
-  // 通用彈窗：body 可為 HTML 字串或元素；actions: [{label, onClick, primary, danger}]
+  // ---------- 通用彈窗（支援疊層：彈窗裡再開彈窗會疊在上面，關閉只退回上一層）----------
+  // body 可為 HTML 字串或元素；actions: [{label, onClick, primary, danger}]；opts.noClose = 不顯示「關閉」也不可點背景關
+  const modalStack = [];
+  let guardPushed = false;   // 是否已在 history 放一個「返回鍵先關彈窗」的守衛
+  let suppressPop = false;   // 我們自己呼叫 history.back() 造成的 popstate，忽略之
+
   function modal(title, body, actions, opts) {
-    const box = $('modalBox');
+    opts = opts || {};
+    const overlay = $('modalOverlay');
+    if (modalStack.length) modalStack[modalStack.length - 1].box.style.display = 'none';
+    const box = document.createElement('div');
+    box.className = 'modal-box' + (opts.fullscreen ? ' fullscreen' : '');
     box.innerHTML = `<button class="modal-x" type="button" aria-label="關閉視窗" title="關閉">×</button><h3>${esc(title)}</h3>`;
-    box.querySelector('.modal-x').onclick = closeModal;
+    box.querySelector('.modal-x').onclick = () => closeModal();
     if (typeof body === 'string') {
       const p = document.createElement('div');
       p.style.whiteSpace = 'pre-wrap';
@@ -56,20 +65,55 @@ const UI = (() => {
       b.className = a.primary ? 'btn-primary' : 'btn-outline';
       if (a.danger) { b.style.borderColor = 'var(--danger)'; b.style.color = 'var(--danger)'; }
       b.textContent = a.label;
-      b.onclick = a.onClick || closeModal;
+      b.onclick = a.onClick || (() => closeModal());
       act.appendChild(b);
     });
-    if (!opts || !opts.noClose) {
+    if (!opts.noClose) {
       const c = document.createElement('button');
       c.className = 'btn-outline';
       c.textContent = '關閉';
-      c.onclick = closeModal;
+      c.onclick = () => closeModal();
       act.appendChild(c);
     }
     box.appendChild(act);
-    $('modalOverlay').classList.remove('hidden');
+    overlay.appendChild(box);
+    modalStack.push({ box, opts });
+    overlay.classList.remove('hidden');
+    if (!guardPushed) { guardPushed = true; try { history.pushState({ mikaModal: 1 }, ''); } catch {} }
   }
-  function closeModal() { $('modalOverlay').classList.add('hidden'); }
+
+  // 關閉最上層彈窗
+  function closeModal() {
+    const top = modalStack.pop();
+    if (top && top.box && top.box.parentNode) top.box.parentNode.removeChild(top.box);
+    if (modalStack.length) modalStack[modalStack.length - 1].box.style.display = '';
+    else finishModals();
+  }
+  // 一次關閉所有彈窗（流程完成、母資料已變動時用）
+  function closeAllModals() {
+    while (modalStack.length) {
+      const m = modalStack.pop();
+      if (m.box && m.box.parentNode) m.box.parentNode.removeChild(m.box);
+    }
+    finishModals();
+  }
+  function finishModals() {
+    $('modalOverlay').classList.add('hidden');
+    if (guardPushed) { guardPushed = false; suppressPop = true; try { history.back(); } catch { suppressPop = false; } }
+  }
+  // 供 App 初始化時掛：點背景關、手機返回鍵先關彈窗
+  function initModalDismiss() {
+    const overlay = $('modalOverlay');
+    overlay.addEventListener('click', e => {
+      if (e.target !== overlay || !modalStack.length) return;
+      const top = modalStack[modalStack.length - 1];
+      if (!top.opts.noClose) closeModal();
+    });
+    window.addEventListener('popstate', () => {
+      if (suppressPop) { suppressPop = false; return; }
+      if (modalStack.length) { guardPushed = false; closeAllModals(); }
+    });
+  }
 
   function alertBox(title, msg) { modal(title, msg, []); }
   function confirmBox(title, msg, onYes) {
@@ -112,11 +156,16 @@ const UI = (() => {
   function photoZoom(url, title) {
     if (!url) return;
     const body = document.createElement('div');
-    body.innerHTML = `<img class="zoom-img" src="${url}" alt="${esc(title || '')}">`;
+    const img = document.createElement('img');
+    img.className = 'zoom-img';
+    img.alt = title || '';
+    img.onerror = () => { body.innerHTML = '<p class="hint" style="text-align:center;padding:20px 0">這張照片已過期或無法顯示。</p>'; };
+    img.src = url;
+    body.appendChild(img);
     modal(title || '照片', body, []);
   }
 
-  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, modal, closeModal, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom };
+  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, modal, closeModal, closeAllModals, initModalDismiss, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom };
 })();
 
 // ---------- App 主控 ----------
@@ -232,6 +281,15 @@ const App = (() => {
 
   async function init() {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; // 重新整理後從頁首開始
+    UI.initModalDismiss();
+    // 破圖自動隱藏：Google Places 照片網址會過期，載入失敗就藏起來（不留破圖）
+    document.addEventListener('error', e => {
+      const el = e.target;
+      if (el && el.tagName === 'IMG' &&
+        (el.classList.contains('thumb') || el.classList.contains('thumb-sm') || el.classList.contains('spot-thumb'))) {
+        el.style.display = 'none';
+      }
+    }, true);
     initHeader();
     initTabs();
     Wizard.init();
