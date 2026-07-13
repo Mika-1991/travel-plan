@@ -310,13 +310,14 @@ const App = (() => {
   async function init() {
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; // 重新整理後從頁首開始
     UI.initModalDismiss();
-    // 破圖自動隱藏：Google Places 照片網址會過期，載入失敗就藏起來（不留破圖）
-    document.addEventListener('error', e => {
+    // 破圖自動隱藏：Google Places 照片網址會過期。兩種情況都藏起來（不留破圖）：
+    // 1) 載入失敗（error）；2) 載入成功但只是 Google 的「無照片」小佔位圖（naturalWidth 很小）
+    const isThumb = el => el && el.tagName === 'IMG' &&
+      (el.classList.contains('thumb') || el.classList.contains('thumb-sm') || el.classList.contains('spot-thumb'));
+    document.addEventListener('error', e => { if (isThumb(e.target)) e.target.style.display = 'none'; }, true);
+    document.addEventListener('load', e => {
       const el = e.target;
-      if (el && el.tagName === 'IMG' &&
-        (el.classList.contains('thumb') || el.classList.contains('thumb-sm') || el.classList.contains('spot-thumb'))) {
-        el.style.display = 'none';
-      }
+      if (isThumb(el) && el.naturalWidth && el.naturalWidth <= 120) el.style.display = 'none';
     }, true);
     initHeader();
     initTabs();
