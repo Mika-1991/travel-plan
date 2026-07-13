@@ -119,9 +119,13 @@ const Itin = (() => {
               <div class="s-item" data-i="${i}">
                 <div>${UI.esc(r.name)} <span class="star">★ ${r.rating}</span></div>
                 <div class="s-sub">${UI.esc(r.address)}</div>
+                <div class="s-sub r-hours" data-hours-i="${i}">🕒 查營業時間…</div>
               </div>`).join('');
             box.querySelectorAll('[data-i]').forEach(el =>
               el.onclick = () => { addSpot(results[Number(el.dataset.i)]); inp.value = ''; box.classList.add('hidden'); });
+            // 待排：不知道放哪天 → 顯示每一天（Day1(週幾)…）的營業時間
+            UI.fillResultHours(box, results,
+              Array.from({ length: Store.days() }, (_, i) => ({ n: i + 1, wd: new Date(Store.dateOfDay(i + 1) + 'T00:00:00').getDay() })));
           }
           box.classList.remove('hidden');
         } catch (e) { console.warn(e); }
@@ -219,7 +223,7 @@ const Itin = (() => {
             </div>`).join('') : '<p class="hint">找不到符合的地點</p>';
           res.querySelectorAll('button[data-i]').forEach(b =>
             b.onclick = () => { if (addSpot(rs[Number(b.dataset.i)], { day: d })) inp.value = ''; res.innerHTML = ''; });
-          UI.fillResultHours(res, rs);
+          UI.fillResultHours(res, rs, [{ n: d, wd: new Date(Store.dateOfDay(d) + 'T00:00:00').getDay() }]);
         } catch (e) { console.warn(e); }
       }, 250);
     });
@@ -1061,7 +1065,7 @@ const Itin = (() => {
     const coordWarning = Logic.hasCoords(s) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;
     const noteLine = s.note ? `<div class="spot-times">備註：${UI.esc(s.note)}</div>` : '';
     const hoursLine = todayHoursLine(s);
-    const hoursHtml = hoursLine ? `<div class="spot-times">🕒 今日 ${UI.esc(hoursLine)}</div>` : '';
+    const hoursHtml = hoursLine ? `<div class="spot-times">🕒 當天 ${UI.esc(hoursLine)}</div>` : '';
     const closedWarn = (s.closedDays && s.day && s.closedDays.includes(new Date(Store.dateOfDay(s.day) + 'T00:00:00').getDay()))
       ? `<div class="spot-times" style="color:var(--danger);font-weight:700">⚠️ 這天是公休日，出發前請再確認！</div>` : '';
     if (s.visited) div.classList.add('visited');
