@@ -294,7 +294,7 @@ const Itin = (() => {
           Logic.hasCoords(endHotel(d)) ? endHotel(d) : null,
           listD,
           t.transport,
-          { onProgress: (done, total) => UI.loading(true, `第 ${d} 天：查詢真實車程 ${done}/${total} 段…`) }
+          { realLegs: true, onProgress: (done, total) => UI.loading(true, `第 ${d} 天：查詢真實車程 ${done}/${total} 段…`) }
         );
         r.order.forEach((idx, pos) => {
           const s = listD[idx];
@@ -1268,15 +1268,28 @@ const Itin = (() => {
       seq.push(...g.list);
       if (g.ep && g.ep !== g.sp) seq.push(g.ep);
       if (seq.length > 1) {
-        // 先畫直線當備援，再用 Google Directions 取實際道路（走國道／省道）替換
+        // 先畫直線當備援，再用 Google Directions 取實際路線替換
         const poly = new google.maps.Polyline({
           map: el._gmap, path: seq.map(p => ({ lat: p.lat, lng: p.lng })),
           strokeColor: color, strokeOpacity: .85, strokeWeight: 4
         });
         add(poly);
-        Api.routePath(seq, trip().transport).then(path => {
-          if (path && path.length > 1) poly.setPath(path);
-        });
+        if (trip().transport === 'transit') {
+          // 大眾運輸不支援途經點 → 逐段抓真實路線再串起來（某段抓不到就那段用直線）
+          (async () => {
+            const full = [{ lat: seq[0].lat, lng: seq[0].lng }];
+            for (let i = 0; i < seq.length - 1; i++) {
+              const legPath = await Api.routeLegPath(seq[i], seq[i + 1], 'transit');
+              if (legPath && legPath.length > 1) full.push(...legPath.slice(1));
+              else full.push({ lat: seq[i + 1].lat, lng: seq[i + 1].lng });
+            }
+            if (full.length > 1) poly.setPath(full);
+          })();
+        } else {
+          Api.routePath(seq, trip().transport).then(path => {
+            if (path && path.length > 1) poly.setPath(path);
+          });
+        }
       }
       const boundaryMarker = (p, label) => add(new google.maps.Marker({
         map: el._gmap, position: { lat: p.lat, lng: p.lng }, title: p.name,
