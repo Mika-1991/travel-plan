@@ -176,17 +176,23 @@ const UI = (() => {
     modal(title || '照片', body, []);
   }
 
-  // 搜尋結果卡片：非同步補上「今日營業時間」（每筆一次 Google 查詢；模擬模式自動略過）
-  function fillResultHours(container, results) {
+  // 搜尋結果卡片：非同步補上「旅遊當天營業時間」（每筆一次 Google 查詢，一次拿整週；模擬模式自動略過）
+  // dayInfos: [{ n: 天數(可 null), wd: 星期0-6 }]。指定某天→傳 1 筆；待排→傳全部天。星期用旅遊日期換算＝當地那天。
+  const WEEK_ZH = ['日', '一', '二', '三', '四', '五', '六'];
+  function fillResultHours(container, results, dayInfos) {
     if (!container) return;
+    const infos = (dayInfos && dayInfos.length) ? dayInfos : [{ n: null, wd: new Date().getDay() }];
     container.querySelectorAll('[data-hours-i]').forEach(el => {
       const r = results[Number(el.dataset.hoursI)];
       if (!r || !r.placeId) { el.remove(); return; }
-      Api.placeToday(r.placeId).then(h => {
-        if (!h) { el.remove(); return; }
-        const status = h.openNow === true ? '<span class="open">營業中</span>'
-          : h.openNow === false ? '<span class="closed">休息中</span>' : '';
-        el.innerHTML = `🕒 今日 ${esc(h.todayText)}${status ? '｜' + status : ''}`;
+      Api.placeWeekHours(r.placeId).then(w => {
+        if (!w) { el.remove(); return; }
+        const parts = infos.map(info => {
+          const d = w.days[info.wd] || { text: '?', closed: false };
+          const tag = info.n ? `Day${info.n}(${WEEK_ZH[info.wd]})` : `週${WEEK_ZH[info.wd]}`;
+          return d.closed ? `<span class="closed">${tag} 公休</span>` : `${tag} ${esc(d.text)}`;
+        });
+        el.innerHTML = '🕒 ' + parts.join('｜');
       }).catch(() => el.remove());
     });
   }

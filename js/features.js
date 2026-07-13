@@ -578,7 +578,7 @@ const Feat = (() => {
             </div>
           </div>`).join('')
           : `<p class="hint" style="margin-top:10px">${noLimit ? '找不到符合的餐廳，請換關鍵字。' : `${Logic.fmtDur(maxMin)}內找不到符合餐廳，請改成不設限或換關鍵字。`}</p>`;
-        UI.fillResultHours(res, list);
+        UI.fillResultHours(res, list, [{ n: d, wd: new Date(Store.dateOfDay(d) + 'T00:00:00').getDay() }]);
         res.querySelectorAll('[data-zoom]').forEach(img =>
           img.onclick = () => UI.photoZoom(list[Number(img.dataset.zoom)].photo, list[Number(img.dataset.zoom)].name));
         res.querySelectorAll('button[data-i]').forEach(b =>
