@@ -298,10 +298,14 @@ const Api = (() => {
       legs.push(hasDest ? matrix[spotNode(order[order.length - 1])][destNode] : 0);
       return { order, legs, source: 'matrix' };
     }
-    // TRANSIT 不支援多中途點最佳化 → 交通模式改用本地估算順序 + 單段查時間
+    // TRANSIT 不支援多中途點最佳化 → 用本地估算排序；車程時間逐段查 Google 真實大眾運輸
+    // （opts.realLegs=true 時才真的查，全域排序階段的 legs 會被丟棄，用估算即可省查詢）
     if (travelMode === 'TRANSIT') {
       const order = Logic.optimizeOrder(spots, o, d);
-      const legs = routeLegsSync(o, d, order.map(i => spots[i]), mode, !!origin, !!destination);
+      const ordered = order.map(i => spots[i]);
+      const legs = (opts && opts.realLegs)
+        ? await routeLegsReal(svc, o, d, ordered, 'TRANSIT', mode, !!origin, !!destination, onProgress)
+        : routeLegsSync(o, d, ordered, mode, !!origin, !!destination);
       return { order, legs };
     }
     const res = await svc.route({
@@ -339,6 +343,25 @@ const Api = (() => {
     // mock 與正式都先用估算；正式模式排路線時已用 Directions 的真實時間
     await delay(50);
     return routeLegsSync(origin, destination, orderedSpots, mode, !!origin, !!destination);
+  }
+  // 沿既定順序逐段查 Google 真實車程（大眾運輸用；單段點對點才有效，routeDuration 失敗自動退估算）
+  async function routeLegsReal(svc, origin, destination, orderedSpots, travelMode, mode, hasOrigin, hasDest, onProgress) {
+    const total = (hasOrigin ? orderedSpots.length : Math.max(orderedSpots.length - 1, 0)) + (hasDest ? 1 : 0);
+    const legs = [];
+    let prev = hasOrigin ? origin : null;
+    let done = 0;
+    for (const s of orderedSpots) {
+      if (prev && Logic.hasCoords(prev) && Logic.hasCoords(s)) {
+        legs.push(await routeDuration(svc, prev, s, travelMode, mode));
+        if (onProgress) onProgress(++done, total);
+      } else legs.push(0);
+      prev = s;
+    }
+    if (hasDest && destination && prev && Logic.hasCoords(prev) && Logic.hasCoords(destination)) {
+      legs.push(await routeDuration(svc, prev, destination, travelMode, mode));
+      if (onProgress) onProgress(++done, total);
+    } else legs.push(0);
+    return legs;
   }
 
   async function travelTime(a, b, mode) {
@@ -563,10 +586,37 @@ const Api = (() => {
     }
   }
 
+  // 單段（兩點）的實際路徑座標；大眾運輸不支援途經點，改逐段畫時用這個。含快取避免每次 render 重打
+  const legPathCache = {};
+  async function routeLegPath(a, b, mode) {
+    if (isMock() || !Logic.hasCoords(a) || !Logic.hasCoords(b)) return null;
+    const travelMode = mode === 'walking' ? 'WALKING' : mode === 'transit' ? 'TRANSIT' : 'DRIVING';
+    const key = `${travelMode}:${pointKey(a)}>${pointKey(b)}`;
+    if (legPathCache[key] !== undefined) return legPathCache[key];
+    try {
+      await loadGoogleMaps();
+      const svc = new google.maps.DirectionsService();
+      const res = await svc.route({
+        origin: { lat: a.lat, lng: a.lng }, destination: { lat: b.lat, lng: b.lng }, travelMode
+      });
+      const path = res.routes[0].overview_path.map(ll => ({ lat: ll.lat(), lng: ll.lng() }));
+      // 基本防呆：路徑不該離兩點包絡太遠（避免怪路線／離島飄移）
+      const M = 0.3;
+      const minLat = Math.min(a.lat, b.lat) - M, maxLat = Math.max(a.lat, b.lat) + M;
+      const minLng = Math.min(a.lng, b.lng) - M, maxLng = Math.max(a.lng, b.lng) + M;
+      const ok = !path.some(p => p.lat < minLat || p.lat > maxLat || p.lng < minLng || p.lng > maxLng);
+      legPathCache[key] = ok && path.length > 1 ? path : null;
+      return legPathCache[key];
+    } catch (e) {
+      legPathCache[key] = null; // 這段查不到就記著，之後 render 用直線、不再重打
+      return null;
+    }
+  }
+
   return {
     isMock, loadGoogleMaps, geocodeAddress,
     searchPlaces, searchFood, nearbySearch, placeHours, placeToday,
-    optimizeRoute, routeLegs, routePath, travelTime,
+    optimizeRoute, routeLegs, routePath, routeLegPath, travelTime,
     weatherOn,
     cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail,
     cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail
