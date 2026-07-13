@@ -246,6 +246,73 @@ const Itin = (() => {
     };
   }
 
+  // ---------- 軟性把餐廳挪到用餐時段（一鍵最佳路線用；順路優先，只在繞路預算內微調） ----------
+  const MEAL_TARGET = { breakfast: 8.5 * 60, lunch: 12 * 60, dinner: 18 * 60, snack: 15 * 60 }; // 目標抵達分鐘
+  const MEAL_TOL = { breakfast: 60, lunch: 45, dinner: 45, snack: 120 };                        // 容忍分鐘（超出才算 penalty）
+  const REORDER_BUDGET = 30; // 全天為了配合用餐，最多多繞的估算車程（分鐘）
+  function mealPenalty(spot, arriveMin) {
+    const tgt = MEAL_TARGET[spot.meal];
+    if (tgt === undefined) return 0;
+    return Math.max(0, Math.abs(arriveMin - tgt) - (MEAL_TOL[spot.meal] || 60));
+  }
+  // 依序（估算車程＋停留）模擬每個景點抵達時間與全天總車程
+  function simulateDay(seq, start, end, mode, dayStartMin) {
+    const arrivals = [];
+    let clock = dayStartMin, prev = start || null, travel = 0;
+    for (const s of seq) {
+      const leg = prev ? Logic.travelMinutes(prev, s, mode) : 0;
+      travel += leg;
+      const arrive = clock + leg;
+      arrivals.push(arrive);
+      clock = arrive + (s.stayMin || 60);
+      prev = s;
+    }
+    if (end && prev) travel += Logic.travelMinutes(prev, end, mode);
+    return { arrivals, travel };
+  }
+  const totalMealPenalty = (seq, arr) => seq.reduce((p, s, i) => p + mealPenalty(s, arr[i]), 0);
+  const sameOrderById = (a, b) => a.length === b.length && a.every((s, i) => s.id === b[i].id);
+  // 貪婪：把餐別景點搬到能降低用餐 penalty 的位置，但總車程不得超過原本 + 預算（=順路優先）
+  function mealAwareReorder(seq, start, end, mode, dayStartMin) {
+    if (seq.length < 2 || !seq.some(s => MEAL_TARGET[s.meal] !== undefined)) return seq;
+    const base = simulateDay(seq, start, end, mode, dayStartMin);
+    const cap = base.travel + REORDER_BUDGET;
+    let cur = seq.slice(), curTL = base, curPen = totalMealPenalty(cur, base.arrivals);
+    let improved = true, guard = 0;
+    while (improved && guard++ < 30) {
+      improved = false;
+      let best = null;
+      for (let i = 0; i < cur.length; i++) {
+        if (MEAL_TARGET[cur[i].meal] === undefined) continue; // 只搬餐別景點
+        const rest = cur.slice();
+        const [sp] = rest.splice(i, 1);
+        for (let k = 0; k <= rest.length; k++) {              // 插入到每個位置（含最後一格）
+          const cand = rest.slice();
+          cand.splice(k, 0, sp);
+          if (sameOrderById(cand, cur)) continue;
+          const tl = simulateDay(cand, start, end, mode, dayStartMin);
+          if (tl.travel > cap) continue;                     // 超出繞路預算 → 放棄（順路優先）
+          const pen = totalMealPenalty(cand, tl.arrivals);
+          const better = pen < curPen - 0.5 || (Math.abs(pen - curPen) < 0.5 && tl.travel < curTL.travel - 0.5);
+          if (!better) continue;
+          if (!best || pen < best.pen - 0.5 || (Math.abs(pen - best.pen) < 0.5 && tl.travel < best.tl.travel)) {
+            best = { cand, tl, pen };
+          }
+        }
+      }
+      if (best) { cur = best.cand; curTL = best.tl; curPen = best.pen; improved = true; }
+    }
+    return cur;
+  }
+  // 依既定順序逐段抓真實車程（餐時微調後若順序有變才重抓）
+  async function realDayLegs(start, end, ordered, mode) {
+    const legs = [];
+    let prev = start || null;
+    for (const s of ordered) { legs.push(prev ? await routeMinute(prev, s, mode) : 0); prev = s; }
+    legs.push(end && prev ? await routeMinute(prev, end, mode) : 0);
+    return legs;
+  }
+
   async function runOptimize() {
     const t = trip();
     try {
@@ -295,23 +362,27 @@ const Itin = (() => {
       // 把鎖定景點放回它們原本的天（一起參與當天順序最佳化，但不會被移到別天）
       lockedSpots.forEach(s => { const di = s.day - 1; if (di >= 0 && di < days) dayArrs[di].push(s); });
 
-      // 3) 每天以起終點（集合地/飯店/解散地）再最佳化
+      // 3) 每天以起終點（集合地/飯店/解散地）再最佳化；再軟性把餐廳挪到用餐時段
       t.legsByDay = {};
       for (let d = 1; d <= days; d++) {
         const listD = dayArrs[d - 1];
         if (!listD.length) continue;
-        const r = await Api.optimizeRoute(
-          Logic.hasCoords(startHotel(d)) ? startHotel(d) : null,
-          Logic.hasCoords(endHotel(d)) ? endHotel(d) : null,
-          listD,
-          dayTransportOf(d),
-          { realLegs: true, onProgress: (done, total) => UI.loading(true, `第 ${d} 天：查詢真實車程 ${done}/${total} 段…`) }
-        );
-        r.order.forEach((idx, pos) => {
-          const s = listD[idx];
-          s.day = d; s.order = pos;
-        });
-        t.legsByDay[d] = r.legs;
+        const mode = dayTransportOf(d);
+        const start = Logic.hasCoords(startHotel(d)) ? startHotel(d) : null;
+        const end = Logic.hasCoords(endHotel(d)) ? endHotel(d) : null;
+        const r = await Api.optimizeRoute(start, end, listD, mode,
+          { realLegs: true, onProgress: (done, total) => UI.loading(true, `第 ${d} 天：查詢真實車程 ${done}/${total} 段…`) });
+        let ordered = r.order.map(i => listD[i]);
+        let legs = r.legs;
+        // 軟性：把有餐別的店挪到用餐時段（有繞路預算上限＝順路優先）；只有真的動到順序才重抓車程
+        const reordered = mealAwareReorder(ordered, start, end, mode, Logic.toMin(dayStartOf(d)));
+        if (!sameOrderById(reordered, ordered)) {
+          UI.loading(true, `第 ${d} 天：配合用餐時段微調路線…`);
+          ordered = reordered;
+          legs = await realDayLegs(start, end, ordered, mode);
+        }
+        ordered.forEach((s, pos) => { s.day = d; s.order = pos; });
+        t.legsByDay[d] = legs;
       }
       t.optimizedAt = Date.now();
       Store.clearManualDirty();
