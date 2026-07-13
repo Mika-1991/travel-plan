@@ -52,13 +52,14 @@ const Itin = (() => {
   // 各路段時間：優先用排路線時存下的，否則即時估算
   function legsForDay(day) {
     const list = spotsOfDay(day);
+    const mode = dayTransportOf(day);
     const cached = trip().legsByDay[day];
     if (cached && cached.length === list.length + 1) {
       // 舊資料防護：異常路段（例如 Google 對到不了的點回傳的怪時間）改用估算
       const seq = [startHotel(day), ...list, endHotel(day)];
       return cached.map((min, i) => {
         if (!seq[i] || !seq[i + 1]) return min;
-        const est = Logic.travelMinutes(seq[i], seq[i + 1], trip().transport);
+        const est = Logic.travelMinutes(seq[i], seq[i + 1], mode);
         return min > est * 3 + 60 ? est : min;
       });
     }
@@ -66,10 +67,10 @@ const Itin = (() => {
     const legs = [];
     let prev = sp;
     for (const s of list) {
-      legs.push(prev ? Logic.travelMinutes(prev, s, trip().transport) : 0);
+      legs.push(prev ? Logic.travelMinutes(prev, s, mode) : 0);
       prev = s;
     }
-    legs.push(ep && prev ? Logic.travelMinutes(prev, ep, trip().transport) : 0);
+    legs.push(ep && prev ? Logic.travelMinutes(prev, ep, mode) : 0);
     return legs;
   }
 
@@ -82,6 +83,12 @@ const Itin = (() => {
   function dayEndOf(day) {
     const t = trip();
     return (t.dayEndOv || {})[day] || t.dayEnd;
+  }
+  // 每一天的交通方式（可個別覆寫，預設用全域 transport）
+  const TRANSPORT_META = { driving: ['🚗', '開車'], transit: ['🚇', '大眾運輸'], walking: ['🚶', '走路'] };
+  function dayTransportOf(day) {
+    const t = trip();
+    return (t.dayTransportOv || {})[day] || t.transport;
   }
 
   function dayCenter(day) {
@@ -293,7 +300,7 @@ const Itin = (() => {
           Logic.hasCoords(startHotel(d)) ? startHotel(d) : null,
           Logic.hasCoords(endHotel(d)) ? endHotel(d) : null,
           listD,
-          t.transport,
+          dayTransportOf(d),
           { realLegs: true, onProgress: (done, total) => UI.loading(true, `第 ${d} 天：查詢真實車程 ${done}/${total} 段…`) }
         );
         r.order.forEach((idx, pos) => {
@@ -359,6 +366,7 @@ const Itin = (() => {
     Feat.fillWeather();
     notifyOverflowDays();
     backfillHours();
+    scheduleAutoRoute();  // 變更後背景自動抓真實車程（只更新剛被清掉車程的那幾天）
   }
 
   // 某一天的行程是否排不進設定時段
@@ -450,12 +458,13 @@ const Itin = (() => {
     });
   }
 
-  async function routeMinute(a, b) {
+  async function routeMinute(a, b, mode) {
     if (!a || !b) return 0;
+    mode = mode || trip().transport;
     const live = Logic.hasCoords(a) && Logic.hasCoords(b)
-      ? await Api.travelTime(a, b, trip().transport)
+      ? await Api.travelTime(a, b, mode)
       : null;
-    return live ?? Logic.travelMinutes(a, b, trip().transport);
+    return live ?? Logic.travelMinutes(a, b, mode);
   }
 
   async function refreshRoutes() {
@@ -469,13 +478,14 @@ const Itin = (() => {
         const ep = endHotel(d);
         if (!list.length && !sp && !ep) continue;
         UI.loading(true, `更新第 ${d} 天車程…`);
+        const mode = dayTransportOf(d);
         const legs = [];
         let prev = sp || null;
         for (const s of list) {
-          legs.push(prev ? await routeMinute(prev, s) : 0);
+          legs.push(prev ? await routeMinute(prev, s, mode) : 0);
           prev = s;
         }
-        legs.push(ep && prev ? await routeMinute(prev, ep) : 0);
+        legs.push(ep && prev ? await routeMinute(prev, ep, mode) : 0);
         t.legsByDay[d] = legs;
         updated++;
       }
@@ -486,6 +496,51 @@ const Itin = (() => {
     } catch (e) {
       UI.loading(false);
       UI.alert('更新車程失敗', e.message || String(e));
+    }
+  }
+
+  // ---------- 車程自動更新（每次變更後，背景抓 Google 真實車程，不擋畫面） ----------
+  // 只更新「被清掉車程快取」的那幾天（=剛被變更的天）；帶 generation 防止過期寫入
+  let autoRouteTimer = null, routeGen = 0, autoRouteRunning = false;
+  function scheduleAutoRoute() {
+    if (Store.isReadonly() || Api.isMock()) return; // 模擬模式無真實車程
+    clearTimeout(autoRouteTimer);
+    autoRouteTimer = setTimeout(autoRefreshRoutes, 1600);
+  }
+  async function autoRefreshRoutes() {
+    const t = trip();
+    if (!t || autoRouteRunning) return;
+    // 找出缺車程（剛被變更）且值得更新的天
+    const targets = [];
+    for (let d = 1; d <= Store.days(); d++) {
+      if (t.legsByDay[d]) continue;                 // 已有（真實）車程就不重抓
+      const list = spotsOfDay(d);
+      const sp = startHotel(d), ep = endHotel(d);
+      if (!list.length && !sp && !ep) continue;
+      targets.push(d);
+    }
+    if (!targets.length) return;
+    autoRouteRunning = true;
+    const gen = ++routeGen;
+    try {
+      let changed = false;
+      for (const d of targets) {
+        if (gen !== routeGen) break;                // 期間又有新變更 → 放棄，等下一輪
+        const list = spotsOfDay(d);
+        const sp = startHotel(d), ep = endHotel(d);
+        const mode = dayTransportOf(d);
+        const legs = [];
+        let prev = sp || null;
+        for (const s of list) { legs.push(prev ? await routeMinute(prev, s, mode) : 0); prev = s; }
+        legs.push(ep && prev ? await routeMinute(prev, ep, mode) : 0);
+        if (gen !== routeGen) break;                // 寫入前再確認沒被新變更蓋過
+        if (!t.legsByDay[d]) { t.legsByDay[d] = legs; changed = true; }
+      }
+      if (changed && gen === routeGen) { Store.cloudSaveNow().catch(() => {}); render(); }
+    } catch (e) {
+      console.warn('自動更新車程失敗（維持估算值）', e);
+    } finally {
+      autoRouteRunning = false;
     }
   }
 
@@ -507,16 +562,17 @@ const Itin = (() => {
     const b = $('btnSwitchMode');
     if (Store.isReadonly()) { b.style.pointerEvents = 'none'; return; }
     b.onclick = () => {
-      UI.choose('切換交通方式', [
+      UI.choose('切換交通方式（套用到所有天）', [
         { label: '🚗 開車', value: 'driving' },
         { label: '🚇 大眾運輸', value: 'transit' },
         { label: '🚶 走路', value: 'walking' }
       ], v => {
         t.transport = v;
+        t.dayTransportOv = {};   // 全域切換＝套用到每一天，清掉個別天的覆寫
         t.legsByDay = {};
         Store.touch();
         render();
-        UI.toast('已切換為「' + { driving: '開車', transit: '大眾運輸', walking: '走路' }[v] + '」，時間已重新計算');
+        UI.toast('全部改為「' + { driving: '開車', transit: '大眾運輸', walking: '走路' }[v] + '」，正在重新計算車程…');
       });
     };
   }
@@ -612,6 +668,7 @@ const Itin = (() => {
       ${list.length ? mealSummaryHtml(list) : ''}
       <div class="day-tools">
         <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)}–${dayEndOf(d)}${((t.dayStartOv || {})[d] || (t.dayEndOv || {})[d]) ? '＊' : ''}</button>
+        <button data-daytrans="${d}" class="edit-only">${TRANSPORT_META[dayTransportOf(d)][0]} ${TRANSPORT_META[dayTransportOf(d)][1]}${(t.dayTransportOv || {})[d] ? '＊' : ''} ▾</button>
         <button data-addspot="${d}" class="edit-only">➕ 加景點</button>
         <button data-food="${d}" class="edit-only">🍜 附近美食</button>
         ${list.length ? `<a href="${dayNavLink(d, list)}" target="_blank" rel="noopener">🧭 全日導航</a>` : ''}
@@ -630,18 +687,19 @@ const Itin = (() => {
     if (sp && list.length) card.appendChild(pointRow(sp, `${dayStartOf(d)} ${sp.kind === 'meet' ? '從集合地出發' : '從飯店出發'}`));
 
     // 景點列 + 路段
+    const dMode = dayTransportOf(d);
     tl.rows.forEach((row, i) => {
-      if (row.legMin > 0) card.appendChild(legRow(row.legMin));
+      if (row.legMin > 0) card.appendChild(legRow(row.legMin, dMode));
       card.appendChild(spotRow(row.spot, row, i + 1, d));
     });
     if (list.length && ep) {
-      if (tl.backLeg > 0) card.appendChild(legRow(tl.backLeg));
+      if (tl.backLeg > 0) card.appendChild(legRow(tl.backLeg, dMode));
       card.appendChild(pointRow(ep, `${tl.endTime} ${ep.kind === 'end' ? '抵達解散地' : '回到飯店'}`));
     }
     if (!list.length) {
       if (sp) card.appendChild(pointRow(sp, pointEmptyDayText(sp)));
       const shouldShowEmptyLeg = sp && ep && !sameRoutePoint(sp, ep) && legs[0] > 0 && !(sp.kind === 'hotel' && ep.kind === 'hotel');
-      if (shouldShowEmptyLeg) card.appendChild(legRow(legs[0]));
+      if (shouldShowEmptyLeg) card.appendChild(legRow(legs[0], dMode));
       if (ep && !sameRoutePoint(sp, ep)) card.appendChild(pointRow(ep, pointEmptyDayText(ep)));
       const p = document.createElement('p');
       p.className = 'hint'; p.style.padding = '0 14px 12px';
@@ -653,6 +711,8 @@ const Itin = (() => {
 
     const timeBtn = head.querySelector(`[data-daytime="${d}"]`);
     if (timeBtn) timeBtn.onclick = () => editDayTime(d);
+    const transBtn = head.querySelector(`[data-daytrans="${d}"]`);
+    if (transBtn) transBtn.onclick = () => openDayTransport(d);
     const addBtn = head.querySelector(`[data-addspot="${d}"]`);
     if (addBtn) addBtn.onclick = () => openAddSpot(d);
     const foodBtn = head.querySelector(`[data-food="${d}"]`);
@@ -706,9 +766,30 @@ const Itin = (() => {
     UI.modal(`🕘 第 ${d} 天時間`, body, actions);
   }
 
-  function legRow(min) {
+  // 設定某一天的交通方式（覆寫全域預設；改完清當天車程快取，背景自動重抓真實車程）
+  function openDayTransport(d) {
     const t = trip();
-    const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[t.transport];
+    if (Store.isReadonly()) { UI.toast('唯讀模式無法修改'); return; }
+    const cur = (t.dayTransportOv || {})[d] || null;
+    const opts = [
+      { label: `🚗 開車${cur === 'driving' ? ' ✓' : ''}`, value: 'driving' },
+      { label: `🚇 大眾運輸${cur === 'transit' ? ' ✓' : ''}`, value: 'transit' },
+      { label: `🚶 走路${cur === 'walking' ? ' ✓' : ''}`, value: 'walking' }
+    ];
+    if (cur) opts.push({ label: `↩ 跟全部一樣（預設 ${TRANSPORT_META[t.transport][1]}）`, value: 'default' });
+    UI.choose(`第 ${d} 天的交通方式`, opts, v => {
+      if (!t.dayTransportOv) t.dayTransportOv = {};
+      if (v === 'default') delete t.dayTransportOv[d];
+      else t.dayTransportOv[d] = v;
+      delete t.legsByDay[d];
+      Store.touch();
+      render();
+      UI.toast(`第 ${d} 天交通改為「${TRANSPORT_META[dayTransportOf(d)][1]}」，正在重新計算車程…`);
+    });
+  }
+
+  function legRow(min, mode) {
+    const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[mode || trip().transport];
     const div = document.createElement('div');
     div.className = 'leg-row';
     div.innerHTML = `↓ ${icon} 車程約 ${Logic.fmtDur(min)}`;
@@ -1000,7 +1081,7 @@ const Itin = (() => {
             <button data-act="stay+" aria-label="增加停留時間">＋</button>
           </div>
         </div>
-        ${s.photo ? `<img class="spot-thumb" src="${UI.esc(s.photo)}" alt="" loading="lazy" title="${UI.esc(s.name)}">` : ''}
+        ${s.photo ? `<img class="spot-thumb" src="${UI.esc(s.photo)}" alt="" title="${UI.esc(s.name)}">` : ''}
         <div class="spot-actions edit-only">
           <button class="drag-grip" title="按住拖曳排序（可拖到其他天）">☰</button>
           <button data-act="lock" title="${s.locked ? '解除鎖定' : '鎖定在這天（自動安排不會移動）'}">${s.locked ? '🔒' : '🔓'}</button>
@@ -1177,7 +1258,7 @@ const Itin = (() => {
     const origin = Logic.hasCoords(sp) ? `${sp.lat},${sp.lng}` : pts.shift();
     // 只有 1 個景點又沒設飯店時，終點退回用起點，避免產生壞掉的導航連結
     const dest = Logic.hasCoords(ep) ? `${ep.lat},${ep.lng}` : (pts.length ? pts.pop() : origin);
-    const mode = { driving: 'driving', transit: 'transit', walking: 'walking' }[trip().transport];
+    const mode = { driving: 'driving', transit: 'transit', walking: 'walking' }[dayTransportOf(d)];
     let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=${mode}`;
     if (pts.length) url += `&waypoints=${pts.join('|')}`;
     return url;
@@ -1274,7 +1355,8 @@ const Itin = (() => {
           strokeColor: color, strokeOpacity: .85, strokeWeight: 4
         });
         add(poly);
-        if (trip().transport === 'transit') {
+        const gMode = dayTransportOf(g.d);
+        if (gMode === 'transit') {
           // 大眾運輸不支援途經點 → 逐段抓真實路線再串起來（某段抓不到就那段用直線）
           (async () => {
             const full = [{ lat: seq[0].lat, lng: seq[0].lng }];
@@ -1286,7 +1368,7 @@ const Itin = (() => {
             if (full.length > 1) poly.setPath(full);
           })();
         } else {
-          Api.routePath(seq, trip().transport).then(path => {
+          Api.routePath(seq, gMode).then(path => {
             if (path && path.length > 1) poly.setPath(path);
           });
         }
@@ -1330,7 +1412,7 @@ const Itin = (() => {
             `<div class="map-poi">${s.photo ? `<img src="${s.photo}" alt="">` : ''}<span>${i + 1}. ${UI.esc(s.name)}</span></div>`, -16);
         });
         const legs = legsForDay(g.d);
-        const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[trip().transport] || '🚗';
+        const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[dayTransportOf(g.d)] || '🚗';
         let prev = g.sp;
         const pairs = [];
         g.list.forEach((s, i) => { if (prev && legs[i] > 0) pairs.push([prev, s, legs[i]]); prev = s; });
@@ -1432,6 +1514,6 @@ const Itin = (() => {
 
   return {
     init, render, renderFullMap, addSpot, openAddSpot,
-    spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay
+    spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf
   };
 })();

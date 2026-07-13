@@ -373,7 +373,7 @@ const Feat = (() => {
           movedSpots.forEach(sp => { sp.day = newDays; });
           t.hotels = t.hotels.filter(h => h.night < maxNight);
           // 清掉超出天數的每日設定
-          [t.dayStartOv, t.rainPlans, t.rainActive, t.rainBackup].forEach(obj => {
+          [t.dayStartOv, t.dayEndOv, t.dayTransportOv, t.rainPlans, t.rainActive, t.rainBackup].forEach(obj => {
             if (obj) Object.keys(obj).forEach(k => { if (Number(k) > newDays) delete obj[k]; });
           });
           t.legsByDay = {};
@@ -542,12 +542,13 @@ const Feat = (() => {
       </details>`;
     body.appendChild(custom);
 
+    const dMode = Itin.dayTransportOf(d);
     body.querySelector('#foodGo').onclick = async () => {
       const center = centers[Number(body.querySelector('#foodCenter').value) || 0];
       const rawMaxMin = Number(body.querySelector('#foodMaxMin').value);
       const noLimit = rawMaxMin === 0;
       const maxMin = noLimit ? Infinity : Math.min(60, rawMaxMin || 30);
-      const radius = foodRadiusByMinutes(maxMin, t.transport);
+      const radius = foodRadiusByMinutes(maxMin, dMode);
       const kind = body.querySelector('#foodKind').value.trim();
       const res = body.querySelector('#foodRes');
       try {
@@ -557,7 +558,7 @@ const Feat = (() => {
         list = list.filter(Logic.hasCoords).slice(0, 18);
         const timed = [];
         for (const r of list) {
-          const travelMin = await Api.travelTime(center, r, t.transport);
+          const travelMin = await Api.travelTime(center, r, dMode);
           if (travelMin !== null && (noLimit || travelMin <= maxMin)) timed.push({ ...r, travelMin });
         }
         list = timed.sort((a, b) => (a.travelMin - b.travelMin) || ((b.rating || 0) - (a.rating || 0))).slice(0, 12);
