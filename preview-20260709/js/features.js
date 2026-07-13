@@ -834,14 +834,23 @@ const Feat = (() => {
   }
 
   // ================= 下載資源 =================
+  // 依「分裝袋」分類整理（貼身防盜包／隨身包／託運…），出國旅遊通用版
   const packingTemplate = [
-    { cat: '證件與付款', items: ['身分證／健保卡', '駕照', '信用卡／金融卡', '現金與零錢', '訂房與票券截圖'] },
-    { cat: '3C 電子', items: ['手機', '充電線', '行動電源', '耳機', '相機／記憶卡', '車充'] },
-    { cat: '衣物', items: ['換洗衣物', '睡衣', '外套', '帽子', '襪子', '拖鞋'] },
-    { cat: '盥洗保養', items: ['牙刷牙膏', '洗面乳', '保養品', '防曬', '卸妝用品', '毛巾'] },
-    { cat: '藥品', items: ['個人藥品', '暈車藥', '止痛藥', '腸胃藥', 'OK 繃', '防蚊液'] },
-    { cat: '雨天備品', items: ['摺疊傘', '雨衣', '防水袋', '備用襪子'] },
-    { cat: '親子／長輩', items: ['濕紙巾', '衛生紙', '保溫瓶', '小零食', '常用藥', '備用衣物'] }
+    { cat: '🛂 重要證件（貼身防盜包）', items: ['護照（效期 6 個月以上）', '身分證／健保卡', '國內外駕照（自駕用）', '機票／電子登機證', '簽證／ESTA（如需要）', '旅遊保險投保證明（英文）', '訂房與票券憑證（紙本＋截圖）', '大頭照數張（備用）', '緊急聯絡人與住宿地址清單'] },
+    { cat: '💳 錢包', items: ['信用卡（2 張以上分開放）', '當地現金與零錢', '台幣現鈔', '悠遊卡／交通卡'] },
+    { cat: '🔌 3C 電子（隨身包）', items: ['手機', '充電線＋充電器', '行動電源（隨身，不可託運）', '萬用轉接插頭', '延長線', '相機＋電池＋記憶卡', '耳機／無線耳機', '車用手機架（自駕用）'] },
+    { cat: '📱 手機 App（出發前先裝好）', items: ['離線地圖／導航', '訂房 App（Booking／Airbnb）', '叫車 App（Uber 等）', '當地大眾運輸／票務 App', '翻譯 App', '航空公司 App（線上 Check-in）'] },
+    { cat: '👕 一般衣物', items: ['上衣', '褲子／裙子', '外套／防風外套', '羽絨／保暖衣（看天氣）', '正式服裝（拍照／餐廳）', '睡衣'] },
+    { cat: '🩲 貼身衣物', items: ['內衣褲', '免洗內褲', '襪子', '泳衣（溫泉／泳池）'] },
+    { cat: '🧴 盥洗保養', items: ['牙刷牙膏', '洗面乳', '洗髮精／潤髮乳', '沐浴乳', '身體乳液', '卸妝用品', '化妝棉／棉花棒', '毛巾／浴巾', '梳子'] },
+    { cat: '💄 化妝／防曬', items: ['防曬乳', '隔離／底妝', '護唇膏', '凡士林（乾燥氣候）', '面膜', '個人彩妝'] },
+    { cat: '💊 藥品包', items: ['個人常用藥', '感冒藥', '止痛藥（普拿疼）', '暈車藥', '腸胃藥', '過敏藥', 'OK 繃／外傷藥', '眼藥水／人工淚液', '防蚊液'] },
+    { cat: '🧻 衛生用品', items: ['衛生棉／棉條', '面紙／濕紙巾', '口罩', '環保餐具', '牙線', '乾洗手'] },
+    { cat: '🧳 生活用品', items: ['洗衣粉／洗衣片', '衣架／曬衣夾', '真空壓縮袋', '密封夾鏈袋（分裝／防水）', '小型行李秤', '折疊購物袋／行李袋', '剪刀／指甲刀（託運）', '針線包'] },
+    { cat: '✈️ 機上好眠包', items: ['頸枕', '眼罩', '耳塞', '拖鞋', '保濕（護唇膏／乳液）', '薄外套／圍巾'] },
+    { cat: '🌦️ 雨天／保暖', items: ['摺疊傘／晴雨傘', '輕便雨衣', '帽子／登山帽', '圍巾／手套', '厚襪／褲襪'] },
+    { cat: '🎒 其他常用', items: ['保溫瓶／水壺', '太陽眼鏡', '自拍腳架', '暖暖包', '小零食', '空塑膠袋／橡皮筋'] },
+    { cat: '👶 親子／長輩（視需要）', items: ['奶粉／副食品', '尿布／濕紙巾', '兒童常用藥', '推車／揹巾', '安撫玩具', '長輩慢性病藥（足量）'] }
   ];
 
   const xmlEsc = v => String(v ?? '').replace(/[<>&"']/g,
@@ -861,6 +870,8 @@ const Feat = (() => {
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
+  const MEAL_LABELS = { breakfast: '🍳 早餐', lunch: '🍜 午餐', dinner: '🍽 晚餐', snack: '🍡 點心' };
+  const dayTransportText = d => ({ driving: '🚗 開車', transit: '🚇 大眾運輸', walking: '🚶 走路' }[Itin.dayTransportOf(d)] || '');
   function dayRows(d) {
     const t = trip();
     const rows = [];
@@ -868,19 +879,21 @@ const Feat = (() => {
     const sp = Itin.startHotel(d);
     const ep = Itin.endHotel(d);
     const legs = Itin.legsForDay(d);
+    const mode = dayTransportText(d);
+    const legName = min => `${mode}｜車程約 ${Logic.fmtDur(min)}`;
     if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '', photo: t.meetPoint.photo || '' });
     else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: '', photo: sp.photo || '' });
     const shouldShowEmptyLeg = !list.length && sp && ep && sp !== ep && legs[0] > 0 &&
       ((d === 1 && t.meetPoint) || (d === Store.days() && t.endPoint));
-    if (shouldShowEmptyLeg) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[0])}`, address: '', note: '' });
+    if (shouldShowEmptyLeg) rows.push({ type: '路程', name: legName(legs[0]), address: '', note: '' });
     list.forEach((s, i) => {
-      if (legs[i] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[i])}`, address: '', note: '' });
-      const mealLbl = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '點心' }[s.meal];
+      if (legs[i] > 0) rows.push({ type: '路程', name: legName(legs[i]), address: '', note: '' });
+      const mealLbl = MEAL_LABELS[s.meal];
       const rowType = mealLbl || (s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點');
       rows.push({ type: rowType, name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
     });
     if (list.length && ep) {
-      if (legs[list.length] > 0) rows.push({ type: '路程', name: `車程約 ${Logic.fmtDur(legs[list.length])}`, address: '', note: '' });
+      if (legs[list.length] > 0) rows.push({ type: '路程', name: legName(legs[list.length]), address: '', note: '' });
       rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '', photo: ep.photo || '' });
     } else if (!list.length && ep && ep !== sp) {
       rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '', photo: ep.photo || '' });
@@ -955,9 +968,9 @@ ${sheetXml('攜帶清單', packing)}
     const hotels = [['夜晚', '名稱', '地址', '付款狀態', '備註', '平日價格', '假日價格']];
     (t.hotels || []).slice().sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
       hotels.push([`第 ${Number(h.night) + 1} 晚`, h.name, h.address || '', UI.PAY_LABELS[h.pay] || '', h.note || '', Number(h.priceWeekday) || '', Number(h.priceWeekend) || '']));
-    const spots = [['天數', '順序', '名稱', '地址', '停留分鐘', '必去', '備註']];
+    const spots = [['天數', '順序', '名稱', '餐別', '地址', '停留分鐘', '必去', '備註']];
     (t.spots || []).slice().sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
-      spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, s.address || '', Number(s.stayMin) || '', s.must ? '是' : '', s.note || '']));
+      spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, MEAL_LABELS[s.meal] || '', s.address || '', Number(s.stayMin) || '', s.must ? '是' : '', s.note || '']));
     const expenses = [['日期', '項目', '金額', '付款人', '不分帳', '分帳成員']];
     (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、')]));
     const settle = [['成員', '已付', '應付', '餘額']];
@@ -1109,7 +1122,7 @@ h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{bo
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
           <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="">` : ''}</td>
         </tr>`).join('');
-      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
+      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))} <span style="font-weight:400;color:#8C7B6B;font-size:15px">・${textEsc(dayTransportText(d))}</span></h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
     }).join('');
     return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 每日行程 PDF</title>
 <style>

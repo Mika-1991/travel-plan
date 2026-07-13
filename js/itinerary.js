@@ -396,11 +396,6 @@ const Itin = (() => {
     if (moreBtn) moreBtn.onclick = openMoreActions;
     const undoBtn = $('btnUndo');
     if (undoBtn) { undoBtn.disabled = !Store.canUndo(); undoBtn.onclick = doUndo; }
-    const refreshBtn = $('btnRefreshRoutes');
-    if (refreshBtn) {
-      refreshBtn.disabled = !(t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length);
-      refreshBtn.onclick = refreshRoutes;
-    }
     const saveBtn = $('btnManualSave');
     if (saveBtn) saveBtn.onclick = saveCurrentArrangement;
     const shareBtn = $('btnShareBottom');
@@ -420,12 +415,17 @@ const Itin = (() => {
     } else {
       if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
     }
+    const t = trip();
+    if (t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length) {
+      opts.push({ label: '🔄 重新計算車程（抓最新實際時間）', value: 'refresh' });
+    }
     opts.push({ label: '📋 複製成我的行程', value: 'copy' });
     UI.choose('更多操作', opts, v => {
       if (v === 'undo') doUndo();
       else if (v === 'save') saveCurrentArrangement();
       else if (v === 'restore') confirmRestoreSaved();
       else if (v === 'share') Feat.showShare();
+      else if (v === 'refresh') refreshRoutes();
       else if (v === 'copy') Feat.copyTrip();
     });
   }
