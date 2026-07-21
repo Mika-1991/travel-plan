@@ -680,11 +680,41 @@ const Itin = (() => {
   }
 
   // 每天三餐摘要：已安排顯示 ✓，未安排淡淡提醒「未定」（不硬 show 空列）；有點心才顯示點心
-  function mealSummaryHtml(list) {
-    const badge = (key, label) => list.some(s => s.meal === key)
+  // 住宿餐別（早餐常在飯店/民宿吃）：以 day + 位置(start/end) 為 key 存進 trip.stayMeals
+  const STAY_MEAL_LIST = [['breakfast', '🍳 早餐'], ['lunch', '🍜 午餐'], ['dinner', '🍽 晚餐'], ['snack', '🍡 點心']];
+  const MEAL_TAG = { breakfast: '🍳 早餐', lunch: '🍜 午餐', dinner: '🍽 晚餐', snack: '🍡 點心' };
+  const stayMealKey = (day, pos) => day + ':' + pos;
+  function stayMealsOf(day, pos) { return ((trip() && trip().stayMeals) || {})[stayMealKey(day, pos)] || []; }
+  function stayMealsForDay(day) { return [].concat(stayMealsOf(day, 'start'), stayMealsOf(day, 'end')); }
+  function openStayMeals(day, pos, name) {
+    const t = trip();
+    if (!t.stayMeals) t.stayMeals = {};
+    const key = stayMealKey(day, pos);
+    const cur = new Set(t.stayMeals[key] || []);
+    const body = document.createElement('div');
+    body.className = 'stack';
+    body.innerHTML = `<p class="hint">勾選在「${UI.esc(name)}」吃的餐（例如飯店早餐、民宿晚餐）：</p>` +
+      STAY_MEAL_LIST.map(([v, lb]) =>
+        `<label style="display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:1rem">
+          <input type="checkbox" value="${v}" ${cur.has(v) ? 'checked' : ''} style="width:22px;height:22px">
+          <span>${lb}</span></label>`).join('');
+    UI.modal('🍽 在住宿用餐', body, [{
+      label: '儲存', primary: true, onClick: () => {
+        const picked = Array.from(body.querySelectorAll('input:checked')).map(i => i.value);
+        if (picked.length) t.stayMeals[key] = picked; else delete t.stayMeals[key];
+        Store.touch(); UI.closeModal(); render();
+        UI.toast(picked.length ? '已記錄住宿餐別' : '已清除住宿餐別');
+      }
+    }]);
+  }
+
+  function mealSummaryHtml(list, day) {
+    const staySet = new Set(stayMealsForDay(day));
+    const has = key => staySet.has(key) || list.some(s => s.meal === key);
+    const badge = (key, label) => has(key)
       ? `<b style="color:var(--ok)">${label}✓</b>`
       : `<span style="color:var(--text-2)">${label}未定</span>`;
-    const snack = list.some(s => s.meal === 'snack') ? `｜<b style="color:var(--ok)">點心✓</b>` : '';
+    const snack = has('snack') ? `｜<b style="color:var(--ok)">點心✓</b>` : '';
     return `<p class="hint" style="margin:2px 0 0">🍽 ${badge('breakfast', '早餐')}｜${badge('lunch', '午餐')}｜${badge('dinner', '晚餐')}${snack}</p>`;
   }
 
@@ -747,7 +777,7 @@ const Itin = (() => {
       ${estimateHint}
       <div data-rain-slot="${d}"></div>
       ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ' <span style="color:var(--danger);font-weight:700">⚠️ 可能排不完</span>' : ''}</p>` : ''}
-      ${list.length ? mealSummaryHtml(list) : ''}
+      ${list.length ? mealSummaryHtml(list, d) : ''}
       <div class="day-tools">
         <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)}–${dayEndOf(d)}${((t.dayStartOv || {})[d] || (t.dayEndOv || {})[d]) ? '＊' : ''}</button>
         <button data-daytrans="${d}" class="edit-only">${TRANSPORT_META[dayTransportOf(d)][0]} ${TRANSPORT_META[dayTransportOf(d)][1]}${(t.dayTransportOv || {})[d] ? '＊' : ''} ▾</button>
@@ -766,7 +796,7 @@ const Itin = (() => {
     });
 
     // 起點列
-    if (sp && list.length) card.appendChild(pointRow(sp, `${dayStartOf(d)} ${sp.kind === 'meet' ? '從集合地出發' : '從飯店出發'}`));
+    if (sp && list.length) card.appendChild(pointRow(sp, `${dayStartOf(d)} ${sp.kind === 'meet' ? '從集合地出發' : '從飯店出發'}`, d, 'start'));
 
     // 景點列 + 路段
     const dMode = dayTransportOf(d);
@@ -776,13 +806,13 @@ const Itin = (() => {
     });
     if (list.length && ep) {
       if (tl.backLeg > 0) card.appendChild(legRow(tl.backLeg, dMode));
-      card.appendChild(pointRow(ep, `${tl.endTime} ${ep.kind === 'end' ? '抵達解散地' : '回到飯店'}`));
+      card.appendChild(pointRow(ep, `${tl.endTime} ${ep.kind === 'end' ? '抵達解散地' : '回到飯店'}`, d, 'end'));
     }
     if (!list.length) {
-      if (sp) card.appendChild(pointRow(sp, pointEmptyDayText(sp)));
+      if (sp) card.appendChild(pointRow(sp, pointEmptyDayText(sp), d, 'start'));
       const shouldShowEmptyLeg = sp && ep && !sameRoutePoint(sp, ep) && legs[0] > 0 && !(sp.kind === 'hotel' && ep.kind === 'hotel');
       if (shouldShowEmptyLeg) card.appendChild(legRow(legs[0], dMode));
-      if (ep && !sameRoutePoint(sp, ep)) card.appendChild(pointRow(ep, pointEmptyDayText(ep)));
+      if (ep && !sameRoutePoint(sp, ep)) card.appendChild(pointRow(ep, pointEmptyDayText(ep), d, 'end'));
       const p = document.createElement('p');
       p.className = 'hint'; p.style.padding = '0 14px 12px';
       p.textContent = (sp || ep)
@@ -879,9 +909,11 @@ const Itin = (() => {
   }
 
   // 起終點列（飯店 / 集合地 / 解散地）
-  function pointRow(spObj, timeTxt) {
+  function pointRow(spObj, timeTxt, day, pos) {
     const p = spObj.p, kind = spObj.kind;
     const icon = kind === 'meet' ? '🚩' : kind === 'end' ? '🏁' : '🏨';
+    const stayM = (kind === 'hotel' && day) ? stayMealsOf(day, pos) : [];
+    const mealTags = stayM.length ? `<div class="spot-times" style="color:var(--ok)">🍽 ${stayM.map(m => MEAL_TAG[m]).join('｜')}（在這裡吃）</div>` : '';
     const div = document.createElement('div');
     div.className = 'spot-row';
     const payTag = kind === 'hotel' && p.pay ? `<span class="pay-badge pay-${p.pay}">${UI.PAY_LABELS[p.pay] || ''}</span>` : '';
@@ -898,10 +930,13 @@ const Itin = (() => {
           ${p.address ? `<div class="spot-times addr-line">📍 ${UI.esc(p.address)}</div>` : ''}
           ${kind === 'hotel' && p.note ? `<div class="spot-times">📝 ${UI.esc(p.note)}</div>` : ''}
           ${priceTxt}
+          ${mealTags}
           ${coordWarning}
         </div>
         <div class="spot-actions">
           ${kind === 'hotel' ? `<button class="drag-grip edit-only" data-act="hdrag" title="按住拖曳，把住宿移到其他天">☰</button>
+          <button class="edit-only" data-act="hmeal" title="在這裡用餐：早／午／晚／點心">🍽</button>
+          <button class="edit-only" data-act="hexp" title="記一筆帳">💰</button>
           <button class="edit-only" data-act="hedit" title="編輯住宿備註">✎</button>` : ''}
           ${(kind === 'meet' || kind === 'end') ? `<button class="edit-only" data-act="ptmenu" title="更多：更改地點／移除／導航／記帳">⋯</button>` : ''}
           ${mapLink}
@@ -913,6 +948,10 @@ const Itin = (() => {
     if (he) he.onclick = () => editHotelInfo(p);
     const hd = div.querySelector('[data-act="hdrag"]');
     if (hd && kind === 'hotel') hd.addEventListener('pointerdown', e => startHotelDrag(e, p, div));
+    const hm = div.querySelector('[data-act="hmeal"]');
+    if (hm) hm.onclick = () => openStayMeals(day, pos, p.name);
+    const hx = div.querySelector('[data-act="hexp"]');
+    if (hx) hx.onclick = () => Feat.quickExpense({ item: p.name, date: Store.dateOfDay(day) });
     const pm = div.querySelector('[data-act="ptmenu"]');
     if (pm) pm.onclick = () => pointMenu(spObj);
     return div;
@@ -1596,6 +1635,6 @@ const Itin = (() => {
 
   return {
     init, render, renderFullMap, addSpot, openAddSpot,
-    spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf
+    spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf, stayMealsOf
   };
 })();

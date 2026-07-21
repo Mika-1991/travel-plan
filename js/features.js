@@ -869,6 +869,10 @@ const Feat = (() => {
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
   const MEAL_LABELS = { breakfast: '🍳 早餐', lunch: '🍜 午餐', dinner: '🍽 晚餐', snack: '🍡 點心' };
+  const stayMealNote = (d, pos) => {
+    const m = Itin.stayMealsOf(d, pos);
+    return m.length ? '在此用餐：' + m.map(x => MEAL_LABELS[x] || x).join('、') : '';
+  };
   const dayTransportText = d => ({ driving: '🚗 開車', transit: '🚇 大眾運輸', walking: '🚶 走路' }[Itin.dayTransportOf(d)] || '');
   function dayRows(d) {
     const t = trip();
@@ -880,7 +884,7 @@ const Feat = (() => {
     const mode = dayTransportText(d);
     const legName = min => `${mode}｜車程約 ${Logic.fmtDur(min)}`;
     if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '', photo: t.meetPoint.photo || '' });
-    else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: '', photo: sp.photo || '' });
+    else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: stayMealNote(d, 'start'), photo: sp.photo || '' });
     const shouldShowEmptyLeg = !list.length && sp && ep && sp !== ep && legs[0] > 0 &&
       ((d === 1 && t.meetPoint) || (d === Store.days() && t.endPoint));
     if (shouldShowEmptyLeg) rows.push({ type: '路程', name: legName(legs[0]), address: '', note: '' });
@@ -892,9 +896,9 @@ const Feat = (() => {
     });
     if (list.length && ep) {
       if (legs[list.length] > 0) rows.push({ type: '路程', name: legName(legs[list.length]), address: '', note: '' });
-      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '', photo: ep.photo || '' });
+      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: [ep.note, stayMealNote(d, 'end')].filter(Boolean).join('｜'), photo: ep.photo || '' });
     } else if (!list.length && ep && ep !== sp) {
-      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: ep.note || '', photo: ep.photo || '' });
+      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: [ep.note, stayMealNote(d, 'end')].filter(Boolean).join('｜'), photo: ep.photo || '' });
     }
     return rows;
   }
