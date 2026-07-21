@@ -427,7 +427,7 @@ const Api = (() => {
     });
     if (!res.ok) throw new Error('雲端連線失敗（' + res.status + '），請稍後再試');
     const j = await res.json();
-    if (!j.ok) throw new Error(j.error || '雲端回應異常');
+    if (!j.ok) { const err = new Error(j.error || '雲端回應異常'); err.conflict = !!j.conflict; throw err; }
     return j.data;
   }
 

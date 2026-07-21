@@ -229,7 +229,8 @@ const Store = (() => {
   function scheduleCloudSave() {
     if (isReadonly()) return;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(cloudSaveNow, 1500);
+    // 背景自動存檔：失敗只反映在同步小圓點（紅點），不彈窗打擾編輯
+    saveTimer = setTimeout(() => cloudSaveNow().catch(() => {}), 1500);
   }
   async function cloudSaveNow() {
     if (!trip || isReadonly()) return;
@@ -239,12 +240,25 @@ const Store = (() => {
       trip.baseUpdatedAt = r.updatedAt;
       syncState = 'idle'; notifySync();
     } catch (e) {
-      if (e.conflict) {
-        syncState = 'conflict'; notifySync();
-        document.dispatchEvent(new CustomEvent('trip-conflict'));
-      } else {
-        syncState = navigator.onLine ? 'error' : 'offline'; notifySync();
-      }
+      // 只設狀態並往外丟；是否要彈「版本不一致」對話框由呼叫端（明確按儲存時）決定
+      syncState = e.conflict ? 'conflict' : (navigator.onLine ? 'error' : 'offline');
+      notifySync();
+      throw e;
+    }
+  }
+  // 衝突時「用本機這份覆蓋雲端」：先取雲端最新時間戳蓋過衝突檢查，再整筆存回
+  async function forceCloudSave() {
+    if (!trip || isReadonly()) throw new Error('唯讀模式無法儲存');
+    syncState = 'saving'; notifySync();
+    try {
+      const latest = await Api.cloudGetTrip(trip.editCode);
+      trip.baseUpdatedAt = (latest.trip && latest.trip.baseUpdatedAt) || Date.now();
+      const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
+      trip.baseUpdatedAt = r.updatedAt;
+      syncState = 'idle'; notifySync();
+    } catch (e) {
+      syncState = navigator.onLine ? 'error' : 'offline'; notifySync();
+      throw e;
     }
   }
   function notifySync() {
@@ -265,6 +279,6 @@ const Store = (() => {
     touch, isManualDirty, clearManualDirty,
     undo, redo, canUndo, canRedo,
     markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved,
-    cloudSaveNow, reloadFromCloud
+    cloudSaveNow, forceCloudSave, reloadFromCloud
   };
 })();

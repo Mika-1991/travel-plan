@@ -506,13 +506,20 @@ const Itin = (() => {
   }
 
   function saveCurrentArrangement() {
-    // 樂觀儲存：本機立即建立可還原快照並回饋，雲端在背景同步（右上同步點顯示狀態），不卡畫面
+    // 本機立即建立可還原快照並回饋；雲端同步結果誠實回報（要成功才算真的存上雲端）
     Store.markSaved();
     render();
-    UI.toast('已儲存目前安排');
-    Store.cloudSaveNow().catch(e => {
+    UI.toast('已在本機暫存，雲端同步中…');
+    Store.cloudSaveNow().then(() => {
+      UI.toast('☁️ 已儲存到雲端');
+    }).catch(e => {
       console.warn('雲端儲存失敗', e);
-      UI.toast('已存在本機，雲端稍後自動重試');
+      if (e && e.conflict) {
+        // 版本不一致 → 彈三選一對話框（覆蓋雲端／改用雲端／稍後），兩種都不會偷偷蓋資料
+        document.dispatchEvent(new CustomEvent('trip-conflict'));
+      } else {
+        UI.alert('雲端尚未儲存', '你的變更目前只存在這台裝置，還沒上傳到雲端。\n\n可能是網路不穩，請確認連線後，再按一次「儲存」。');
+      }
     });
   }
 

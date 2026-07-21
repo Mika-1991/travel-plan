@@ -272,16 +272,29 @@ const App = (() => {
       }[e.detail] || '';
     });
     document.addEventListener('trip-conflict', () => {
-      UI.confirm('行程有更新的版本',
-        '有人（或另一台裝置）已經更新了這份行程。\n\n建議重新載入最新版本，避免互相覆蓋。要現在載入嗎？',
-        async () => {
-          try {
-            UI.loading(true, '載入最新版本…');
-            await Store.reloadFromCloud();
-            UI.loading(false);
-            enterMain();
-          } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
-        });
+      UI.modal('行程版本不一致',
+        '雲端上有一份比較新的版本（可能你在另一台裝置、或另一個分頁改過同一份行程）。\n\n請選一種處理方式，兩種都不會偷偷蓋掉你的資料：',
+        [
+          { label: '用我這份覆蓋雲端', primary: true, onClick: async () => {
+            UI.closeModal();
+            try {
+              UI.loading(true, '正在存到雲端…');
+              await Store.forceCloudSave();
+              UI.loading(false);
+              UI.toast('☁️ 已用你這份更新雲端');
+            } catch (e) { UI.loading(false); UI.alert('儲存失敗', e.message || String(e)); }
+          } },
+          { label: '改用雲端版本（放棄我的變更）', danger: true, onClick: async () => {
+            UI.closeModal();
+            try {
+              UI.loading(true, '載入雲端版本…');
+              await Store.reloadFromCloud();
+              UI.loading(false);
+              enterMain();
+              UI.toast('已切換為雲端最新版本');
+            } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
+          } }
+        ]);
     });
 
     // 行程資料變動 → 重畫目前頁面相關區塊
