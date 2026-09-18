@@ -223,6 +223,11 @@ const App = (() => {
     $('fabWrap').classList.toggle('hidden', ro);
   }
 
+  // 有手動安排還沒按「💾 儲存」（跟雲端自動同步是兩件事）→ 顯示浮動提醒
+  function updateSaveReminder() {
+    $('saveReminder').classList.toggle('hidden', !Store.needsSaveReminder());
+  }
+
   function enterMain() {
     $('wizard').classList.add('hidden');
     $('app').classList.remove('hidden');
@@ -231,6 +236,9 @@ const App = (() => {
     applyRole();
     Itin.render();
     switchPage('page-trip');
+    updateSaveReminder();
+    if (Store.isReadonly()) { Store.stopPresencePoll(); $('presenceBadge').classList.add('hidden'); }
+    else Store.startPresencePoll();
   }
 
   function initHeader() {
@@ -253,10 +261,11 @@ const App = (() => {
     };
     const roCopy = $('btnCopyTripRO');
     if (roCopy) roCopy.onclick = () => Feat.copyTrip();
-    $('btnHome').onclick = () => { location.href = location.pathname; };
+    $('btnHome').onclick = () => { Store.stopPresencePoll(); location.href = location.pathname; };
     $('btnClear').onclick = () => {
       UI.confirm('清除本機資料？',
         '會清除這台裝置記住的行程與偏好設定。\n\n☁️ 雲端的行程不受影響，之後仍可用行程代碼載入。\n\n確定要清除嗎？', () => {
+          Store.stopPresencePoll();
           Store.clearLocal();
           UI.toast('已清除，即將回到開始畫面');
           setTimeout(() => location.href = location.pathname, 900);
@@ -270,6 +279,39 @@ const App = (() => {
         idle: '已同步', saving: '儲存中…', error: '同步失敗，稍後會再試',
         offline: '離線中，恢復連線後會自動同步', conflict: '偵測到其他人更新了行程'
       }[e.detail] || '';
+    });
+    // 線上共同編輯人數（旁邊心跳每 10 秒更新一次）
+    document.addEventListener('presence-update', e => {
+      const n = e.detail;
+      const badge = $('presenceBadge');
+      if (!n || n <= 1) { badge.classList.add('hidden'); return; }
+      badge.textContent = `👥 ${n}`;
+      badge.title = `目前有 ${n} 人正在編輯這份行程`;
+      badge.classList.remove('hidden');
+    });
+    // 偵測到雲端新版本：手上沒有未存的變更 → 已安靜刷新完成，提示一下（不強制切回行程分頁，避免打斷瀏覽）
+    document.addEventListener('cloud-auto-refreshed', () => {
+      applyRole();
+      Itin.render();
+      if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();
+      updateSaveReminder();
+      UI.toast('☁️ 已自動更新為最新版本');
+    });
+    // 偵測到雲端新版本：手上還有未存的變更 → 只提醒，不強制蓋掉
+    document.addEventListener('cloud-update-available', () => {
+      UI.modal('雲端有新版本',
+        '有人（或另一台裝置）更新了這份行程，但你手上還有還沒存的變更，所以沒有自動刷新。\n\n要現在載入最新版本嗎？（你目前的變更會被取代，建議先按「儲存」再載入）',
+        [{
+          label: '現在載入最新版本', danger: true, onClick: async () => {
+            UI.closeModal();
+            try {
+              UI.loading(true, '載入最新版本…');
+              await Store.reloadFromCloud();
+              UI.loading(false);
+              enterMain();
+            } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
+          }
+        }]);
     });
     document.addEventListener('trip-conflict', () => {
       UI.modal('行程版本不一致',
@@ -300,6 +342,7 @@ const App = (() => {
     // 行程資料變動 → 重畫目前頁面相關區塊
     document.addEventListener('trip-changed', () => {
       if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();
+      updateSaveReminder();
     });
   }
 

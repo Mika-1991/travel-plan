@@ -614,12 +614,22 @@ const Api = (() => {
     }
   }
 
+  // 線上共同編輯心跳：回傳 {editorCount, updatedAt}；mock 模式沒有真實多人，回傳穩定假資料
+  async function cloudPresencePing(code, sessionId) {
+    if (isMock()) {
+      await delay(150);
+      const t = mockCloud()[Object.keys(mockCloud()).find(id => mockCloud()[id].editCode === code)];
+      return { editorCount: 1, updatedAt: (t && t.updatedAt) || 0 };
+    }
+    return gasCall('presencePing', { code, sessionId });
+  }
+
   return {
     isMock, loadGoogleMaps, geocodeAddress,
     searchPlaces, searchFood, nearbySearch, placeHours, placeWeekHours,
     optimizeRoute, routeLegs, routePath, routeLegPath, travelTime,
     weatherOn,
     cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail,
-    cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail
+    cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail, cloudPresencePing
   };
 })();

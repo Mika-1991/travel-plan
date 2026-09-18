@@ -10,6 +10,9 @@ const Store = (() => {
   let role = 'edit';     // 'edit' | 'view'
   let manualDirty = false; // 使用者手動調整過順序（一鍵最佳化前要確認）
   let saveTimer = null;
+  let pendingLocalChange = false; // 有變更還沒成功存回雲端（決定偵測到新版本時要「安靜刷新」還是「只提醒」）
+  let notifiedUpdatedAt = 0; // 避免同一個雲端新版本每 10 秒重複提醒
+  const sessionId = 'sess-' + Math.random().toString(36).slice(2) + Date.now().toString(36); // 本次分頁的識別碼（線上人數心跳用）
 
   function newTrip(basic) {
     return {
@@ -75,8 +78,11 @@ const Store = (() => {
     if (basic.endPoint) trip.endPoint = basic.endPoint;
     role = 'edit';
     manualDirty = false;
+    pendingLocalChange = false;
+    notifiedUpdatedAt = 0;
     resetHistory();
     loadSavedSnap();
+    reminderBaselineSig = arrangementSig(trip);
     persistLocal();
     return trip;
   }
@@ -85,8 +91,11 @@ const Store = (() => {
     trip = normalizeTrip(t);
     role = r || 'edit';
     manualDirty = false;
+    pendingLocalChange = false;
+    notifiedUpdatedAt = 0;
     resetHistory();
     loadSavedSnap();
+    reminderBaselineSig = arrangementSig(trip);
     persistLocal();
   }
 
@@ -169,6 +178,7 @@ const Store = (() => {
   function markSaved() {
     if (!trip) return;
     savedSnap = { json: snap(), at: Date.now(), sig: arrangementSig(trip) };
+    reminderBaselineSig = savedSnap.sig;
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({ tripId: trip.tripId, json: savedSnap.json, at: savedSnap.at }));
     } catch {}
@@ -176,6 +186,10 @@ const Store = (() => {
   }
   const hasSavedSnap = () => !!savedSnap;
   const savedSnapAt = () => savedSnap ? savedSnap.at : 0;
+
+  // 「記得按儲存」提醒的比對基準：獨立於「還原」快照，新行程一開始就有基準，才能一改就提醒
+  let reminderBaselineSig = '';
+  const needsSaveReminder = () => !!trip && !isReadonly() && arrangementSig(trip) !== reminderBaselineSig;
   // 目前安排與已儲存版本不同，且可編輯時才需要顯示「還原」
   const canRestoreSaved = () => !!savedSnap && !isReadonly() && arrangementSig(trip) !== savedSnap.sig;
   function restoreSaved() {
@@ -217,6 +231,7 @@ const Store = (() => {
     if (!trip) return;
     if (opts && opts.manual) manualDirty = true;
     trip.updatedAt = Date.now();
+    pendingLocalChange = true;
     recordHistory();
     persistLocal();
     scheduleCloudSave();
@@ -238,6 +253,7 @@ const Store = (() => {
       syncState = 'saving'; notifySync();
       const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
       trip.baseUpdatedAt = r.updatedAt;
+      pendingLocalChange = false; notifiedUpdatedAt = 0;
       syncState = 'idle'; notifySync();
     } catch (e) {
       // 只設狀態並往外丟；是否要彈「版本不一致」對話框由呼叫端（明確按儲存時）決定
@@ -255,6 +271,7 @@ const Store = (() => {
       trip.baseUpdatedAt = (latest.trip && latest.trip.baseUpdatedAt) || Date.now();
       const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
       trip.baseUpdatedAt = r.updatedAt;
+      pendingLocalChange = false; notifiedUpdatedAt = 0;
       syncState = 'idle'; notifySync();
     } catch (e) {
       syncState = navigator.onLine ? 'error' : 'offline'; notifySync();
@@ -272,13 +289,45 @@ const Store = (() => {
     document.dispatchEvent(new CustomEvent('trip-changed'));
   }
 
+  // ---------- 線上共同編輯：每 10 秒心跳，回報在線人數＋偵測雲端是否有新版本 ----------
+  let presenceTimer = null;
+  async function presenceTick() {
+    if (!trip || isReadonly()) return;
+    try {
+      const r = await Api.cloudPresencePing(trip.editCode, sessionId);
+      document.dispatchEvent(new CustomEvent('presence-update', { detail: r.editorCount }));
+      if (r.updatedAt && r.updatedAt > trip.baseUpdatedAt && r.updatedAt !== notifiedUpdatedAt) {
+        if (!pendingLocalChange) {
+          // 目前沒有還沒存的變更 → 安靜刷新為最新版本
+          notifiedUpdatedAt = r.updatedAt;
+          await reloadFromCloud();
+          document.dispatchEvent(new CustomEvent('cloud-auto-refreshed'));
+        } else {
+          // 手上還有未存的變更 → 只提醒，不強制蓋掉
+          notifiedUpdatedAt = r.updatedAt;
+          document.dispatchEvent(new CustomEvent('cloud-update-available'));
+        }
+      }
+    } catch (e) { /* 心跳失敗不影響操作，靜默略過 */ }
+  }
+  function startPresencePoll() {
+    stopPresencePoll();
+    presenceTimer = setInterval(presenceTick, 10000);
+    presenceTick(); // 立刻跑一次，不用等第一個 10 秒
+  }
+  function stopPresencePoll() {
+    clearInterval(presenceTimer);
+    presenceTimer = null;
+  }
+
   return {
     get, getRole, isReadonly, days, dateOfDay, hotelOfNight,
     create, load, cloneAsNew, loadLocal, clearLocal,
     prefs, setPref,
     touch, isManualDirty, clearManualDirty,
     undo, redo, canUndo, canRedo,
-    markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved,
-    cloudSaveNow, forceCloudSave, reloadFromCloud
+    markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved, needsSaveReminder,
+    cloudSaveNow, forceCloudSave, reloadFromCloud,
+    startPresencePoll, stopPresencePoll
   };
 })();

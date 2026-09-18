@@ -60,6 +60,28 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
 .sync-dot.saving { background: #ffd97a; animation: blink 1s infinite; }
 .sync-dot.error, .sync-dot.offline, .sync-dot.conflict { background: #ffb3a0; }
 @keyframes blink { 50% { opacity: .3; } }
+.presence-badge {
+  font-size: .78rem; font-weight: 700; color: var(--white);
+  background: rgba(255,255,255,.22); border-radius: 10px; padding: 2px 8px;
+  display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
+}
+
+/* 浮動提醒：記得按儲存（半透明、跟著畫面固定、不擋點擊）— 手機置頂、電腦靠左置中 */
+.save-reminder {
+  position: fixed; z-index: 55;
+  top: calc(var(--header-h) + var(--tabbar-h) + 8px); left: 50%; transform: translateX(-50%);
+  background: rgba(217, 90, 40, .92); color: var(--white);
+  font-weight: 700; font-size: .92rem; letter-spacing: .5px;
+  padding: 8px 18px; border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.2);
+  pointer-events: none; white-space: nowrap;
+}
+@media (min-width: 768px) {
+  .save-reminder {
+    top: 50%; left: 14px; transform: translateY(-50%);
+    border-radius: 12px;
+  }
+}
 
 .readonly-banner {
   position: fixed; top: calc(var(--header-h) + var(--tabbar-h)); left: 0; right: 0; z-index: 49;

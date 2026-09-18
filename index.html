@@ -13,6 +13,7 @@
   <h1 id="appTitle" title="回到行程主畫面">Mika 旅遊路線規劃</h1>
   <div class="header-actions">
     <span id="syncDot" class="sync-dot" title="同步狀態"></span>
+    <span id="presenceBadge" class="presence-badge hidden" title="目前正在編輯這份行程的人數"></span>
     <button id="btnReload" class="icon-btn hidden" title="重新從雲端載入" aria-label="重新從雲端載入">🔄</button>
     <button id="btnHome" class="icon-btn hidden" title="回到開始畫面" aria-label="回到開始畫面">🏠</button>
     <button id="btnClear" class="icon-btn hidden" title="清除本機資料" aria-label="清除本機資料">🧹</button>
@@ -21,6 +22,9 @@
 
 <!-- ===== 唯讀模式標示 ===== -->
 <div id="readonlyBanner" class="readonly-banner hidden">👀 唯讀模式：只能瀏覽 <button id="btnCopyTripRO" class="ro-copy-btn">📋 複製成我的行程</button></div>
+
+<!-- ===== 浮動提醒：記得按儲存（有未存的手動安排時才顯示） ===== -->
+<div id="saveReminder" class="save-reminder hidden">💾 記得按儲存</div>
 
 <!-- ===== 開站精靈 ===== -->
 <main id="wizard" class="wizard">
