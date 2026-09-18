@@ -246,7 +246,7 @@ const App = (() => {
     $('wizard').classList.add('hidden');
     $('app').classList.remove('hidden');
     document.body.classList.add('in-app');
-    ['btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
+    ['btnManualSave', 'btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
     applyRole();
     Itin.render();
     switchPage('page-trip');
@@ -274,6 +274,7 @@ const App = (() => {
       } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
     };
     $('saveReminder').onclick = () => Itin.saveCurrentArrangement();
+    $('btnManualSave').onclick = () => Itin.saveCurrentArrangement();
     const roCopy = $('btnCopyTripRO');
     if (roCopy) roCopy.onclick = () => Feat.copyTrip();
     $('btnHome').onclick = () => { Store.stopPresencePoll(); location.href = location.pathname; };
