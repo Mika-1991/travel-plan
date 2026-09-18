@@ -23,8 +23,11 @@
 <!-- ===== 唯讀模式標示 ===== -->
 <div id="readonlyBanner" class="readonly-banner hidden">👀 唯讀模式：只能瀏覽 <button id="btnCopyTripRO" class="ro-copy-btn">📋 複製成我的行程</button></div>
 
-<!-- ===== 浮動提醒：記得按儲存（有未存的手動安排時才顯示） ===== -->
-<div id="saveReminder" class="save-reminder hidden">💾 記得按儲存</div>
+<!-- ===== 浮動提醒：記得按儲存（有未存的手動安排時才顯示；點下去＝儲存） ===== -->
+<button id="saveReminder" type="button" class="save-reminder hidden">💾 記得按儲存</button>
+
+<!-- ===== 剛進來行程時：有別人在線上編輯就大大提示一下，1.5 秒後淡出 ===== -->
+<div id="presenceSplash" class="presence-splash hidden"></div>
 
 <!-- ===== 開站精靈 ===== -->
 <main id="wizard" class="wizard">
@@ -261,7 +264,6 @@
     <div class="route-actions">
       <button id="btnMoreActions" class="route-action">⋯ 更多</button>
       <button id="btnUndo" class="route-action only-desktop" disabled>↩ 上一步</button>
-      <button id="btnManualSave" class="route-action only-desktop">💾 儲存</button>
       <button id="btnOptimize" class="fab">🧭 自動安排最佳路線</button>
       <button id="btnShareBottom" class="route-action only-desktop">📤 分享</button>
     </div>

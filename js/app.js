@@ -223,9 +223,23 @@ const App = (() => {
     $('fabWrap').classList.toggle('hidden', ro);
   }
 
-  // 有手動安排還沒按「💾 儲存」（跟雲端自動同步是兩件事）→ 顯示浮動提醒
+  // 有手動安排還沒按「💾 儲存」（跟雲端自動同步是兩件事）→ 顯示浮動提醒（同時也是唯一的儲存按鈕）
   function updateSaveReminder() {
     $('saveReminder').classList.toggle('hidden', !Store.needsSaveReminder());
+  }
+
+  // 剛進來行程時，如果真的有別人在線上編輯 → 畫面中間大大提示一下，1.5 秒後淡出
+  let splashTimer = null;
+  function showPresenceSplash(n) {
+    const el = $('presenceSplash');
+    el.textContent = `👥 現在 ${n} 人在線上編輯，請確認資訊同步`;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('show'), 20); // 讓 hidden 先真正移除、觸發一次 reflow，淡入動畫才會生效
+    clearTimeout(splashTimer);
+    splashTimer = setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.classList.add('hidden'), 500); // 等淡出動畫跑完再真的藏起來
+    }, 1500);
   }
 
   function enterMain() {
@@ -259,6 +273,7 @@ const App = (() => {
         UI.toast('已載入最新版本');
       } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
     };
+    $('saveReminder').onclick = () => Itin.saveCurrentArrangement();
     const roCopy = $('btnCopyTripRO');
     if (roCopy) roCopy.onclick = () => Feat.copyTrip();
     $('btnHome').onclick = () => { Store.stopPresencePoll(); location.href = location.pathname; };
@@ -282,12 +297,16 @@ const App = (() => {
     });
     // 線上共同編輯人數（旁邊心跳每 10 秒更新一次）
     document.addEventListener('presence-update', e => {
-      const n = e.detail;
+      const { count: n, initial } = e.detail;
       const badge = $('presenceBadge');
-      if (!n || n <= 1) { badge.classList.add('hidden'); return; }
-      badge.textContent = `👥 ${n}`;
-      badge.title = `目前有 ${n} 人正在編輯這份行程`;
-      badge.classList.remove('hidden');
+      if (!n || n <= 1) badge.classList.add('hidden');
+      else {
+        badge.textContent = `👥 ${n}`;
+        badge.title = `目前有 ${n} 人正在編輯這份行程`;
+        badge.classList.remove('hidden');
+      }
+      // 剛進來這份行程、且真的有別人在線 → 大大提示一下，1.5 秒後淡出
+      if (initial && n > 1) showPresenceSplash(n);
     });
     // 偵測到雲端新版本：手上沒有未存的變更 → 已安靜刷新完成，提示一下（不強制切回行程分頁，避免打斷瀏覽）
     document.addEventListener('cloud-auto-refreshed', () => {
@@ -313,32 +332,6 @@ const App = (() => {
           }
         }]);
     });
-    document.addEventListener('trip-conflict', () => {
-      UI.modal('行程版本不一致',
-        '雲端上有一份比較新的版本（可能你在另一台裝置、或另一個分頁改過同一份行程）。\n\n請選一種處理方式，兩種都不會偷偷蓋掉你的資料：',
-        [
-          { label: '用我這份覆蓋雲端', primary: true, onClick: async () => {
-            UI.closeModal();
-            try {
-              UI.loading(true, '正在存到雲端…');
-              await Store.forceCloudSave();
-              UI.loading(false);
-              UI.toast('☁️ 已用你這份更新雲端');
-            } catch (e) { UI.loading(false); UI.alert('儲存失敗', e.message || String(e)); }
-          } },
-          { label: '改用雲端版本（放棄我的變更）', danger: true, onClick: async () => {
-            UI.closeModal();
-            try {
-              UI.loading(true, '載入雲端版本…');
-              await Store.reloadFromCloud();
-              UI.loading(false);
-              enterMain();
-              UI.toast('已切換為雲端最新版本');
-            } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
-          } }
-        ]);
-    });
-
     // 行程資料變動 → 重畫目前頁面相關區塊
     document.addEventListener('trip-changed', () => {
       if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();

@@ -66,22 +66,27 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
   display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
 }
 
-/* 浮動提醒：記得按儲存（半透明、跟著畫面固定、不擋點擊）— 手機置頂、電腦靠左置中 */
+/* 浮動提醒兼儲存鍵：記得按儲存（半透明、跟著畫面固定、畫面正中間，點下去＝儲存） */
 .save-reminder {
-  position: fixed; z-index: 55;
-  top: calc(var(--header-h) + var(--tabbar-h) + 8px); left: 50%; transform: translateX(-50%);
-  background: rgba(217, 90, 40, .92); color: var(--white);
-  font-weight: 700; font-size: .92rem; letter-spacing: .5px;
-  padding: 8px 18px; border-radius: 999px;
-  box-shadow: 0 4px 14px rgba(0,0,0,.2);
-  pointer-events: none; white-space: nowrap;
+  position: fixed; z-index: 55; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  appearance: none; background: rgba(217, 90, 40, .92); color: var(--white); border: none;
+  font-family: inherit; font-weight: 700; font-size: 1.02rem; letter-spacing: .5px;
+  padding: 14px 26px; border-radius: 999px; cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0,0,0,.25);
+  white-space: nowrap; transition: transform .15s ease, box-shadow .15s ease;
 }
-@media (min-width: 768px) {
-  .save-reminder {
-    top: 50%; left: 14px; transform: translateY(-50%);
-    border-radius: 12px;
-  }
+.save-reminder:active { transform: translate(-50%, -50%) scale(.96); box-shadow: 0 3px 10px rgba(0,0,0,.25); }
+
+/* 剛進來行程：有別人在線上編輯的大提示，1.5 秒後淡出 */
+.presence-splash {
+  position: fixed; z-index: 80; top: 30%; left: 50%; transform: translate(-50%, -50%);
+  background: rgba(74, 59, 46, .92); color: var(--white);
+  font-weight: 700; font-size: 1rem; text-align: center; line-height: 1.5;
+  padding: 16px 24px; border-radius: 16px; max-width: 86vw;
+  box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  pointer-events: none; opacity: 0; transition: opacity .5s ease;
 }
+.presence-splash.show { opacity: 1; }
 
 .readonly-banner {
   position: fixed; top: calc(var(--header-h) + var(--tabbar-h)); left: 0; right: 0; z-index: 49;

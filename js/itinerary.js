@@ -471,8 +471,6 @@ const Itin = (() => {
     if (moreBtn) moreBtn.onclick = openMoreActions;
     const undoBtn = $('btnUndo');
     if (undoBtn) { undoBtn.disabled = !Store.canUndo(); undoBtn.onclick = doUndo; }
-    const saveBtn = $('btnManualSave');
-    if (saveBtn) saveBtn.onclick = saveCurrentArrangement;
     const shareBtn = $('btnShareBottom');
     if (shareBtn) shareBtn.onclick = () => Feat.showShare();
   }
@@ -515,8 +513,18 @@ const Itin = (() => {
     }).catch(e => {
       console.warn('雲端儲存失敗', e);
       if (e && e.conflict) {
-        // 版本不一致 → 彈三選一對話框（覆蓋雲端／改用雲端／稍後），兩種都不會偷偷蓋資料
-        document.dispatchEvent(new CustomEvent('trip-conflict'));
+        // 版本不一致：預設就是「用我這份覆蓋」；只有偵測到還有別人在線上編輯，才多問一句再覆蓋
+        const others = Store.getLastEditorCount() - 1;
+        const doForceSave = () => Store.forceCloudSave()
+          .then(() => UI.toast('☁️ 已儲存到雲端'))
+          .catch(e2 => UI.alert('儲存失敗', e2.message || String(e2)));
+        if (others > 0) {
+          UI.confirm('有人同時在編輯',
+            `目前還有 ${others} 人也在編輯這份行程，儲存會用你這份覆蓋雲端上的版本。\n\n確定要儲存嗎？`,
+            doForceSave);
+        } else {
+          doForceSave();
+        }
       } else {
         UI.alert('雲端尚未儲存', '你的變更目前只存在這台裝置，還沒上傳到雲端。\n\n可能是網路不穩，請確認連線後，再按一次「儲存」。');
       }
@@ -1635,6 +1643,7 @@ const Itin = (() => {
 
   return {
     init, render, renderFullMap, addSpot, openAddSpot,
-    spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf, stayMealsOf
+    spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf, stayMealsOf,
+    saveCurrentArrangement
   };
 })();

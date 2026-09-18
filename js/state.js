@@ -291,11 +291,14 @@ const Store = (() => {
 
   // ---------- 線上共同編輯：每 10 秒心跳，回報在線人數＋偵測雲端是否有新版本 ----------
   let presenceTimer = null;
-  async function presenceTick() {
+  let lastEditorCount = 1; // 最近一次心跳回報的人數（含自己）；存檔衝突時用來判斷要不要多問一句
+  const getLastEditorCount = () => lastEditorCount;
+  async function presenceTick(isInitial) {
     if (!trip || isReadonly()) return;
     try {
       const r = await Api.cloudPresencePing(trip.editCode, sessionId);
-      document.dispatchEvent(new CustomEvent('presence-update', { detail: r.editorCount }));
+      lastEditorCount = r.editorCount;
+      document.dispatchEvent(new CustomEvent('presence-update', { detail: { count: r.editorCount, initial: !!isInitial } }));
       if (r.updatedAt && r.updatedAt > trip.baseUpdatedAt && r.updatedAt !== notifiedUpdatedAt) {
         if (!pendingLocalChange) {
           // 目前沒有還沒存的變更 → 安靜刷新為最新版本
@@ -312,8 +315,9 @@ const Store = (() => {
   }
   function startPresencePoll() {
     stopPresencePoll();
-    presenceTimer = setInterval(presenceTick, 10000);
-    presenceTick(); // 立刻跑一次，不用等第一個 10 秒
+    lastEditorCount = 1;
+    presenceTimer = setInterval(() => presenceTick(false), 10000);
+    presenceTick(true); // 立刻跑一次（標記為「剛進來」，用來決定要不要跳大提示）
   }
   function stopPresencePoll() {
     clearInterval(presenceTimer);
@@ -328,6 +332,6 @@ const Store = (() => {
     undo, redo, canUndo, canRedo,
     markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved, needsSaveReminder,
     cloudSaveNow, forceCloudSave, reloadFromCloud,
-    startPresencePoll, stopPresencePoll
+    startPresencePoll, stopPresencePoll, getLastEditorCount
   };
 })();
