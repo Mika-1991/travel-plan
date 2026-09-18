@@ -1080,6 +1080,42 @@ ${sheetXml('攜帶清單', packing)}
     }).join('') + '</row>').join('');
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${colsXml}<sheetData>${body}</sheetData></worksheet>`;
   }
+  // ================= 加入日曆（.ics，整趟行程一個全天事件） =================
+  // iCalendar TEXT 欄位跳脫（RFC 5545；跟 HTML escape / Excel XML escape 是不同規則）
+  const icsEsc = v => String(v ?? '')
+    .replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+  const icsDateStamp = iso => iso.replace(/-/g, ''); // 'YYYY-MM-DD' -> 'YYYYMMDD'
+  function icsDayAfter(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function icsBlob() {
+    const t = trip();
+    const days = Store.days();
+    const url = shareLink(t.viewCode); // 唯讀連結：加入自己日曆用，讀取即可
+    const desc = `${t.name}\n${t.startDate} ~ ${t.endDate}（共 ${days} 天）\n\n查看完整行程：${url}`;
+    const now = new Date();
+    const dtstamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}${String(now.getUTCDate()).padStart(2, '0')}T${String(now.getUTCHours()).padStart(2, '0')}${String(now.getUTCMinutes()).padStart(2, '0')}${String(now.getUTCSeconds()).padStart(2, '0')}Z`;
+    const lines = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Mika Travel Plan//ICS Export//ZH-TW', 'CALSCALE:GREGORIAN',
+      'BEGIN:VEVENT',
+      `UID:${t.tripId}@mika-travel-plan`,
+      `DTSTAMP:${dtstamp}`,
+      `DTSTART;VALUE=DATE:${icsDateStamp(t.startDate)}`,
+      `DTEND;VALUE=DATE:${icsDayAfter(t.endDate)}`, // RFC5545 全天事件結束日「不含」，故 +1 天
+      `SUMMARY:${icsEsc(t.name)}`,
+      `DESCRIPTION:${icsEsc(desc)}`,
+      `URL:${url}`,
+      'END:VEVENT', 'END:VCALENDAR'
+    ];
+    return new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+  }
+  function icsFilename() {
+    const name = (trip().name || '旅遊行程').replace(/[\\/:*?"<>|]/g, '_');
+    return `${name}.ics`;
+  }
+
   function xlsxBlob() {
     const sheets = excelSheets();
     const sheetOverrides = sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('');
@@ -1177,6 +1213,7 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     $('btnExportExcel').onclick = () => downloadBlob(`${trip().name || '旅遊行程'}-資料匯出.xlsx`, xlsxBlob());
     $('btnPreviewPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程 PDF', false);
     $('btnPackingPreview').onclick = () => openPreview(packingHtml(), '攜帶物品清單', false);
+    $('btnExportCalendar').onclick = () => downloadBlob(icsFilename(), icsBlob());
     renderPackingList();
   }
 
@@ -1284,7 +1321,7 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     }).join('');
   }
 
-  function fullItineraryEmailHtml(t, viewUrl) {
+  function fullItineraryEmailHtml(t, viewUrl, siteUrl) {
     const dTxt = t.startDate.slice(5).replace('-', '/') + '–' + t.endDate.slice(5).replace('-', '/');
     return '<div style="font-family:sans-serif;color:#4A3B2E;max-width:640px">' +
       `<h2 style="color:#A9805B;margin:0 0 4px">🧋 ${UI.esc(t.name)}</h2>` +
@@ -1292,9 +1329,13 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
       `<p><a href="${viewUrl}" style="display:inline-block;background:#A9805B;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:700">👀 打開完整行程（可看地圖、天氣）</a></p>` +
       `<hr style="border:none;border-top:1px solid #E8DDCD;margin:14px 0">` +
       `<h3 style="color:#4A3B2E">📅 每日行程</h3>` + itineraryRowsHtml(t) +
+      `<p style="margin:14px 0 4px">🏠 網站入口：<a href="${siteUrl}" style="color:#A9805B">${siteUrl}</a></p>` +
       `<p style="color:#8C7B6B;font-size:13px;margin-top:16px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
       '</div>';
   }
+
+  // 網站首頁網址（去掉 ?code= 部分）；信件底部的備援連結共用這個算法
+  function siteHomeUrl() { return shareLink('').replace(/\?code=$/, ''); }
 
   // 主要：寄送完整行程（唯讀連結＋每日行程）；支援多位收件人
   function itineraryEmailBlock(t) {
@@ -1313,7 +1354,7 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
       if (bad.length) { UI.toast(`這些 Email 格式怪怪的：${bad.join('、')}`); return; }
       try {
         UI.loading(true, `寄送中…（${list.length} 位）`);
-        const html = fullItineraryEmailHtml(t, shareLink(t.viewCode));
+        const html = fullItineraryEmailHtml(t, shareLink(t.viewCode), siteHomeUrl());
         const r = await Api.cloudSendItinerary(list.join(','), `【Mika 旅遊路線規劃】${t.name} 完整行程`, html, t.editCode);
         UI.loading(false);
         UI.toast(r.simulated ? '（模擬模式）正式版上線後會真的寄出唷' : `已寄出完整行程給 ${list.length} 位！`);
@@ -1365,8 +1406,7 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
           await Store.cloudSaveNow();       // 建立到雲端（sendItinerary 會用編輯代碼找這份行程）
           const editUrl = shareLink(copy.editCode);
           const viewUrl = shareLink(copy.viewCode);
-          const siteUrl = shareLink('').replace(/\?code=$/, ''); // 網站入口（去掉 ?code=）
-          const html = copyEmailHtml(copy, editUrl, viewUrl, siteUrl);
+          const html = copyEmailHtml(copy, editUrl, viewUrl, siteHomeUrl());
           try {
             await Api.cloudSendItinerary(email, `【Mika 旅遊路線規劃】${copy.name}`, html, copy.editCode);
           } catch (e) { console.warn('複本寄送失敗', e); }
