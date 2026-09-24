@@ -78,24 +78,27 @@ const Logic = (() => {
 
   // ---------- 分天 ----------
   // orderedSpots: 已最佳化的景點陣列（含 stayMin）
-  // ctx: { days, dayStartMin, dayEndMin, travelMin(a,b), hotelOfDay(d) → {lat,lng}|null }
+  // ctx: { days, dayStartMin, dayEndMin, travelMin(a,b), hotelOfDay(d) → {lat,lng}|null,
+  //        dayStartMinOf(d)?, dayEndMinOf(d)?（d 為 0-based；有給就用每天各自的時間，例如有航班的天）}
   // 回傳 [[spot,...], ...]（長度 = days；超出天數上限的塞最後一天）
   function splitIntoDays(orderedSpots, ctx) {
+    const startOf = d => ctx.dayStartMinOf ? ctx.dayStartMinOf(d) : ctx.dayStartMin;
+    const endOf = d => ctx.dayEndMinOf ? ctx.dayEndMinOf(d) : ctx.dayEndMin;
     const daysArr = Array.from({ length: ctx.days }, () => []);
     let d = 0;
-    let clock = ctx.dayStartMin;
+    let clock = startOf(0);
     let prev = ctx.hotelOfDay(0);
     for (const spot of orderedSpots) {
       const leg = prev ? ctx.travelMin(prev, spot) : 0;
       const arrive = clock + leg;
       const leave = arrive + (spot.stayMin || 60);
-      if (leave > ctx.dayEndMin && daysArr[d].length > 0 && d < ctx.days - 1) {
+      if (leave > endOf(d) && daysArr[d].length > 0 && d < ctx.days - 1) {
         d++;
-        clock = ctx.dayStartMin;
+        clock = startOf(d);
         prev = ctx.hotelOfDay(d);
         const leg2 = prev ? ctx.travelMin(prev, spot) : 0;
         daysArr[d].push(spot);
-        clock = ctx.dayStartMin + leg2 + (spot.stayMin || 60);
+        clock = startOf(d) + leg2 + (spot.stayMin || 60);
       } else {
         daysArr[d].push(spot);
         clock = leave;
@@ -125,7 +128,9 @@ const Logic = (() => {
   // 依每天的起訖錨點（集合地／飯店／解散地）把景點分配到最合適的一天。
   // 每晚飯店會把該天釘在某個城市，因此比「只按時間切天」更符合實際路線。
   // dayAnchors: 長度=days，dayAnchors[d-1] = { start, end }（可為 null）
-  // ctx: { days, dayStartMin, dayEndMin, travelMin(a,b), stayMin(s) }
+  // ctx: { days, dayStartMin, dayEndMin, travelMin(a,b), stayMin(s), dayBudget(d)? }
+  //      dayBudget(d)（d 為 0-based）＝那天實際可用的分鐘數；沒給就每天都用 dayEndMin－dayStartMin
+  //      （v2.1.27：個別調過時間、或有航班的天，可用時間不一樣）
   // 回傳 [[spot,...],...]（長度=days）；若完全沒有錨點則回 null（交給 splitIntoDays）
   function assignDaysByAnchors(spots, dayAnchors, ctx) {
     const days = ctx.days;
@@ -149,24 +154,38 @@ const Logic = (() => {
       if (a.end && prev) t += ctx.travelMin(prev, a.end);
       return t;
     };
+    // 景點到某天路段的距離成本。沒有錨點（沒住宿、沒航班）的天：改用前後最近一天的錨點估算
+    // （每隔一天多加 5km，讓有錨點的天優先）。v2.1.27 前這種天成本是無限大，永遠分不到景點。
+    const anchorCost = (s, d) => {
+      const a = dayAnchors[d] || {};
+      if (a.start || a.end) return distToSeg(s, a.start, a.end);
+      for (let k = 1; k < days; k++) {
+        let best = Infinity;
+        [d - k, d + k].forEach(dd => {
+          const b = dayAnchors[dd];
+          if (b && (b.start || b.end)) best = Math.min(best, distToSeg(s, b.start, b.end) + k * 5);
+        });
+        if (best < Infinity) return best;
+      }
+      return 1e6 + d;
+    };
     // 1) 每個景點分配到成本最低（離該天路段最近）的一天
     for (const s of spots) {
       let best = 0, bestC = Infinity;
       for (let d = 0; d < days; d++) {
-        const a = dayAnchors[d] || {};
-        const c = (a.start || a.end) ? distToSeg(s, a.start, a.end) : 1e6 + d;
+        const c = anchorCost(s, d);
         if (c < bestC) { bestC = c; best = d; }
       }
       daysArr[best].push(s);
     }
     for (let d = 0; d < days; d++) orderDay(d);
     // 2) 容量調整：把爆量天的景點勻到有空、且離其路段近的天（優先填空天）
-    const budget = ctx.dayEndMin - ctx.dayStartMin;
+    const budgetOf = d => Math.max(0, ctx.dayBudget ? ctx.dayBudget(d) : ctx.dayEndMin - ctx.dayStartMin);
     let guard = 0;
     while (guard++ < spots.length * 3) {
       let over = -1, overBy = 0;
       for (let d = 0; d < days; d++) {
-        const ex = dayTime(d) - budget;
+        const ex = dayTime(d) - budgetOf(d);
         if (daysArr[d].length > 1 && ex > overBy) { overBy = ex; over = d; }
       }
       if (over < 0) break;
@@ -174,10 +193,10 @@ const Logic = (() => {
       for (const s of daysArr[over]) {
         for (let d = 0; d < days; d++) {
           if (d === over) continue;
-          const a = dayAnchors[d] || {};
-          const cost = (a.start || a.end) ? distToSeg(s, a.start, a.end) : 1e6 + d;
-          const spare = budget - dayTime(d);
-          const score = cost - (spare > ctx.stayMin(s) ? 1000 : 0);
+          const cost = anchorCost(s, d);
+          const spare = budgetOf(d) - dayTime(d);
+          // 放得下的天優先（放不下的天大幅加分＝盡量不選），其次選離路段近的
+          const score = cost + (spare >= ctx.stayMin(s) ? 0 : 1e5);
           if (!mv || score < mv.score) mv = { s, d, score };
         }
       }

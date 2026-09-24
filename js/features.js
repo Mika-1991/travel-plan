@@ -368,10 +368,12 @@ const Feat = (() => {
         const maxNight = Math.max(newDays - 1, 1);
         const movedSpots = t.spots.filter(sp => sp.day > newDays);
         const removedHotels = t.hotels.filter(h => h.night >= maxNight);
+        const removedFlights = Flights.beyond(newDays);
         const apply = () => {
           t.startDate = s; t.endDate = e;
           movedSpots.forEach(sp => { sp.day = newDays; });
           t.hotels = t.hotels.filter(h => h.night < maxNight);
+          t.flights = (t.flights || []).filter(f => Number(f.day) <= newDays);
           // 清掉超出天數的每日設定
           [t.dayStartOv, t.dayEndOv, t.dayTransportOv, t.rainPlans, t.rainActive, t.rainBackup].forEach(obj => {
             if (obj) Object.keys(obj).forEach(k => { if (Number(k) > newDays) delete obj[k]; });
@@ -382,10 +384,11 @@ const Feat = (() => {
           Itin.render();
           UI.toast(`已改為 ${newDays} 天，時間重新計算`);
         };
-        if (movedSpots.length || removedHotels.length) {
+        if (movedSpots.length || removedHotels.length || removedFlights.length) {
           UI.confirm('天數變少了，要繼續嗎？',
             (movedSpots.length ? `這些景點會移到第 ${newDays} 天：\n${movedSpots.map(x => '・' + x.name).join('\n')}\n\n` : '') +
             (removedHotels.length ? `這些住宿會被移除：\n${removedHotels.map(x => `・第 ${x.night + 1} 晚 ${x.name}`).join('\n')}\n\n` : '') +
+            (removedFlights.length ? `這些航班會被移除：\n${removedFlights.map(f => `・第 ${f.day} 天 ${f.flightNo || f.depAirport.name}`).join('\n')}\n\n` : '') +
             '（可用「上一步」復原）', apply);
         } else apply();
       }
@@ -883,7 +886,16 @@ const Feat = (() => {
     const legs = Itin.legsForDay(d);
     const mode = dayTransportText(d);
     const legName = min => `${mode}｜車程約 ${Logic.fmtDur(min)}`;
-    if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '', photo: t.meetPoint.photo || '' });
+    // v2.1.27 航班：抵達航班 → 先列「搭機前」（出發地、到機場、航班），再從抵達機場開始
+    const arrF = Flights.of(d, 'arrive'), depF = Flights.of(d, 'depart');
+    const flightRow = f => ({ type: '航班', name: `${[f.airline, f.flightNo].filter(Boolean).join(' ') || '航班'}｜${f.depTime} ${f.depAirport.name} 起飛 → ${f.arrTime} ${f.arrAirport.name} 抵達${Flights.tz(f)}`, address: '', note: `提早 ${Logic.fmtDur(f.checkinMin)} 報到｜出關約 ${Logic.fmtDur(f.clearMin)}${f.note ? '｜' + f.note : ''}` });
+    const groundRow = (f, from, to, label) => ({ type: '路程', name: `${label}約 ${Logic.fmtDur(Flights.groundMin(f, from, to, Itin.dayTransportOf(d)))}`, address: '', note: '' });
+    if (Flights.isComplete(arrF)) {
+      const o = Itin.baseStartPoint(d);
+      if (o) { rows.push({ type: o.kind === 'meet' ? '集合地' : '住宿出發', name: o.p.name, address: o.p.address || '', note: '搭機前出發', photo: o.p.photo || '' }); rows.push(groundRow(arrF, o.p, arrF.depAirport, '到機場')); }
+      rows.push(flightRow(arrF));
+      rows.push({ type: '機場', name: arrF.arrAirport.name, address: arrF.arrAirport.address || '', note: `${Itin.dayStartOf(d)} 出關後出發` });
+    } else if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '', photo: t.meetPoint.photo || '' });
     else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: stayMealNote(d, 'start'), photo: sp.photo || '' });
     const shouldShowEmptyLeg = !list.length && sp && ep && sp !== ep && legs[0] > 0 &&
       ((d === 1 && t.meetPoint) || (d === Store.days() && t.endPoint));
@@ -894,11 +906,19 @@ const Feat = (() => {
       const rowType = mealLbl || (s.source === 'restaurant' || s.source === 'custom-food' ? '美食' : '景點');
       rows.push({ type: rowType, name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
     });
+    const epType = ep && Flights.isComplete(depF) ? '機場' : (ep === t.endPoint ? '解散地' : '住宿');
+    const epNote = ep && Flights.isComplete(depF) ? `${Itin.dayEndOf(d)} 前報到` : [ep && ep.note, stayMealNote(d, 'end')].filter(Boolean).join('｜');
     if (list.length && ep) {
       if (legs[list.length] > 0) rows.push({ type: '路程', name: legName(legs[list.length]), address: '', note: '' });
-      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: [ep.note, stayMealNote(d, 'end')].filter(Boolean).join('｜'), photo: ep.photo || '' });
+      rows.push({ type: epType, name: ep.name, address: ep.address || '', note: epNote, photo: ep.photo || '' });
     } else if (!list.length && ep && ep !== sp) {
-      rows.push({ type: ep === t.endPoint ? '解散地' : '住宿', name: ep.name, address: ep.address || '', note: [ep.note, stayMealNote(d, 'end')].filter(Boolean).join('｜'), photo: ep.photo || '' });
+      rows.push({ type: epType, name: ep.name, address: ep.address || '', note: epNote, photo: ep.photo || '' });
+    }
+    // 起飛航班 → 列出航班，以及下機後到解散地／當晚飯店
+    if (Flights.isComplete(depF)) {
+      rows.push(flightRow(depF));
+      const dest = Itin.baseEndPoint(d);
+      if (dest) { rows.push(groundRow(depF, depF.arrAirport, dest.p, '到目的地')); rows.push({ type: dest.kind === 'end' ? '解散地' : '住宿', name: dest.p.name, address: dest.p.address || '', note: stayMealNote(d, 'end'), photo: dest.p.photo || '' }); }
     }
     return rows;
   }

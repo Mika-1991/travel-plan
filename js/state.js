@@ -83,6 +83,7 @@ const Store = (() => {
       s.stayMin = Number(s.stayMin) || CONFIG.defaults.stayMin;
     });
     t.legsByDay = t.legsByDay || {};
+    t.flights = Array.isArray(t.flights) ? t.flights : []; // v2.1.27 航班
     t.dayTransportOv = t.dayTransportOv || {};
     t.rainPlans = t.rainPlans || {};
     t.rainActive = t.rainActive || {};

@@ -83,6 +83,21 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
 .line-banner #btnOpenExternal { background: var(--white); color: #9E1B1B; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: .9rem; white-space: nowrap; }
 .line-banner #btnLineBannerX { font-size: 1.3rem; padding: 0 4px; color: var(--white); }
 .change-log { max-height: 60vh; overflow-y: auto; }
+/* 航班卡（v2.1.27） */
+.flight-card {
+  margin: 6px 14px; padding: 10px 12px; border-radius: 12px;
+  background: #EEF3FA; border: 1.5px solid #9DB4D6; color: var(--text); line-height: 1.6;
+}
+.flight-head { font-weight: 700; color: #3E5F8A; display: flex; align-items: center; gap: 6px; }
+.flight-tag { font-size: .78rem; font-weight: 700; color: #fff; background: #5B7FA9; border-radius: 8px; padding: 1px 7px; }
+.flight-edit { margin-left: auto; color: #3E5F8A; font-size: 1.05rem; padding: 2px 6px; }
+.flight-line { font-size: .98rem; }
+.flight-sub { font-size: .9rem; color: var(--text-2); }
+.flight-form .ap-box { border: 1px dashed #ddcdbc; border-radius: 10px; padding: 8px 10px; margin: 8px 0; }
+.flight-form .ap-chosen { margin-bottom: 6px; }
+.flight-form .ap-item { text-align: left; }
+.flight-form .check-line { display: flex; align-items: center; font-weight: 700; margin: 8px 0; }
+.leg-row .ground-edit { margin-left: 6px; color: var(--main); padding: 0 4px; }
 .change-log .cl-row { padding: 8px 0; border-bottom: 1px dashed #e6d8c8; line-height: 1.5; }
 .change-log .cl-meta { color: var(--text-2); font-size: .85rem; }
 .presence-badge {

@@ -73,6 +73,20 @@ const ChangeLog = (() => {
     A.forEach((e, id) => { if (!B.has(id)) out.push(`💰 刪除記帳「${e.item}」$${e.amount}`); });
   }
 
+  // v2.1.27 航班（groundAuto＝自動算的地面交通，不算使用者修改）
+  function diffFlights(a, b, out) {
+    const clean = f => { const c = Object.assign({}, f); delete c.groundAuto; return c; };
+    const label = f => `第 ${f.day} 天${f.type === 'arrive' ? '抵達' : '起飛'}航班${f.flightNo ? ' ' + f.flightNo : ''}`;
+    const A = new Map((a.flights || []).map(f => [f.id, f]));
+    const B = new Map((b.flights || []).map(f => [f.id, f]));
+    B.forEach((f, id) => {
+      const o = A.get(id);
+      if (!o) out.push(`✈️ 新增${label(f)}（${f.depTime} ${(f.depAirport || {}).name || ''} → ${f.arrTime} ${(f.arrAirport || {}).name || ''}）`);
+      else if (!same(clean(o), clean(f))) out.push(`✈️ 修改${label(f)}`);
+    });
+    A.forEach((f, id) => { if (!B.has(id)) out.push(`✈️ 刪除${label(f)}`); });
+  }
+
   function diffBasics(a, b, out) {
     if (a.name !== b.name) out.push(`行程名稱改為「${b.name}」`);
     if (a.startDate !== b.startDate || a.endDate !== b.endDate) out.push(`日期改為 ${b.startDate} ~ ${b.endDate}`);
@@ -98,6 +112,10 @@ const ChangeLog = (() => {
     diffSpots(base, b, out);
     diffHotels(base, b, out);
     diffExpenses(base, b, out);
+    diffFlights(base, b, out);
+    // 只有「自動算的地面交通」變了 → 不算修改
+    const noAuto = t => { const c = JSON.parse(JSON.stringify(t)); (c.flights || []).forEach(f => delete f.groundAuto); return c; };
+    if (!out.length && same(noAuto(base), noAuto(b))) return [];
     if (!out.length) out.push('更新了行程設定');
     if (out.length > MAX_LINES_PER_SAVE) {
       const rest = out.length - (MAX_LINES_PER_SAVE - 1);

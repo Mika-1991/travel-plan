@@ -12,17 +12,29 @@ const Itin = (() => {
   // ---------- 每天的起點與終點 ----------
   // 起點：第 1 天優先用「集合出發地」；否則前一晚飯店（第 1 天用當晚）
   // 終點：最後一天優先用「解散地」；否則當晚飯店（最後一晚沒有就不設）
-  function startPoint(day) {
+  // v2.1.27 航班：這天有「抵達航班」→ 起點改成抵達機場；有「起飛航班」→ 終點改成出發機場。
+  // 原本的集合地／飯店／解散地（base）變成「搭機前從哪裡出發」與「下機後要去哪裡」。
+  function baseStartPoint(day) {
     const t = trip();
     if (day === 1 && t.meetPoint) return { p: t.meetPoint, kind: 'meet' };
     const h = Store.hotelOfNight(day - 2) || Store.hotelOfNight(day - 1) || null;
     return h ? { p: h, kind: 'hotel' } : null;
   }
-  function endPoint(day) {
+  function baseEndPoint(day) {
     const t = trip();
     if (day === Store.days() && t.endPoint) return { p: t.endPoint, kind: 'end' };
     const h = Store.hotelOfNight(day - 1);
     return h ? { p: h, kind: 'hotel' } : null;
+  }
+  function startPoint(day) {
+    const f = Flights.of(day, 'arrive');
+    if (Flights.isComplete(f)) return { p: f.arrAirport, kind: 'airport', flight: f };
+    return baseStartPoint(day);
+  }
+  function endPoint(day) {
+    const f = Flights.of(day, 'depart');
+    if (Flights.isComplete(f)) return { p: f.depAirport, kind: 'airport', flight: f };
+    return baseEndPoint(day);
   }
   // 供其他模組沿用（例如天氣以起點為備援中心）
   const startHotel = day => (startPoint(day) || {}).p || null;
@@ -45,6 +57,7 @@ const Itin = (() => {
   }
 
   function pointEmptyDayText(point) {
+    if (point.kind === 'airport') return '機場';
     if (point.kind === 'hotel') return `${hotelNightLabel(point.p.night)}住宿`;
     return point.kind === 'meet' ? '集合地' : '解散地';
   }
@@ -77,13 +90,18 @@ const Itin = (() => {
   // 每一天實際的出發時間（可個別覆寫，預設用全域設定）
   function dayStartOf(day) {
     const t = trip();
+    const fm = Flights.dayStartMin(day); // 有抵達航班：抵達＋出關
+    if (fm !== null) return Logic.toHHMM(fm);
     return (t.dayStartOv || {})[day] || t.dayStart;
   }
   // 每一天的結束時間（可個別覆寫，預設用全域 dayEnd）
   function dayEndOf(day) {
     const t = trip();
+    const fm = Flights.dayEndMin(day); // 有起飛航班：起飛－提早報到（最晚到機場的時間）
+    if (fm !== null) return Logic.toHHMM(Math.max(0, fm));
     return (t.dayEndOv || {})[day] || t.dayEnd;
   }
+  const hasFlightDay = day => Flights.isComplete(Flights.of(day, 'arrive')) || Flights.isComplete(Flights.of(day, 'depart'));
   // 每一天的交通方式（可個別覆寫，預設用全域 transport）
   const TRANSPORT_META = { driving: ['🚗', '開車'], transit: ['🚇', '大眾運輸'], walking: ['🚶', '走路'] };
   function dayTransportOf(day) {
@@ -346,10 +364,14 @@ const Itin = (() => {
           { onProgress: (done, total) => UI.progress(12 * done / total, `步驟 1：把景點分配到各天（${done}/${total}）…`) });
         if (g.unreachable) unreachable = true;
         const ordered = g.order.map(i => routable[i]);
+        // v2.1.27：每天依「實際可用時間」分配（個別調過時間、或有航班的天，可用時間比較少）
+        const startMinOf = d0 => Logic.toMin(dayStartOf(d0 + 1));
+        const endMinOf = d0 => Logic.toMin(dayEndOf(d0 + 1));
         dayArrs = Logic.assignDaysByAnchors(ordered, dayAnchors, {
           days,
           dayStartMin: Logic.toMin(t.dayStart),
           dayEndMin: Logic.toMin(t.dayEnd),
+          dayBudget: d0 => endMinOf(d0) - startMinOf(d0),
           travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
           stayMin: s => s.stayMin || 60
         });
@@ -357,6 +379,8 @@ const Itin = (() => {
           days,
           dayStartMin: Logic.toMin(t.dayStart),
           dayEndMin: Logic.toMin(t.dayEnd),
+          dayStartMinOf: startMinOf,
+          dayEndMinOf: endMinOf,
           travelMin: (a, b) => Logic.travelMinutes(a, b, t.transport),
           hotelOfDay: d => hc(startHotel(d + 1))
         });
@@ -778,6 +802,8 @@ const Itin = (() => {
     // 用未折疊的原始結束分鐘（endTime 會 %24 折回，跨午夜時會誤判）
     const rawEndMin = Logic.toMin(dayStartOf(d)) + tl.totalTravel + tl.totalStay;
     const overTime = list.length > 0 && rawEndMin > Logic.toMin(dayEndOf(d));
+    const departF = Flights.of(d, 'depart'), arriveF = Flights.of(d, 'arrive');
+    const overTxt = Flights.isComplete(departF) ? '⚠️ 可能趕不上報到' : '⚠️ 可能排不完';
     const noCoord = missingCoordNames(list, [sp && sp.p, ep && ep.p]);
     const estimateHint = noCoord.length
       ? `<div class="rain-alert" style="border-color:var(--danger);background:#FFF4EF">⚠️ ${noCoord.length} 個地點沒有座標，路程會略過或不精準：${noCoord.map(UI.esc).join('、')}</div>`
@@ -799,16 +825,17 @@ const Itin = (() => {
       <div class="day-outfit" data-day-outfit="${d}"></div>
       ${estimateHint}
       <div data-rain-slot="${d}"></div>
-      ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ' <span style="color:var(--danger);font-weight:700">⚠️ 可能排不完</span>' : ''}</p>` : ''}
+      ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ` <span style="color:var(--danger);font-weight:700">${overTxt}</span>` : ''}</p>` : ''}
       ${list.length ? mealSummaryHtml(list, d) : ''}
       <div class="day-tools">
-        <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)}–${dayEndOf(d)}${((t.dayStartOv || {})[d] || (t.dayEndOv || {})[d]) ? '＊' : ''}</button>
+        <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)}–${dayEndOf(d)}${hasFlightDay(d) ? ' ✈️' : (((t.dayStartOv || {})[d] || (t.dayEndOv || {})[d]) ? '＊' : '')}</button>
         <button data-daytrans="${d}" class="edit-only">${TRANSPORT_META[dayTransportOf(d)][0]} ${TRANSPORT_META[dayTransportOf(d)][1]}${(t.dayTransportOv || {})[d] ? '＊' : ''} ▾</button>
         <button data-addspot="${d}" class="edit-only">➕ 加景點</button>
         <button data-food="${d}" class="edit-only">🍜 附近美食</button>
         ${list.length ? `<a href="${dayNavLink(d, list)}" target="_blank" rel="noopener">🧭 全日導航</a>` : ''}
         <button data-rainbtn="${d}" class="edit-only-inline">☔ 雨天備案${t.rainActive[d] ? '（使用中）' : (t.rainPlans[d]?.spots?.length ? '（已設定）' : '')}</button>
         <button data-hotelrec="${d}" class="edit-only">🏨 ${Store.hotelOfNight(d - 1) || Store.hotelOfNight(d - 2) ? '換飯店' : '推薦飯店'}</button>
+        <button data-flight="${d}" class="edit-only">✈️ 航班${hasFlightDay(d) ? ' ✓' : ''}</button>
         ${d === 1 ? `<button data-routepts="${d}" class="edit-only">🚩 集合地${t.meetPoint ? ' ✓' : ''}</button>` : ''}
         ${d === Store.days() ? `<button data-routepts="${d}" class="edit-only">🏁 解散地${t.endPoint ? ' ✓' : ''}</button>` : ''}
       </div>`;
@@ -818,8 +845,11 @@ const Itin = (() => {
       if (b.dataset.rainbtn && !(t.rainPlans[d]?.spots?.length)) b.remove();
     });
 
+    // 搭機前（有抵達航班）：出發地 → 地面交通 → 出發機場 → ✈️ 航班卡
+    if (Flights.isComplete(arriveF)) appendPreFlight(card, d, arriveF);
     // 起點列
-    if (sp && list.length) card.appendChild(pointRow(sp, `${dayStartOf(d)} ${sp.kind === 'meet' ? '從集合地出發' : '從飯店出發'}`, d, 'start'));
+    const startLabel = sp ? ({ meet: '從集合地出發', airport: '出關後從機場出發' }[sp.kind] || '從飯店出發') : '';
+    if (sp && list.length) card.appendChild(pointRow(sp, `${dayStartOf(d)} ${startLabel}`, d, 'start'));
 
     // 景點列 + 路段
     const dMode = dayTransportOf(d);
@@ -829,7 +859,8 @@ const Itin = (() => {
     });
     if (list.length && ep) {
       if (tl.backLeg > 0) card.appendChild(legRow(tl.backLeg, dMode));
-      card.appendChild(pointRow(ep, `${tl.endTime} ${ep.kind === 'end' ? '抵達解散地' : '回到飯店'}`, d, 'end'));
+      const endLabel = ep.kind === 'end' ? '抵達解散地' : ep.kind === 'airport' ? `抵達機場（${dayEndOf(d)} 前報到）` : '回到飯店';
+      card.appendChild(pointRow(ep, `${tl.endTime} ${endLabel}`, d, 'end'));
     }
     if (!list.length) {
       if (sp) card.appendChild(pointRow(sp, pointEmptyDayText(sp), d, 'start'));
@@ -843,7 +874,11 @@ const Itin = (() => {
         : '這天還沒有景點：按上面的「➕ 加景點」，或按住 ☰ 把景點拖過來。';
       card.appendChild(p);
     }
+    // 起飛後（有起飛航班）：✈️ 航班卡 → 抵達機場 → 地面交通 → 解散地／當晚飯店
+    if (Flights.isComplete(departF)) appendPostFlight(card, d, departF);
 
+    const flightBtn = head.querySelector(`[data-flight="${d}"]`);
+    if (flightBtn) flightBtn.onclick = () => Flights.openDay(d, render);
     const timeBtn = head.querySelector(`[data-daytime="${d}"]`);
     if (timeBtn) timeBtn.onclick = () => editDayTime(d);
     const transBtn = head.querySelector(`[data-daytrans="${d}"]`);
@@ -860,9 +895,60 @@ const Itin = (() => {
     return card;
   }
 
+  // ---------- 航班的前後段 ----------
+  const minsOf = v => Number(v) || 0;
+  // 機場外的地面交通列（可手動調整分鐘數）
+  function groundLegRow(min, mode, f, d, toAirport) {
+    const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[mode || trip().transport];
+    const div = document.createElement('div');
+    div.className = 'leg-row';
+    div.innerHTML = `↓ ${icon} ${toAirport ? '到機場' : '到目的地'}約 ${Logic.fmtDur(min)}（${Flights.groundSource(f)}）
+      <button class="edit-only ground-edit" type="button" title="手動調整這段時間">✎</button>`;
+    div.querySelector('.ground-edit').onclick = () => {
+      const body = document.createElement('div');
+      body.innerHTML = `<label>${toAirport ? '出發地到機場' : '機場到目的地'}要幾分鐘？（空白＝自動計算）</label>
+        <input id="groundInp" type="number" inputmode="numeric" min="0" max="600" step="5" value="${f.groundMin === null || f.groundMin === undefined ? '' : f.groundMin}" placeholder="目前 ${min}">`;
+      UI.modal('🚗 調整地面交通時間', body, [{
+        label: '套用', primary: true, onClick: () => {
+          const v = document.getElementById('groundInp').value.trim();
+          f.groundMin = v === '' ? null : Math.max(0, Math.round(Number(v)));
+          Store.touch({ manual: true });
+          UI.closeModal();
+          render();
+          UI.toast(v === '' ? '已改回自動計算' : `已改為 ${Logic.fmtDur(f.groundMin)}`);
+        }
+      }]);
+    };
+    return div;
+  }
+  function appendPreFlight(card, d, f) {
+    const origin = baseStartPoint(d);
+    const mode = dayTransportOf(d);
+    const checkinAt = Logic.toMin(f.depTime) - minsOf(f.checkinMin);
+    if (origin) {
+      const g = Flights.groundMin(f, origin.p, f.depAirport, mode);
+      card.appendChild(pointRow(origin, `${Logic.toHHMM(checkinAt - g)} 建議出發前往機場`, d, 'start'));
+      card.appendChild(groundLegRow(g, mode, f, d, true));
+      Flights.ensureGroundAuto(f, origin.p, f.depAirport, mode, render);
+    }
+    card.appendChild(Flights.cardEl(f, Store.isReadonly() ? null : () => Flights.openForm(d, 'arrive', f, render)));
+  }
+  function appendPostFlight(card, d, f) {
+    card.appendChild(Flights.cardEl(f, Store.isReadonly() ? null : () => Flights.openForm(d, 'depart', f, render)));
+    const dest = baseEndPoint(d);
+    if (!dest) return;
+    const mode = dayTransportOf(d);
+    const g = Flights.groundMin(f, f.arrAirport, dest.p, mode);
+    card.appendChild(groundLegRow(g, mode, f, d, false));
+    const at = Logic.toHHMM(Logic.toMin(f.arrTime) + minsOf(f.clearMin) + g);
+    card.appendChild(pointRow(dest, `約 ${at} 抵達${dest.kind === 'end' ? '解散地' : '飯店'}${Flights.tz(f)}`, d, 'end'));
+    Flights.ensureGroundAuto(f, f.arrAirport, dest.p, mode, render);
+  }
+
   // 調整某一天的出發／結束時間（時間軸依停留＋車程重新推算；超時會提醒）
   function editDayTime(d) {
     const t = trip();
+    if (hasFlightDay(d)) UI.toast('這天有航班：出發／結束時間以航班為準（要改請按「✈️ 航班」）');
     if (!t.dayStartOv) t.dayStartOv = {};
     if (!t.dayEndOv) t.dayEndOv = {};
     const body = document.createElement('div');
@@ -934,7 +1020,7 @@ const Itin = (() => {
   // 起終點列（飯店 / 集合地 / 解散地）
   function pointRow(spObj, timeTxt, day, pos) {
     const p = spObj.p, kind = spObj.kind;
-    const icon = kind === 'meet' ? '🚩' : kind === 'end' ? '🏁' : '🏨';
+    const icon = kind === 'meet' ? '🚩' : kind === 'end' ? '🏁' : kind === 'airport' ? '✈️' : '🏨';
     const stayM = (kind === 'hotel' && day) ? stayMealsOf(day, pos) : [];
     const mealTags = stayM.length ? `<div class="spot-times" style="color:var(--ok)">🍽 ${stayM.map(m => MEAL_TAG[m]).join('｜')}（在這裡吃）</div>` : '';
     const div = document.createElement('div');
@@ -962,6 +1048,7 @@ const Itin = (() => {
           <button class="edit-only" data-act="hexp" title="記一筆帳">💰</button>
           <button class="edit-only" data-act="hedit" title="編輯住宿備註">✎</button>` : ''}
           ${(kind === 'meet' || kind === 'end') ? `<button class="edit-only" data-act="ptmenu" title="更多：更改地點／移除／導航／記帳">⋯</button>` : ''}
+          ${kind === 'airport' ? `<button class="edit-only" data-act="apflight" title="編輯航班">✎</button>` : ''}
           ${mapLink}
         </div>
       </div>`;
@@ -975,6 +1062,8 @@ const Itin = (() => {
     if (hm) hm.onclick = () => openStayMeals(day, pos, p.name);
     const hx = div.querySelector('[data-act="hexp"]');
     if (hx) hx.onclick = () => Feat.quickExpense({ item: p.name, date: Store.dateOfDay(day) });
+    const af = div.querySelector('[data-act="apflight"]');
+    if (af) af.onclick = () => Flights.openDay(day, render);
     const pm = div.querySelector('[data-act="ptmenu"]');
     if (pm) pm.onclick = () => pointMenu(spObj);
     return div;
@@ -1705,6 +1794,6 @@ const Itin = (() => {
   return {
     init, render, renderFullMap, addSpot, openAddSpot,
     spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf, stayMealsOf,
-    saveCurrentArrangement
+    saveCurrentArrangement, baseStartPoint, baseEndPoint, dayStartOf, dayEndOf
   };
 })();
