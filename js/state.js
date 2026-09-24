@@ -94,18 +94,26 @@ const Store = (() => {
     return trip;
   }
 
-  function load(t, r) {
+  // opts.fromLocal：從這台裝置的快取「繼續上次行程」——快取裡可能有離線時沒存上雲端的修改
+  function load(t, r, opts) {
     trip = normalizeTrip(t);
     role = r || 'edit';
     manualDirty = false;
     pendingLocalChange = false;
     notifiedUpdatedAt = 0;
     changeSeq = 0; savedSeq = 0; pendingSince = 0; // 剛從雲端載入＝跟雲端一致
+    syncState = 'idle'; notifySync();               // 換了一份資料，上一份的存檔失敗狀態不再適用
     resetHistory();
     loadSavedSnap();
     reminderBaselineSig = arrangementSig(trip);
     persistLocal();
+    // 快取的最後修改時間晚於上次成功存檔 → 有離線修改，標記為未存並排入自動存檔
+    if (opts && opts.fromLocal && role === 'edit' && (Number(trip.updatedAt) || 0) > (Number(trip.baseUpdatedAt) || 0)) {
+      markChanged();
+      scheduleCloudSave();
+    }
   }
+  const hasPendingChanges = () => pendingLocalChange;
 
   // 複製一份行程成「全新的獨立行程」（新代碼、新 Email；原行程不受影響）
   function cloneAsNew(source, name, email) {
@@ -199,10 +207,15 @@ const Store = (() => {
   // 「記得按儲存」提醒的比對基準：獨立於「還原」快照，新行程一開始就有基準，才能一改就提醒
   let reminderBaselineSig = '';
   // v2.1.19 起：只有「自動存檔沒成功」才提醒（存失敗／離線／衝突，或修改超過 10 秒還沒被任何一次存檔存上雲端）
-  const SAVE_LATE_MS = 10000;
-  const needsSaveReminder = () => !!trip && !isReadonly() &&
-    (['error', 'offline', 'conflict'].includes(syncState) ||
-     (pendingLocalChange && pendingSince > 0 && Date.now() - pendingSince > SAVE_LATE_MS));
+  // 存檔正在進行中＝系統正在努力，不打擾；只有真的卡很久（>50 秒，已超過請求逾時）才提醒
+  const SAVE_LATE_MS = 10000, SAVE_STUCK_MS = 50000;
+  const needsSaveReminder = () => {
+    if (!trip || isReadonly()) return false;
+    if (['error', 'offline', 'conflict'].includes(syncState)) return true;
+    if (!pendingLocalChange || !pendingSince) return false;
+    const late = Date.now() - pendingSince;
+    return savesInFlight > 0 ? late > SAVE_STUCK_MS : late > SAVE_LATE_MS;
+  };
   // 目前安排與已儲存版本不同，且可編輯時才需要顯示「還原」
   const canRestoreSaved = () => !!savedSnap && !isReadonly() && arrangementSig(trip) !== savedSnap.sig;
   function restoreSaved() {
@@ -290,8 +303,9 @@ const Store = (() => {
   function cloudSaveNow(opts) {
     return enqueueSave(async () => {
       if (!trip || isReadonly()) return;
-      // 背景自動存檔：排隊期間前一次已經把最新修改存上去了 → 不用再存一次
-      if (opts && opts.auto && savedSeq === changeSeq) return;
+      // 自動存檔／手動按儲存：排隊期間前一次已經把最新修改存上去了 → 不用再存一次
+      // （衝突／失敗時 savedSeq 不會前進，所以仍會重送）
+      if (opts && (opts.auto || opts.skipIfSaved) && savedSeq === changeSeq && syncState === 'idle') return;
       const seqAtSend = changeSeq, tripAtSend = trip, sendAt = Date.now();
       try {
         syncState = 'saving'; notifySync();
@@ -356,9 +370,19 @@ const Store = (() => {
           notifiedUpdatedAt = r.updatedAt;
           document.dispatchEvent(new CustomEvent('cloud-update-available'));
         }
+        return;
       }
+      // 心跳通了＝網路恢復；之前存失敗、還有未存的修改 → 自動重存（不用使用者再按）
+      retryPendingSave();
     } catch (e) { /* 心跳失敗不影響操作，靜默略過 */ }
   }
+  function retryPendingSave() {
+    if (!trip || isReadonly() || !pendingLocalChange || savesInFlight > 0) return;
+    if (!['error', 'offline'].includes(syncState)) return;
+    cloudSaveNow({ auto: true }).catch(() => {});
+  }
+  // 瀏覽器偵測到恢復連線 → 馬上重試（不等下一次心跳）
+  window.addEventListener('online', () => setTimeout(retryPendingSave, 1000));
   function startPresencePoll() {
     stopPresencePoll();
     lastEditorCount = 1;
@@ -374,7 +398,7 @@ const Store = (() => {
     get, getRole, isReadonly, days, dateOfDay, hotelOfNight,
     create, load, cloneAsNew, loadLocal, clearLocal,
     prefs, setPref,
-    touch, isManualDirty, clearManualDirty,
+    touch, isManualDirty, clearManualDirty, hasPendingChanges,
     undo, redo, canUndo, canRedo,
     markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved, needsSaveReminder,
     cloudSaveNow, forceCloudSave, reloadFromCloud,

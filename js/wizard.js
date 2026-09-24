@@ -26,7 +26,7 @@ const Wizard = (() => {
     $('btnResume').onclick = () => {
       const l = Store.loadLocal();
       if (!l) return;
-      Store.load(l.trip, l.role);
+      Store.load(l.trip, l.role, { fromLocal: true }); // 快取可能有離線時沒存上的修改 → 會自動補存
       App.enterMain();
     };
     $('btnNewTrip').onclick = () => {
@@ -104,7 +104,7 @@ const Wizard = (() => {
       App.enterMain();
     } catch (e) {
       UI.loading(false);
-      UI.alert('載入失敗', e.message + '\n\n請確認代碼有沒有打錯，或請行程建立者再分享一次。');
+      UI.alert('載入失敗', UI.friendlyError(e) + '\n\n請確認代碼有沒有打錯，或請行程建立者再分享一次。');
     }
   }
 
@@ -239,7 +239,7 @@ const Wizard = (() => {
           UI.closeModal();
           UI.toast('行程載入成功！');
           App.enterMain();
-        } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
+        } catch (e) { UI.loading(false); UI.alert('載入失敗', UI.friendlyError(e)); }
       });
 
     body.querySelectorAll('[data-del]').forEach(b =>

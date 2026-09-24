@@ -430,12 +430,23 @@ const Api = (() => {
   function mockCloud() { try { return JSON.parse(localStorage.getItem(CLOUD_KEY)) || {}; } catch { return {}; } }
   function mockCloudSave(db) { localStorage.setItem(CLOUD_KEY, JSON.stringify(db)); }
 
+  // 逾時上限：後端排隊最多等 20 秒＋處理時間；超過就放棄這次，避免存檔隊伍被一筆卡死
+  const GAS_TIMEOUT_MS = 45000;
   async function gasCall(action, payload) {
-    const res = await fetch(CONFIG.gasUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免 CORS preflight
-      body: JSON.stringify({ action, ...payload })
-    });
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), GAS_TIMEOUT_MS) : null;
+    let res;
+    try {
+      res = await fetch(CONFIG.gasUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // 避免 CORS preflight
+        body: JSON.stringify({ action, ...payload }),
+        signal: ctrl ? ctrl.signal : undefined
+      });
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw new Error('雲端回應太久（超過 45 秒），請稍後再試');
+      throw e;
+    } finally { clearTimeout(timer); }
     if (!res.ok) throw new Error('雲端連線失敗（' + res.status + '），請稍後再試');
     const j = await res.json();
     if (!j.ok) { const err = new Error(j.error || '雲端回應異常'); err.conflict = !!j.conflict; throw err; }

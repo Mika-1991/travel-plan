@@ -530,7 +530,7 @@ const Itin = (() => {
     Store.markSaved();
     render();
     UI.toast('已在本機暫存，雲端同步中…');
-    Store.cloudSaveNow().then(() => {
+    Store.cloudSaveNow({ skipIfSaved: true }).then(() => {
       UI.toast('☁️ 已儲存到雲端');
     }).catch(e => {
       console.warn('雲端儲存失敗', e);

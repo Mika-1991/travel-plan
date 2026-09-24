@@ -153,6 +153,19 @@ const UI = (() => {
     });
   }
 
+  // 把瀏覽器／網路的英文錯誤翻成看得懂的中文＋下一步；本來就是中文說明的原樣保留
+  function friendlyError(e) {
+    const msg = String((e && e.message) || e || '');
+    if (/Load failed|Failed to fetch|NetworkError|network|Internet connection/i.test(msg))
+      return '連不上網路。請確認手機有網路（或已關閉飛航模式）後再試一次。';
+    if (/Lock|timed out|timeout/i.test(msg) || msg.includes('太久'))
+      return '雲端目前比較忙，請等幾秒再試一次。';
+    if (/JSON|Unexpected token|expected pattern/i.test(msg))
+      return '雲端暫時回應異常（可能正忙），請等幾秒再試一次。';
+    if (/[一-鿿]/.test(msg)) return msg;
+    return '發生未預期的錯誤，請重新整理頁面後再試一次。\n\n（技術訊息，可截圖給 Mika：' + msg + '）';
+  }
+
   function alertBox(title, msg) { modal(title, msg, []); }
   function confirmBox(title, msg, onYes) {
     modal(title, msg, [
@@ -224,7 +237,7 @@ const UI = (() => {
     });
   }
 
-  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, progress, progressCreep, progressDone, modal, closeModal, closeAllModals, initModalDismiss, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom, fillResultHours };
+  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, friendlyError, progress, progressCreep, progressDone, modal, closeModal, closeAllModals, initModalDismiss, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom, fillResultHours };
 })();
 
 // ---------- App 主控 ----------
@@ -258,16 +271,18 @@ const App = (() => {
 
   // 剛進來行程時，如果真的有別人在線上編輯 → 畫面中間大大提示一下，1.5 秒後淡出
   let splashTimer = null;
-  function showPresenceSplash(n) {
+  function showPresenceSplash(n) { showSplash(`👥 現在 ${n} 人在線上編輯，請確認資訊同步`, 1500); }
+  // 畫面中間大提示，ms 毫秒後淡出
+  function showSplash(text, ms) {
     const el = $('presenceSplash');
-    el.textContent = `👥 現在 ${n} 人在線上編輯，請確認資訊同步`;
+    el.textContent = text;
     el.classList.remove('hidden');
     setTimeout(() => el.classList.add('show'), 20); // 讓 hidden 先真正移除、觸發一次 reflow，淡入動畫才會生效
     clearTimeout(splashTimer);
     splashTimer = setTimeout(() => {
       el.classList.remove('show');
       setTimeout(() => el.classList.add('hidden'), 500); // 等淡出動畫跑完再真的藏起來
-    }, 1500);
+    }, ms);
   }
 
   function enterMain() {
@@ -293,6 +308,17 @@ const App = (() => {
       }
     };
     $('btnReload').onclick = async () => {
+      // 手上有還沒存上雲端的修改 → 先問，避免重新載入把它們默默丟掉
+      if (Store.hasPendingChanges() && !Store.isReadonly()) {
+        UI.modal('還有修改沒存上雲端', '重新載入會用雲端版本取代，你還沒存上雲端的修改會不見。', [
+          { label: '💾 先儲存我的修改', primary: true, onClick: () => { UI.closeModal(); Itin.saveCurrentArrangement(); } },
+          { label: '☁️ 放棄修改，載入雲端版本', danger: true, onClick: () => { UI.closeModal(); doReload(); } }
+        ], { stackActions: true });
+        return;
+      }
+      doReload();
+    };
+    async function doReload() {
       try {
         UI.progress(0, '重新載入中…');
         UI.progressCreep(90);
@@ -300,8 +326,8 @@ const App = (() => {
         await UI.progressDone('載入完成！');
         enterMain();
         UI.toast('已載入最新版本');
-      } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
-    };
+      } catch (e) { UI.loading(false); UI.alert('載入失敗', UI.friendlyError(e)); }
+    }
     $('saveReminder').onclick = () => Itin.saveCurrentArrangement();
     $('btnManualSave').onclick = () => Itin.saveCurrentArrangement();
     const roCopy = $('btnCopyTripRO');
@@ -345,7 +371,7 @@ const App = (() => {
       Itin.render();
       if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();
       updateSaveReminder();
-      UI.toast('☁️ 已自動更新為最新版本');
+      showSplash('☁️ 其他人剛更新了行程，已自動載入最新版本', 2500);
     });
     // 偵測到雲端新版本：手上還有未存的變更 → 只提醒，不強制蓋掉
     document.addEventListener('cloud-update-available', () => {
@@ -368,7 +394,7 @@ const App = (() => {
               await Store.reloadFromCloud();
               await UI.progressDone('載入完成！');
               enterMain();
-            } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
+            } catch (e) { UI.loading(false); UI.alert('載入失敗', UI.friendlyError(e)); }
           }
         }], { stackActions: true });
     });
@@ -398,7 +424,7 @@ const App = (() => {
       return true;
     } catch (e) {
       UI.loading(false);
-      UI.alert('開啟失敗', e.message + '\n\n將回到開始畫面。');
+      UI.alert('開啟失敗', UI.friendlyError(e) + '\n\n將回到開始畫面。');
       return false;
     }
   }
