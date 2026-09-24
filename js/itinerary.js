@@ -515,6 +515,7 @@ const Itin = (() => {
       opts.push({ label: '🔄 重新計算車程（抓最新實際時間）', value: 'refresh' });
     }
     opts.push({ label: '📋 複製成我的行程', value: 'copy' });
+    opts.push({ label: '🔎 同步紀錄（出狀況時截圖給 Mika）', value: 'synclog' });
     UI.choose('更多操作', opts, v => {
       if (v === 'undo') doUndo();
       else if (v === 'save') saveCurrentArrangement();
@@ -522,6 +523,7 @@ const Itin = (() => {
       else if (v === 'share') Feat.showShare();
       else if (v === 'refresh') refreshRoutes();
       else if (v === 'copy') Feat.copyTrip();
+      else if (v === 'synclog') App.showSyncLog();
     });
   }
 

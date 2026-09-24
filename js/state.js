@@ -399,8 +399,9 @@ const Store = (() => {
       }
       // 心跳通了＝網路恢復；之前存失敗、還有未存的修改 → 自動重存（不用使用者再按）
       retryPendingSave();
-    } catch (e) { syncLog('📡 心跳失敗：' + ((e && e.message) || e)); }
+    } catch (e) { pingFailCount++; syncLog('📡 心跳失敗：' + ((e && e.message) || e)); }
   }
+  let pingFailCount = 0; // 累計心跳失敗次數（runPing 用來判斷這次有沒有失敗、決定退避）
   function retryPendingSave() {
     if (!trip || isReadonly() || !pendingLocalChange || savesInFlight > 0) return;
     if (!['error', 'offline'].includes(syncState)) return;
@@ -410,7 +411,7 @@ const Store = (() => {
   window.addEventListener('online', () => setTimeout(retryPendingSave, 1000));
   // 手機切回這個網頁（螢幕重新亮起／從別的 App 回來）→ 背景時計時器會被暫停，馬上補一次心跳
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && presenceTimer) presenceTick(false);
+    if (document.visibilityState === 'visible' && pollOn) { pingFails = 0; runPing(false); } // 已在跑就略過，不會重疊
   });
   // 自動算出來的資料（例如車程）：自己手上有未存修改時才一起存；否則只留在本機，避免兩台裝置互相覆蓋
   function saveDerived() {
@@ -418,14 +419,31 @@ const Store = (() => {
     if (pendingLocalChange) { markChanged(); persistLocal(); scheduleCloudSave(); }
     else persistLocal();
   }
+  // v2.1.22：心跳不重疊＋失敗退避。原本固定每 10 秒送一次，後端一慢，前一次還沒回來下一次又疊上去，
+  // 兩台裝置很快累積十幾個請求把後端塞爆（實測心跳 45 秒逾時、404）。
+  // 改成「上一次回來後才排下一次」；連續失敗就拉長間隔 10→20→40→60 秒，成功後回到 10 秒。
+  const PING_BASE_MS = 10000, PING_MAX_MS = 60000;
+  let pingInFlight = false, pingFails = 0, pollOn = false;
+  async function runPing(isInitial) {
+    if (!pollOn || pingInFlight) return;
+    clearTimeout(presenceTimer);
+    pingInFlight = true;
+    const before = pingFailCount;
+    try { await presenceTick(isInitial); } finally { pingInFlight = false; }
+    pingFails = pingFailCount > before ? pingFails + 1 : 0;
+    if (!pollOn) return;
+    const wait = Math.min(PING_MAX_MS, PING_BASE_MS * Math.pow(2, pingFails));
+    presenceTimer = setTimeout(() => runPing(false), wait);
+  }
   function startPresencePoll() {
     stopPresencePoll();
     lastEditorCount = 1;
-    presenceTimer = setInterval(() => presenceTick(false), 10000);
-    presenceTick(true); // 立刻跑一次（標記為「剛進來」，用來決定要不要跳大提示）
+    pollOn = true; pingFails = 0;
+    runPing(true); // 立刻跑一次（標記為「剛進來」，用來決定要不要跳大提示）
   }
   function stopPresencePoll() {
-    clearInterval(presenceTimer);
+    pollOn = false;
+    clearTimeout(presenceTimer);
     presenceTimer = null;
   }
 
