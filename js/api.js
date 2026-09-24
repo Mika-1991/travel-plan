@@ -433,7 +433,7 @@ const Api = (() => {
   // 逾時上限（v2.1.23 依動作分開）：Apps Script 執行紀錄顯示後端實際只跑 0.5～3 秒，
   // 等很久多半是手機剛恢復網路時回應卡在路上 → 早點放棄、下一輪重試反而恢復得快。
   // 存檔帶 _saveSession，就算逾時但其實已存好，下次也認得出是自己存的，不會誤判衝突。
-  const GAS_TIMEOUT_MS = { presencePing: 15000, getTrip: 30000, saveTrip: 30000 };
+  const GAS_TIMEOUT_MS = { presencePing: 10000, getTrip: 30000, saveTrip: 20000 };
   const GAS_TIMEOUT_DEFAULT_MS = 45000;
   async function gasCall(action, payload) {
     const ms = GAS_TIMEOUT_MS[action] || GAS_TIMEOUT_DEFAULT_MS;

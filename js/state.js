@@ -293,6 +293,7 @@ const Store = (() => {
   function afterSaved(r, seqAtSend, tripAtSend, sendAt) {
     if (trip !== tripAtSend) return; // 存檔期間已切換成別的行程 → 結果不套用到新行程
     trip.baseUpdatedAt = r.updatedAt;
+    saveRetryStep = 0; clearTimeout(saveRetryTimer);
     savedSeq = Math.max(savedSeq, seqAtSend);
     pendingLocalChange = changeSeq !== savedSeq;
     // 還沒存到的修改一定發生在這次送出之後 → 從送出時間重新起算（持續編輯時提醒才不會一直亮）
@@ -317,6 +318,7 @@ const Store = (() => {
         notifySync();
         // v2.1.23：存檔被判衝突＝雲端確定有別人的新版本 → 立刻請使用者選擇（不再等心跳才發現）
         if (e.conflict) askConflictChoice();
+        else scheduleSaveRetry(); // v2.1.24：網路類失敗 → 自己排重試，不等心跳
         throw e;
       }
     });
@@ -413,8 +415,24 @@ const Store = (() => {
     if (!['error', 'offline'].includes(syncState)) return;
     cloudSaveNow({ auto: true }).catch(() => {});
   }
-  // 瀏覽器偵測到恢復連線 → 馬上重試（不等下一次心跳）
-  window.addEventListener('online', () => setTimeout(retryPendingSave, 1000));
+  // v2.1.24：存檔因網路失敗 → 5、10、20、30 秒後自動重試（手機剛關飛航時，第一次請求常卡在已斷掉的舊連線上逾時，
+  // 放棄後的下一次才會走新連線；原本要等心跳成功才重試，心跳又在退避，等待時間疊加到一分鐘以上）
+  const SAVE_RETRY_STEPS_MS = [5000, 10000, 20000, 30000];
+  let saveRetryTimer = null, saveRetryStep = 0;
+  function scheduleSaveRetry() {
+    clearTimeout(saveRetryTimer);
+    const wait = SAVE_RETRY_STEPS_MS[Math.min(saveRetryStep, SAVE_RETRY_STEPS_MS.length - 1)];
+    saveRetryStep++;
+    syncLog('🔁 ' + (wait / 1000) + ' 秒後自動重試存檔');
+    saveRetryTimer = setTimeout(retryPendingSave, wait);
+  }
+  // 瀏覽器偵測到恢復連線 → 重試間隔歸零，馬上重試存檔＋補一次心跳（不等排程）
+  window.addEventListener('online', () => {
+    syncLog('📶 偵測到網路恢復');
+    saveRetryStep = 0; clearTimeout(saveRetryTimer);
+    setTimeout(retryPendingSave, 1000);
+    if (pollOn) { pingFails = 0; setTimeout(() => runPing(false), 1500); }
+  });
   // 手機切回這個網頁（螢幕重新亮起／從別的 App 回來）→ 背景時計時器會被暫停，馬上補一次心跳
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && pollOn) { pingFails = 0; runPing(false); } // 已在跑就略過，不會重疊
