@@ -1151,13 +1151,22 @@ ${sheetXml('攜帶清單', packing)}
     ];
     return zipStore(files, XLSX_MIME);
   }
+  // v2.1.28：PDF 裡航班資訊很重要 → 深藍底白字；機場列淺藍底。列印時也保留底色（print-color-adjust）
+  const printRowClass = type => (type === '航班' ? 'flight' : type === '機場' ? 'airport' : '');
+  const PRINT_FLIGHT_CSS = `body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+tr.flight td{background:#1F3A5F;color:#fff;border-top:2px solid #1F3A5F}
+tr.flight td b{color:#fff;font-size:1.05em}
+tr.flight .type{color:#FFD27A}
+tr.flight .addr,tr.flight .note{color:#DCE6F2}
+tr.airport td{background:#EAF1FA}
+tr.airport .type{color:#3E5F8A}`;
   function printableHtml() {
     const t = trip();
     const daySections = Array.from({ length: Store.days() }, (_, i) => {
       const d = i + 1;
       const rows = dayRows(d).map(r => `
-        <tr>
-          <td class="type">${textEsc(r.type)}</td>
+        <tr class="${printRowClass(r.type)}">
+          <td class="type">${r.type === '航班' ? '✈️ 航班' : textEsc(r.type)}</td>
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
         </tr>`).join('');
       return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="2">尚無安排</td></tr>'}</table></section>`;
@@ -1168,6 +1177,7 @@ body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#FAF6F
 h1{margin:0 0 8px;color:#8f6a49}.meta{color:#8C7B6B;margin-bottom:18px}.day{page-break-inside:avoid;background:#fff;border-radius:12px;padding:16px;margin:0 0 16px;box-shadow:0 2px 10px #e1d4c4}
 h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:10px;vertical-align:top}.type{width:90px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:14px;margin-top:3px}
 @media print{body{background:#fff;padding:0}.day{box-shadow:none;border:1px solid #ddd}}
+${PRINT_FLIGHT_CSS}
 </style></head><body><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</body></html>`;
   }
   function printableDailyHtml() {
@@ -1175,8 +1185,8 @@ h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{bo
     const daySections = Array.from({ length: Store.days() }, (_, i) => {
       const d = i + 1;
       const rows = dayRows(d).map(r => `
-        <tr>
-          <td class="type">${textEsc(r.type)}</td>
+        <tr class="${printRowClass(r.type)}">
+          <td class="type">${r.type === '航班' ? '✈️ 航班' : textEsc(r.type)}</td>
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
           <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="">` : ''}</td>
         </tr>`).join('');
@@ -1189,6 +1199,7 @@ h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{bo
 h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.day{page-break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:12px;margin:0 0 12px}
 h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:8px;vertical-align:top}.type{width:86px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:13px;margin-top:3px}.pic{width:64px;text-align:right}.pic img{width:60px;height:60px;object-fit:cover;border-radius:6px}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.day{break-inside:avoid}}
+${PRINT_FLIGHT_CSS}
 </style></head><body><main class="sheet"><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</main></body></html>`;
   }
   function packingHtml() {

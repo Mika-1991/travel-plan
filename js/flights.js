@@ -38,6 +38,12 @@ const Flights = (() => {
     if (f.groundAuto) return mins(f.groundAuto);
     return from && to ? Logic.travelMinutes(from, to, mode) : 0;
   }
+  // 系統預估（不看手動值）：Google 真實車程，沒有就直線估算——手動調整時也一起顯示，方便比對
+  function autoGroundMin(f, from, to, mode) {
+    if (f.groundAuto) return mins(f.groundAuto);
+    return from && to ? Logic.travelMinutes(from, to, mode) : 0;
+  }
+  const isManualGround = f => f.groundMin !== undefined && f.groundMin !== null && f.groundMin !== '';
   const groundSource = f =>
     (f.groundMin !== undefined && f.groundMin !== null && f.groundMin !== '') ? '手動' : (f.groundAuto ? 'Google' : '估算');
 
@@ -120,6 +126,34 @@ const Flights = (() => {
     input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
   }
 
+  // ---------- v2.1.28 防呆：出發／抵達是不是填反了 ----------
+  // 抵達航班：抵達機場應該靠近「當天景點」、出發機場應該靠近「出發地（集合地／前一晚飯店）」；
+  // 起飛航班：出發機場應該靠近「當天景點」、抵達機場應該靠近「目的地（解散地／當晚飯店）」。
+  // 明顯比較像反過來（近的那個不到遠的 0.6 倍、而且差超過 30 公里）才提醒，避免誤報。
+  function looksReversed(day, f) {
+    const km = (a, b) => (Logic.hasCoords(a) && Logic.hasCoords(b)) ? Logic.haversineKm(a, b) : null;
+    const clearlyCloser = (ref, shouldBeNear, shouldBeFar) => {
+      const near = km(ref, shouldBeNear), far = km(ref, shouldBeFar);
+      if (near === null || far === null) return null;       // 沒座標 → 無法判斷
+      return far < near * 0.6 && near - far > 30;            // true＝看起來反了
+    };
+    const spots = Itin.spotsOfDay(day).filter(Logic.hasCoords);
+    const center = spots.length
+      ? { lat: spots.reduce((s, p) => s + Number(p.lat), 0) / spots.length, lng: spots.reduce((s, p) => s + Number(p.lng), 0) / spots.length }
+      : null;
+    if (f.type === 'arrive') {
+      const origin = (Itin.baseStartPoint(day) || {}).p;
+      if (center && clearlyCloser(center, f.arrAirport, f.depAirport)) return true;
+      if (origin && clearlyCloser(origin, f.depAirport, f.arrAirport)) return true;
+    } else {
+      const dest = (Itin.baseEndPoint(day) || {}).p;
+      if (center && clearlyCloser(center, f.depAirport, f.arrAirport)) return true;
+      if (dest && clearlyCloser(dest, f.arrAirport, f.depAirport)) return true;
+    }
+    return false;
+  }
+  const sameAirport = f => (f.depAirport.placeId && f.depAirport.placeId === f.arrAirport.placeId) || f.depAirport.name === f.arrAirport.name;
+
   function openForm(day, type, existing, onChanged) {
     const t = trip();
     const f = existing ? JSON.parse(JSON.stringify(existing)) : {
@@ -185,9 +219,26 @@ const Flights = (() => {
       f.note = body.querySelector('#fNote').value.trim();
       if (!f.depAirport || !f.arrAirport) { UI.toast('請搜尋並選擇出發機場和抵達機場'); return; }
       if (!f.depTime || !f.arrTime) { UI.toast('請填起飛和抵達時間'); return; }
+      if (sameAirport(f)) { UI.toast('出發機場和抵達機場是同一個，請確認是否選錯'); return; }
       if (!f.intl && Logic.toMin(f.arrTime) <= Logic.toMin(f.depTime)) {
         UI.toast('抵達時間要晚於起飛時間（跨日的紅眼航班目前還不支援）'); return;
       }
+      // 防呆：看起來出發／抵達填反了 → 先問，可一鍵對調
+      if (looksReversed(day, f)) {
+        const swapAirports = () => { const a = f.depAirport; f.depAirport = f.arrAirport; f.arrAirport = a; };
+        const swapTimes = () => { const x = f.depTime; f.depTime = f.arrTime; f.arrTime = x; };
+        UI.modal('⚠️ 出發和抵達可能填反了',
+          `${isArr ? '抵達航班的「抵達機場」通常在當天行程附近，「出發機場」在出發地附近' : '起飛航班的「出發機場」通常在當天行程附近，「抵達機場」在目的地附近'}，但你填的看起來剛好相反：\n\n🛫 ${f.depTime} ${f.depAirport.name}\n🛬 ${f.arrTime} ${f.arrAirport.name}\n\n要怎麼處理？`,
+          [
+            { label: '🔄 機場和時間一起對調', primary: true, onClick: () => { swapAirports(); swapTimes(); UI.closeModal(); commit(); } },
+            { label: '🔄 只對調機場（時間沒填錯）', onClick: () => { swapAirports(); UI.closeModal(); commit(); } },
+            { label: '沒填錯，直接儲存', onClick: () => { UI.closeModal(); commit(); } }
+          ], { stackActions: true });
+        return;
+      }
+      commit();
+    };
+    const commit = () => {
       // 換了機場 → 自動算的地面交通要重抓
       if (existing && ((existing.depAirport || {}).placeId !== f.depAirport.placeId || (existing.arrAirport || {}).placeId !== f.arrAirport.placeId)) delete f.groundAuto;
       if (!t.flights) t.flights = [];
@@ -218,5 +269,5 @@ const Flights = (() => {
   // 改旅遊天數時：超出天數的航班
   const beyond = newDays => all().filter(f => Number(f.day) > newDays);
 
-  return { of, all, isComplete, dayStartMin, dayEndMin, groundMin, groundSource, ensureGroundAuto, cardEl, openDay, openForm, beyond, tz };
+  return { of, all, isComplete, dayStartMin, dayEndMin, groundMin, groundSource, autoGroundMin, isManualGround, ensureGroundAuto, cardEl, openDay, openForm, beyond, tz };
 })();
