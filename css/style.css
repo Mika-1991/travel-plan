@@ -61,6 +61,29 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
 .sync-dot.saving { background: #ffd97a; animation: blink 1s infinite; }
 .sync-dot.error, .sync-dot.offline, .sync-dot.conflict { background: #ffb3a0; }
 @keyframes blink { 50% { opacity: .3; } }
+.editor-chip {
+  font-size: .8rem; font-weight: 700; color: var(--white); background: rgba(255,255,255,.22);
+  border-radius: 10px; padding: 3px 8px; max-width: 6.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 手機窄螢幕：頁首按鈕多，名牌與間距縮小，避免最右邊的按鈕被擠出畫面 */
+@media (max-width: 480px) {
+  .header-actions { gap: 4px; }
+  .app-header { padding: 0 8px; }
+  .icon-btn { padding: 5px 6px; font-size: .95rem; }
+  .editor-chip { max-width: 6.2em; padding: 3px 6px; flex: none; }
+  .presence-badge { padding: 2px 6px; }
+}
+.line-banner {
+  position: fixed; left: 0; right: 0; top: var(--header-h); z-index: 60;
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: #FFF1D6; color: var(--text); font-size: .9rem; border-bottom: 1px solid #ecd3a4;
+}
+.line-banner span { flex: 1; }
+.line-banner #btnOpenExternal { background: var(--main); color: var(--white); border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: .9rem; white-space: nowrap; }
+.line-banner #btnLineBannerX { font-size: 1.2rem; padding: 0 4px; color: var(--text-2); }
+.change-log { max-height: 60vh; overflow-y: auto; }
+.change-log .cl-row { padding: 8px 0; border-bottom: 1px dashed #e6d8c8; line-height: 1.5; }
+.change-log .cl-meta { color: var(--text-2); font-size: .85rem; }
 .presence-badge {
   font-size: .78rem; font-weight: 700; color: var(--white);
   background: rgba(255,255,255,.22); border-radius: 10px; padding: 2px 8px;

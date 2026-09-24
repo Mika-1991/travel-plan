@@ -1222,7 +1222,9 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     const base = location.origin === 'null' || location.protocol === 'file:'
       ? location.href.split('?')[0]
       : location.origin + location.pathname;
-    return `${base}?code=${code}`;
+    // openExternalBrowser=1：從 LINE 點開時，LINE 會改用手機的瀏覽器（Safari／Chrome）開啟
+    // （LINE 內建瀏覽器在網路恢復後換新連線很慢，同步容易卡住）
+    return `${base}?code=${code}&openExternalBrowser=1`;
   }
 
   // 依 Mika 定案順序：Email → 唯讀連結 → 編輯連結 → 編輯代碼 → 唯讀代碼
@@ -1335,7 +1337,7 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
   }
 
   // 網站首頁網址（去掉 ?code= 部分）；信件底部的備援連結共用這個算法
-  function siteHomeUrl() { return shareLink('').replace(/\?code=$/, ''); }
+  function siteHomeUrl() { return shareLink('').split('?')[0]; }
 
   // 主要：寄送完整行程（唯讀連結＋每日行程）；支援多位收件人
   function itineraryEmailBlock(t) {

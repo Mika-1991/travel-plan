@@ -80,6 +80,7 @@ const UI = (() => {
     box.className = 'modal-box' + (opts.fullscreen ? ' fullscreen' : '');
     box.innerHTML = `<button class="modal-x" type="button" aria-label="關閉視窗" title="關閉">×</button><h3>${esc(title)}</h3>`;
     box.querySelector('.modal-x').onclick = () => closeModal();
+    if (opts.locked) box.querySelector('.modal-x').remove(); // locked：一定要做選擇，不能關掉
     if (typeof body === 'string') {
       const p = document.createElement('div');
       p.style.whiteSpace = 'pre-wrap';
@@ -149,7 +150,11 @@ const UI = (() => {
     });
     window.addEventListener('popstate', () => {
       if (suppressPop) { suppressPop = false; return; }
-      if (modalStack.length) { guardPushed = false; closeAllModals(); }
+      if (modalStack.length) {
+        // 有「一定要做選擇」的視窗（例如選編輯者身分）→ 返回鍵不關它，重新放回守衛
+        if (modalStack.some(m => m.opts.locked)) { try { history.pushState({ mikaModal: 1 }, ''); guardPushed = true; } catch {} return; }
+        guardPushed = false; closeAllModals();
+      }
     });
   }
 
@@ -271,7 +276,6 @@ const App = (() => {
 
   // 剛進來行程時，如果真的有別人在線上編輯 → 畫面中間大大提示一下，1.5 秒後淡出
   let splashTimer = null;
-  function showPresenceSplash(n) { showSplash(`👥 現在 ${n} 人在線上編輯，請確認資訊同步`, 1500); }
   // 畫面中間大提示，ms 毫秒後淡出
   function showSplash(text, ms) {
     const el = $('presenceSplash');
@@ -295,7 +299,68 @@ const App = (() => {
     switchPage('page-trip');
     updateSaveReminder();
     if (Store.isReadonly()) $('presenceBadge').classList.add('hidden');
+    updateEditorChip();
+    // v2.1.25：用編輯代碼進來、這台裝置還沒選過身分 → 一定要先選「你是誰」才能編輯
+    if (!Store.isReadonly() && !Store.getEditor()) askIdentity(true);
     Store.startPresencePoll(); // 唯讀者也要：才能在別人更新時自動刷新
+  }
+
+  // ---------- v2.1.25：編輯者身分 ----------
+  function updateEditorChip() {
+    const chip = $('editorChip');
+    const name = Store.getEditor();
+    const show = !Store.isReadonly() && !!name;
+    chip.classList.toggle('hidden', !show);
+    if (show) chip.textContent = '👤 ' + name;
+  }
+  // mandatory：第一次進來一定要選（不能關掉、返回鍵也關不掉）；否則是從頁首切換身分
+  function askIdentity(mandatory) {
+    const t = Store.get();
+    const members = (t.members || []).map(m => String(m).trim()).filter(Boolean);
+    const cur = Store.getEditor();
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <p class="hint" style="margin-bottom:10px">選擇你的名字，大家就知道是誰修改了行程（這台裝置會記住，之後點頁首的 👤 可以切換）。</p>
+      <div class="stack" id="whoList"></div>
+      <label style="margin-top:14px">不在名單上？輸入你的名字</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="whoOther" type="text" maxlength="20" placeholder="例：小明" style="margin-bottom:0">
+        <button id="whoOtherOk" class="btn-small" type="button">確定</button>
+      </div>`;
+    const pick = name => {
+      name = String(name || '').trim();
+      if (!name) { UI.toast('請選擇或輸入你的名字'); return; }
+      Store.setEditor(name);
+      UI.closeModal();
+      updateEditorChip();
+      UI.toast(`👋 ${name}，你好！之後的修改都會記上你的名字`);
+    };
+    const list = body.querySelector('#whoList');
+    members.forEach(m => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = m === cur ? 'btn-primary' : 'btn-outline';
+      b.textContent = (m === cur ? '✓ ' : '👤 ') + m;
+      b.onclick = () => pick(m);
+      list.appendChild(b);
+    });
+    if (!members.length) list.innerHTML = '<p class="hint">這份行程還沒有設定成員，請直接輸入你的名字。</p>';
+    body.querySelector('#whoOtherOk').onclick = () => pick(body.querySelector('#whoOther').value);
+    body.querySelector('#whoOther').addEventListener('keydown', e => { if (e.key === 'Enter') pick(e.target.value); });
+    UI.modal('你是誰？', body, [], mandatory ? { noClose: true, locked: true } : {});
+  }
+
+  // ---------- v2.1.25：修改紀錄 ----------
+  function showChangeLog() {
+    const log = ((Store.get() && Store.get().changeLog) || []).slice().reverse();
+    const p = n => String(n).padStart(2, '0');
+    const when = ts => { const d = new Date(ts); return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+    const body = document.createElement('div');
+    body.className = 'change-log';
+    body.innerHTML = log.length
+      ? log.map(e => `<div class="cl-row"><div class="cl-meta">${when(e.t)}｜👤 ${UI.esc(e.by || '（未具名）')}</div><div>${UI.esc(e.text)}</div></div>`).join('')
+      : '<p class="hint">目前還沒有修改紀錄。從這個版本開始，每次存檔都會記下誰改了什麼。</p>';
+    UI.modal(`📝 修改紀錄（最近 ${log.length} 筆）`, body, []);
   }
 
   function initHeader() {
@@ -344,6 +409,8 @@ const App = (() => {
     };
 
     // 同步狀態小圓點：點它看最近的同步紀錄（出狀況時截圖回報用）
+    $('editorChip').onclick = () => askIdentity(false);
+    $('presenceBadge').onclick = () => { if ($('presenceBadge').title) UI.toast($('presenceBadge').title); };
     $('syncDot').style.cursor = 'pointer';
     $('syncDot').onclick = () => showSyncLog();
     document.addEventListener('sync-state', e => {
@@ -356,16 +423,19 @@ const App = (() => {
     });
     // 線上共同編輯人數（旁邊心跳每 10 秒更新一次）
     document.addEventListener('presence-update', e => {
-      const { count: n, initial } = e.detail;
+      const { count: n, names, initial } = e.detail;
       const badge = $('presenceBadge');
-      if (!n || n <= 1) badge.classList.add('hidden');
+      // v2.1.25：顯示是誰在線上（名字去重；沒選身分的分頁顯示「未具名」）
+      const who = [...new Set((names || []).map(x => x || '未具名'))];
+      if (!n || n <= 1) { badge.classList.add('hidden'); badge.title = ''; }
       else {
-        badge.textContent = `👥 ${n}`;
-        badge.title = `目前有 ${n} 人正在編輯這份行程`;
+        // 手機窄螢幕只顯示人數（點一下會跳出名字），桌面最多直接列 2 個名字
+        badge.textContent = window.innerWidth > 480 && who.length && who.length <= 2 ? `👥 ${who.join('、')}` : `👥 ${n}`;
+        badge.title = who.length ? `正在編輯：${who.join('、')}` : `目前有 ${n} 人正在編輯這份行程`;
         badge.classList.remove('hidden');
       }
       // 剛進來這份行程、且真的有別人在線 → 大大提示一下，1.5 秒後淡出
-      if (initial && n > 1) showPresenceSplash(n);
+      if (initial && n > 1) showSplash(who.length ? `👥 ${who.join('、')} 正在線上編輯，請確認資訊同步` : `👥 現在 ${n} 人在線上編輯，請確認資訊同步`, 1500);
     });
     // 偵測到雲端新版本：手上沒有未存的變更 → 已安靜刷新完成，提示一下（不強制切回行程分頁，避免打斷瀏覽）
     document.addEventListener('cloud-auto-refreshed', () => {
@@ -373,14 +443,15 @@ const App = (() => {
       Itin.render();
       if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();
       updateSaveReminder();
-      showSplash('☁️ 其他人剛更新了行程，已自動載入最新版本', 2500);
+      const by = (Store.get() && Store.get()._saveBy) || '';
+      showSplash(`☁️ ${by && by !== Store.getEditor() ? by : '其他人'}剛更新了行程，已自動載入最新版本`, 2500);
     });
     // 偵測到雲端新版本：手上還有未存的變更 → 只提醒，不強制蓋掉
     document.addEventListener('cloud-update-available', () => {
       // 同一個視窗已經開著就不再疊一個（存檔衝突和心跳可能幾乎同時發現）
       if ([...document.querySelectorAll('.modal-box h3')].some(h => h.textContent === '其他人剛更新了行程')) return;
       UI.modal('其他人剛更新了行程',
-        '剛剛有其他人（或你的另一台裝置）存了這份行程，而你手上也有還沒存上雲端的修改。\n\n兩邊的修改無法自動合併，請選擇要保留哪一份：',
+        `剛剛${Store.getLastRemoteSaveBy() && Store.getLastRemoteSaveBy() !== Store.getEditor() ? `「${Store.getLastRemoteSaveBy()}」` : '有其他人（或你的另一台裝置）'}存了這份行程，而你手上也有還沒存上雲端的修改。\n\n兩邊的修改無法自動合併，請選擇要保留哪一份：`,
         [{
           label: '💾 儲存我的版本（會蓋掉對方剛存的內容）', primary: true, onClick: () => {
             UI.closeModal();
@@ -420,6 +491,24 @@ const App = (() => {
       b.onclick = () => switchPage(b.dataset.page));
   }
 
+  // v2.1.25：在 LINE 內建瀏覽器裡開啟 → 提示改用手機瀏覽器（LINE 裡網路恢復後同步很慢）
+  function initLineBanner() {
+    if (!/\bLine\//i.test(navigator.userAgent)) return;
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem('mika_line_banner_x') === '1'; } catch {}
+    if (dismissed) return;
+    $('lineBanner').classList.remove('hidden');
+    $('btnOpenExternal').onclick = () => {
+      const u = new URL(location.href);
+      u.searchParams.set('openExternalBrowser', '1'); // LINE 看到這個參數會改用手機瀏覽器開
+      location.href = u.toString();
+    };
+    $('btnLineBannerX').onclick = () => {
+      $('lineBanner').classList.add('hidden');
+      try { sessionStorage.setItem('mika_line_banner_x', '1'); } catch {}
+    };
+  }
+
   async function initFromUrl() {
     const code = new URLSearchParams(location.search).get('code');
     if (!code) return false;
@@ -456,11 +545,12 @@ const App = (() => {
     Wizard.init();
     Itin.init();
     Feat.initExpense();
+    initLineBanner();
     const opened = await initFromUrl();
     if (!opened) Wizard.show('w-start');
   }
 
   document.addEventListener('DOMContentLoaded', init);
 
-  return { enterMain, switchPage, showSyncLog };
+  return { enterMain, switchPage, showSyncLog, showChangeLog };
 })();

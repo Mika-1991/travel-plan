@@ -18,6 +18,20 @@ const Store = (() => {
   let savesInFlight = 0;
   let changeSeq = 0, savedSeq = 0;
   let pendingSince = 0; // 最早一筆「還沒存上雲端」的修改發生時間（決定要不要跳「還沒存到雲端」提醒）
+  // v2.1.25：編輯者身分（每台裝置、每份行程記住一次）＋修改紀錄的比對基準
+  let editorName = '';
+  let syncedBase = null;        // 上次存上雲端的版本（ChangeLog.strip 過）；'NEW'＝新行程；null＝未知
+  let lastRemoteSaveBy = '';    // 心跳看到的「雲端最新版是誰存的」
+  const EDITOR_KEY = id => 'mika_editor:' + id;
+  function loadEditorFor(t) {
+    try { editorName = (t && localStorage.getItem(EDITOR_KEY(t.tripId))) || ''; } catch { editorName = ''; }
+  }
+  function setEditor(name) {
+    editorName = String(name || '').trim();
+    try { if (trip) localStorage.setItem(EDITOR_KEY(trip.tripId), editorName); } catch {}
+  }
+  const getEditor = () => editorName;
+  const getLastRemoteSaveBy = () => lastRemoteSaveBy;
   const sessionId = 'sess-' + Math.random().toString(36).slice(2) + Date.now().toString(36); // 本次分頁的識別碼（線上人數心跳用）
 
   function newTrip(basic) {
@@ -87,6 +101,7 @@ const Store = (() => {
     pendingLocalChange = false;
     notifiedUpdatedAt = 0;
     changeSeq = 1; savedSeq = 0; pendingSince = 0; // 新行程＝雲端還沒有，第一次存檔一定要送
+    syncedBase = 'NEW'; loadEditorFor(trip);
     resetHistory();
     loadSavedSnap();
     reminderBaselineSig = arrangementSig(trip);
@@ -102,6 +117,7 @@ const Store = (() => {
     pendingLocalChange = false;
     notifiedUpdatedAt = 0;
     changeSeq = 0; savedSeq = 0; pendingSince = 0; // 剛從雲端載入＝跟雲端一致
+    syncedBase = ChangeLog.strip(trip); loadEditorFor(trip);
     syncState = 'idle'; notifySync();               // 換了一份資料，上一份的存檔失敗狀態不再適用
     resetHistory();
     loadSavedSnap();
@@ -109,6 +125,7 @@ const Store = (() => {
     persistLocal();
     // 快取的最後修改時間晚於上次成功存檔 → 有離線修改，標記為未存並排入自動存檔
     if (opts && opts.fromLocal && role === 'edit' && (Number(trip.updatedAt) || 0) > (Number(trip.baseUpdatedAt) || 0)) {
+      syncedBase = null; // 不知道雲端長怎樣 → 修改紀錄記成「包含離線時的修改」
       markChanged();
       scheduleCloudSave();
     }
@@ -290,9 +307,19 @@ const Store = (() => {
     return p;
   }
   // 存檔成功後：雲端已存到「送出當下」那一次修改；若存檔期間又有新修改，仍算有未存變更
-  function afterSaved(r, seqAtSend, tripAtSend, sendAt) {
+  // 組出這次要送的資料：標記是誰、哪個分頁存的，並把「這次改了什麼」附進修改紀錄
+  function buildPayload(extraLog) {
+    trip._saveSession = sessionId; // 標記「這一版是這個分頁存的」：回應掉了也認得出是自己，不會誤判衝突
+    trip._saveBy = editorName || '';
+    const payload = JSON.parse(JSON.stringify(trip));
+    const entries = ChangeLog.makeEntries(ChangeLog.describe(syncedBase, payload), editorName);
+    payload.changeLog = ChangeLog.merge(extraLog, trip.changeLog, entries);
+    return payload;
+  }
+  function afterSaved(r, seqAtSend, tripAtSend, sendAt, payload) {
     if (trip !== tripAtSend) return; // 存檔期間已切換成別的行程 → 結果不套用到新行程
     trip.baseUpdatedAt = r.updatedAt;
+    if (payload) { trip.changeLog = payload.changeLog; syncedBase = ChangeLog.strip(payload); }
     saveRetryStep = 0; clearTimeout(saveRetryTimer);
     savedSeq = Math.max(savedSeq, seqAtSend);
     pendingLocalChange = changeSeq !== savedSeq;
@@ -310,9 +337,9 @@ const Store = (() => {
       const seqAtSend = changeSeq, tripAtSend = trip, sendAt = Date.now();
       try {
         syncState = 'saving'; notifySync();
-        trip._saveSession = sessionId; // 標記「這一版是這個分頁存的」：回應掉了也認得出是自己，不會誤判衝突
-        const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
-        afterSaved(r, seqAtSend, tripAtSend, sendAt);
+        const payload = buildPayload();
+        const r = await Api.cloudSaveTrip(payload, trip.editCode);
+        afterSaved(r, seqAtSend, tripAtSend, sendAt, payload);
       } catch (e) {
         syncState = e.conflict ? 'conflict' : (navigator.onLine ? 'error' : 'offline');
         notifySync();
@@ -332,9 +359,10 @@ const Store = (() => {
       try {
         const latest = await Api.cloudGetTrip(trip.editCode);
         trip.baseUpdatedAt = (latest.trip && latest.trip.baseUpdatedAt) || Date.now();
-        trip._saveSession = sessionId;
-        const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
-        afterSaved(r, seqAtSend, tripAtSend, sendAt);
+        // 覆蓋雲端時保留對方的修改紀錄（只蓋掉行程內容，不蓋掉「誰改過什麼」）
+        const payload = buildPayload(latest.trip && latest.trip.changeLog);
+        const r = await Api.cloudSaveTrip(payload, trip.editCode);
+        afterSaved(r, seqAtSend, tripAtSend, sendAt, payload);
       } catch (e) {
         syncState = navigator.onLine ? 'error' : 'offline'; notifySync();
         throw e;
@@ -370,10 +398,11 @@ const Store = (() => {
     const ro = isReadonly();
     try {
       // 唯讀者也問：只為了知道雲端有沒有新版本（自動刷新），後端不會把唯讀者算進編輯人數
-      const r = await Api.cloudPresencePing(ro ? trip.viewCode : trip.editCode, sessionId);
+      const r = await Api.cloudPresencePing(ro ? trip.viewCode : trip.editCode, sessionId, ro ? '' : editorName);
+      if (r.lastSaveBy !== undefined) lastRemoteSaveBy = r.lastSaveBy || '';
       if (!ro) {
         lastEditorCount = r.editorCount;
-        document.dispatchEvent(new CustomEvent('presence-update', { detail: { count: r.editorCount, initial: !!isInitial } }));
+        document.dispatchEvent(new CustomEvent('presence-update', { detail: { count: r.editorCount, names: r.names || [], initial: !!isInitial } }));
       }
       // 自己的存檔還在進行中：雲端的新時間戳很可能就是自己剛存的，先不判斷，等下一次心跳
       if (savesInFlight > 0) return;
@@ -476,6 +505,7 @@ const Store = (() => {
     create, load, cloneAsNew, loadLocal, clearLocal,
     prefs, setPref,
     touch, isManualDirty, clearManualDirty, hasPendingChanges,
+    getEditor, setEditor, getLastRemoteSaveBy, getSessionId: () => sessionId,
     undo, redo, canUndo, canRedo,
     markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved, needsSaveReminder,
     cloudSaveNow, forceCloudSave, reloadFromCloud,

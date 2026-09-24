@@ -641,13 +641,14 @@ const Api = (() => {
   }
 
   // 線上共同編輯心跳：回傳 {editorCount, updatedAt}；mock 模式沒有真實多人，回傳穩定假資料
-  async function cloudPresencePing(code, sessionId) {
+  // name：編輯者身分（v2.1.25），後端存在在線名單裡，回傳 names 讓大家看到誰在線上
+  async function cloudPresencePing(code, sessionId, name) {
     if (isMock()) {
       await delay(150);
       const t = mockCloud()[Object.keys(mockCloud()).find(id => mockCloud()[id].editCode === code)];
-      return { editorCount: 1, updatedAt: (t && t.updatedAt) || 0 };
+      return { editorCount: 1, names: name ? [name] : [], updatedAt: (t && t.updatedAt) || 0, lastSaveBy: (t && t._saveBy) || '' };
     }
-    return gasCall('presencePing', { code, sessionId });
+    return gasCall('presencePing', { code, sessionId, name: name || '' });
   }
 
   return {
