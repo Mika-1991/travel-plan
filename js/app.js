@@ -36,6 +36,33 @@ const UI = (() => {
   function loading(on, text) {
     $('loading').classList.toggle('hidden', !on);
     if (text) $('loadingText').textContent = text;
+    if (!on) { stopCreep(); barPct = 0; $('loading').classList.remove('with-bar'); }
+  }
+
+  // ---------- 進度條（0→100%）：progress=真實進度；progressCreep=估算緩慢前進到 cap；progressDone=跳 100% 後收起 ----------
+  let barPct = 0, creepTimer = null;
+  function stopCreep() { clearInterval(creepTimer); creepTimer = null; }
+  function setBar(pct, text) {
+    barPct = Math.max(barPct, Math.min(100, pct)); // 只進不退
+    $('loading').classList.remove('hidden');
+    $('loading').classList.add('with-bar');
+    if (text) $('loadingText').textContent = text;
+    $('loadingBarFill').style.width = barPct + '%';
+    $('loadingPct').textContent = Math.floor(barPct) + '%';
+  }
+  function progress(pct, text) { stopCreep(); setBar(pct, text); }
+  function progressCreep(cap, text) {
+    stopCreep();
+    setBar(barPct, text);
+    // 先快後慢逼近 cap（永遠不會自己到 cap，真正完成時由 progress/progressDone 接手）
+    creepTimer = setInterval(() => {
+      if (barPct < cap) setBar(Math.min(cap, barPct + Math.max(0.1, (cap - barPct) * 0.04)));
+    }, 150);
+  }
+  async function progressDone(text) {
+    progress(100, text);
+    await new Promise(r => setTimeout(r, 350));
+    loading(false);
   }
 
   // ---------- 通用彈窗（支援疊層：彈窗裡再開彈窗會疊在上面，關閉只退回上一層）----------
@@ -197,7 +224,7 @@ const UI = (() => {
     });
   }
 
-  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, modal, closeModal, closeAllModals, initModalDismiss, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom, fillResultHours };
+  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, progress, progressCreep, progressDone, modal, closeModal, closeAllModals, initModalDismiss, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom, fillResultHours };
 })();
 
 // ---------- App 主控 ----------
@@ -266,9 +293,10 @@ const App = (() => {
     };
     $('btnReload').onclick = async () => {
       try {
-        UI.loading(true, '重新載入中…');
+        UI.progress(0, '重新載入中…');
+        UI.progressCreep(90);
         await Store.reloadFromCloud();
-        UI.loading(false);
+        await UI.progressDone('載入完成！');
         enterMain();
         UI.toast('已載入最新版本');
       } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
@@ -325,9 +353,10 @@ const App = (() => {
           label: '現在載入最新版本', danger: true, onClick: async () => {
             UI.closeModal();
             try {
-              UI.loading(true, '載入最新版本…');
+              UI.progress(0, '載入最新版本…');
+              UI.progressCreep(90);
               await Store.reloadFromCloud();
-              UI.loading(false);
+              await UI.progressDone('載入完成！');
               enterMain();
             } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
           }
@@ -349,10 +378,11 @@ const App = (() => {
     const code = new URLSearchParams(location.search).get('code');
     if (!code) return false;
     try {
-      UI.loading(true, '正在開啟分享的行程…');
+      UI.progress(0, '正在開啟分享的行程…');
+      UI.progressCreep(90);
       const r = await Api.cloudGetTrip(code);
       Store.load(r.trip, r.role);
-      UI.loading(false);
+      await UI.progressDone('行程開啟完成！');
       UI.toast(r.role === 'view' ? '已用唯讀模式開啟' : '行程已開啟，可以編輯');
       enterMain();
       return true;

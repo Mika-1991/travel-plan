@@ -316,7 +316,8 @@ const Itin = (() => {
   async function runOptimize() {
     const t = trip();
     try {
-      UI.loading(true, '正在計算最佳路線…');
+      UI.progress(0, '正在計算最佳路線…');
+      const estDays = []; let unreachable = false; // 車開不到／查詢失敗而改用估算的天
       const all = [...t.spots].sort((a, b) => (a.day || 99) - (b.day || 99) || a.order - b.order);
       const routableAll = all.filter(Logic.hasCoords);
       const skipped = all.filter(s => !Logic.hasCoords(s));
@@ -340,7 +341,10 @@ const Itin = (() => {
       // 1)+2) 只把「未鎖定」的景點排序＋分天
       let dayArrs;
       if (routable.length) {
-        const g = await Api.optimizeRoute(o1, oN, routable, t.transport);
+        UI.progressCreep(12, '步驟 1：把景點分配到各天…');
+        const g = await Api.optimizeRoute(o1, oN, routable, t.transport,
+          { onProgress: (done, total) => UI.progress(12 * done / total, `步驟 1：把景點分配到各天（${done}/${total}）…`) });
+        if (g.unreachable) unreachable = true;
         const ordered = g.order.map(i => routable[i]);
         dayArrs = Logic.assignDaysByAnchors(ordered, dayAnchors, {
           days,
@@ -363,51 +367,69 @@ const Itin = (() => {
       lockedSpots.forEach(s => { const di = s.day - 1; if (di >= 0 && di < days) dayArrs[di].push(s); });
 
       // 3) 每天以起終點（集合地/飯店/解散地）再最佳化；再軟性把餐廳挪到用餐時段
+      UI.progress(15);
       t.legsByDay = {};
+      const activeDays = dayArrs.filter(a => a.length).length || 1;
+      let k = 0;
       for (let d = 1; d <= days; d++) {
         const listD = dayArrs[d - 1];
         if (!listD.length) continue;
+        // 步驟 2 佔 15%→95%，每一天平分
+        const base = 15 + 80 * k / activeDays, share = 80 / activeDays;
+        k++;
         const mode = dayTransportOf(d);
         const start = Logic.hasCoords(startHotel(d)) ? startHotel(d) : null;
         const end = Logic.hasCoords(endHotel(d)) ? endHotel(d) : null;
+        UI.progressCreep(base + share * 0.85, `步驟 2：第 ${d} 天，查詢真實車程…`);
         const r = await Api.optimizeRoute(start, end, listD, mode,
-          { realLegs: true, onProgress: (done, total) => UI.loading(true, `第 ${d} 天：查詢真實車程 ${done}/${total} 段…`) });
+          { realLegs: true, onProgress: (done, total) => UI.progress(base + share * 0.85 * done / total, `步驟 2：第 ${d} 天，查詢真實車程 ${done}/${total} 段…`) });
+        if (r.estimated) { estDays.push(d); if (r.unreachable) unreachable = true; }
         let ordered = r.order.map(i => listD[i]);
         let legs = r.legs;
         // 軟性：把有餐別的店挪到用餐時段（有繞路預算上限＝順路優先）；只有真的動到順序才重抓車程
         const reordered = mealAwareReorder(ordered, start, end, mode, Logic.toMin(dayStartOf(d)));
         if (!sameOrderById(reordered, ordered)) {
-          UI.loading(true, `第 ${d} 天：配合用餐時段微調路線…`);
+          UI.progressCreep(base + share, `步驟 2：第 ${d} 天，配合用餐時段微調路線…`);
           ordered = reordered;
           legs = await realDayLegs(start, end, ordered, mode);
         }
         ordered.forEach((s, pos) => { s.day = d; s.order = pos; });
         t.legsByDay[d] = legs;
+        UI.progress(base + share);
       }
       t.optimizedAt = Date.now();
       Store.clearManualDirty();
       Store.touch();
-      UI.loading(false);
+      await UI.progressDone('完成！');
       $('btnOptimize').classList.remove('glow');
       render();
 
       const lockNote = lockedSpots.length ? `（🔒 ${lockedSpots.length} 個鎖定景點已保留在原本的天）` : '';
+      const estNote = (unreachable || estDays.length)
+        ? `\n\n⚠️ 部分地點之間${unreachable ? '開車無法抵達（可能是跨海、離島或在國外，例如集合地在台灣、景點在日本）' : '暫時查不到 Google 路線'}，` +
+          `${estDays.length ? `第 ${estDays.join('、')} 天的` : ''}順序與車程改用直線距離估算，請自行確認。`
+        : '';
       const pushed = routable.filter(s => s.must && prevDayOf[s.id] > 0 && s.day > prevDayOf[s.id]);
       if (pushed.length) {
         UI.alert('必去景點被移到隔天了',
           `因為一天排不下，這些「必去」景點被移到後面的天數：\n\n` +
           pushed.map(s => `⭐ ${s.name}（第 ${s.day} 天）`).join('\n') +
-          `\n\n可以縮短其他景點的停留時間、把它鎖定在想去的那天（🔒），或手動拖回。`);
+          `\n\n可以縮短其他景點的停留時間、把它鎖定在想去的那天（🔒），或手動拖回。` + estNote);
       } else if (skipped.length) {
         UI.alert('最佳路線排好了',
           `已排序有座標的景點。${lockNote}\n\n以下 ${skipped.length} 個地點沒有座標，已保留在原本天數，未納入路線計算：\n\n` +
-          skipped.map(s => `・${s.name}`).join('\n'));
+          skipped.map(s => `・${s.name}`).join('\n') + estNote);
+      } else if (estNote) {
+        UI.alert('最佳路線排好了', `已完成排序。${lockNote}` + estNote);
       } else {
         UI.toast('最佳路線排好了！' + lockNote);
       }
     } catch (e) {
       UI.loading(false);
-      UI.alert('排路線失敗', e.message + '\n\n請稍後再試一次；若一直失敗，請檢查網路連線。');
+      const msg = String((e && e.message) || e);
+      UI.alert('排路線失敗', /ZERO_RESULTS|NOT_FOUND/.test(msg)
+        ? '有地點之間查不到可行的路線（可能跨海、離島或在國外）。\n\n請檢查集合地、飯店、解散地與景點是不是在同一個地區。'
+        : '暫時無法計算路線，可能是網路不穩。\n\n請稍後再試一次；若一直失敗，請檢查網路連線。\n\n（技術訊息：' + msg + '）');
     }
   }
 
@@ -1200,13 +1222,14 @@ const Itin = (() => {
         <div class="spot-info">
           <div class="spot-name">${s.locked ? '<span class="lock-badge" title="已鎖定：當天必去，自動安排不會移動它">🔒</span> ' : ''}${UI.esc(s.name)}${s.visited ? ' <span class="visited-badge">已去過</span>' : ''}</div>
           <div class="spot-times">${tlRow ? `${tlRow.arrive} 抵達（停留 ${stayH}）→ ${tlRow.depart} 出發` : `停留 ${stayH}`}</div>
+          ${mealLabel(s.meal) ? `<div class="spot-times spot-meal-tag">${mealLabel(s.meal)}</div>` : ''}
           ${hoursHtml}
           ${noteLine}
           ${coordWarning}
           ${closedWarn}
           <div class="stay-edit edit-only">
             <button data-act="stay-" aria-label="減少停留時間">−</button>
-            <span class="stay-val">${stayH}</span>
+            <select class="stay-sel" data-act="staysel" aria-label="停留時間">${stayOptionsHtml(s.stayMin)}</select>
             <button data-act="stay+" aria-label="增加停留時間">＋</button>
           </div>
         </div>
@@ -1214,6 +1237,7 @@ const Itin = (() => {
         <div class="spot-actions edit-only">
           <button class="drag-grip" title="按住拖曳排序（可拖到其他天）">☰</button>
           <button data-act="lock" title="${s.locked ? '解除鎖定' : '鎖定在這天（自動安排不會移動）'}">${s.locked ? '🔒' : '🔓'}</button>
+          <button data-act="meal" title="設定餐別：早餐／午餐／晚餐／點心"${s.meal ? ' class="on"' : ''}>🍽</button>
           <button data-act="exp" title="記一筆帳">💰</button>
           ${Logic.hasCoords(s) ? `<a class="ico-link" href="${UI.navLink(s)}" target="_blank" rel="noopener" title="導航">🧭</a>` : ''}
           <button data-act="menu" title="更多：打卡／備註／必去／移到某天／刪除">⋯</button>
@@ -1223,7 +1247,9 @@ const Itin = (() => {
 
     div.querySelector('[data-act="stay-"]').onclick = () => changeStay(s, -15);
     div.querySelector('[data-act="stay+"]').onclick = () => changeStay(s, 15);
+    div.querySelector('[data-act="staysel"]').onchange = e => pickStay(s, e.target);
     div.querySelector('[data-act="lock"]').onclick = () => toggleLock(s);
+    div.querySelector('[data-act="meal"]').onclick = () => pickMeal(s);
     div.querySelector('[data-act="exp"]').onclick = () =>
       Feat.quickExpense({ item: s.name, date: s.day ? Store.dateOfDay(s.day) : trip().startDate });
     div.querySelector('[data-act="menu"]').onclick = () => spotMenu(s);
@@ -1232,6 +1258,48 @@ const Itin = (() => {
     const thumb = div.querySelector('.spot-thumb');
     if (thumb) thumb.onclick = () => UI.photoZoom(s.photo, s.name);
     return div;
+  }
+
+  // 停留時間下拉：常用選項＋目前值（若不在清單）＋自訂
+  const STAY_PRESETS = [15, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 480, 600];
+  function stayOptionsHtml(cur) {
+    const opts = STAY_PRESETS.includes(cur) ? STAY_PRESETS : [...STAY_PRESETS, cur].sort((a, b) => a - b);
+    return opts.map(m => `<option value="${m}" ${m === cur ? 'selected' : ''}>${Logic.fmtDur(m)}</option>`).join('') +
+      '<option value="custom">自訂…</option>';
+  }
+  function pickStay(s, sel) {
+    if (sel.value !== 'custom') { setStay(s, Number(sel.value)); return; }
+    sel.value = String(s.stayMin); // 先還原，等輸入完再更新
+    const body = document.createElement('div');
+    body.innerHTML = `<label>停留幾分鐘？（15～600）</label>
+      <input id="stayCustomInp" type="number" inputmode="numeric" min="15" max="600" step="5" value="${s.stayMin}">`;
+    UI.modal(`🕒 ${s.name}`, body, [{
+      label: '確定', primary: true, onClick: () => {
+        const v = Math.round(Number(document.getElementById('stayCustomInp').value));
+        if (!(v >= 15 && v <= 600)) { UI.toast('請輸入 15～600 之間的分鐘數'); return; }
+        UI.closeModal();
+        setStay(s, v);
+      }
+    }]);
+    setTimeout(() => { const i = document.getElementById('stayCustomInp'); i.focus(); i.select(); }, 50);
+  }
+  function setStay(s, min) {
+    s.stayMin = Math.min(600, Math.max(15, min));
+    Store.touch();
+    render();
+  }
+
+  // 餐別（景點列上的 🍽 鈕；也可在「⋯→備註」改）
+  const mealLabel = v => (MEALS.find(m => m[0] === v && v) || [])[1] || '';
+  function pickMeal(s) {
+    UI.choose(`🍽 ${s.name}：這裡是哪一餐？`,
+      MEALS.map(([v, lb]) => ({ value: v, label: (s.meal || '') === v ? `✓ ${lb}` : lb })),
+      v => {
+        s.meal = v;
+        Store.touch({ manual: true });
+        render();
+        UI.toast(v ? `已標記為${mealLabel(v)}` : '已取消餐別');
+      });
   }
 
   function changeStay(s, delta) {

@@ -309,11 +309,22 @@ const Api = (() => {
         : routeLegsSync(o, d, ordered, mode, !!origin, !!destination);
       return { order, legs };
     }
-    const res = await svc.route({
-      origin: o, destination: d,
-      waypoints: spots.map(s => ({ location: { lat: s.lat, lng: s.lng }, stopover: true })),
-      optimizeWaypoints: true, travelMode
-    });
+    let res;
+    try {
+      res = await svc.route({
+        origin: o, destination: d,
+        waypoints: spots.map(s => ({ location: { lat: s.lat, lng: s.lng }, stopover: true })),
+        optimizeWaypoints: true, travelMode
+      });
+      if (!res || !res.routes || !res.routes.length) throw new Error('EMPTY_ROUTE');
+    } catch (e) {
+      // 有任一段車開不到（跨海／離島／國外，Google 回 ZERO_RESULTS）或網路失敗 → 不中斷，改用直線估算排序
+      console.warn('多點路線查詢失敗，改用估算', e);
+      const order = Logic.optimizeOrder(spots, o, d);
+      const legs = routeLegsSync(o, d, order.map(i => spots[i]), mode, !!origin, !!destination);
+      const code = String((e && (e.code || e.message)) || '');
+      return { order, legs, estimated: true, unreachable: /ZERO_RESULTS|NOT_FOUND/.test(code) };
+    }
     const route = res.routes[0];
     const legs = route.legs.map(l => Math.round(l.duration.value / 60));
     // 合理性防護：目的地若是車開不到的點（例如山丘上的燈塔），

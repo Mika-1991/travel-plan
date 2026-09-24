@@ -95,10 +95,11 @@ const Wizard = (() => {
       return;
     }
     try {
-      UI.loading(true, '正在載入行程…');
+      UI.progress(0, '正在載入行程…');
+      UI.progressCreep(90);
       const r = await Api.cloudGetTrip(code);
       Store.load(r.trip, r.role);
-      UI.loading(false);
+      await UI.progressDone('載入完成！');
       UI.toast(r.role === 'view' ? '已用唯讀模式開啟行程' : '行程載入成功，可以開始編輯！');
       App.enterMain();
     } catch (e) {
@@ -230,10 +231,11 @@ const Wizard = (() => {
     body.querySelectorAll('[data-open]').forEach(b =>
       b.onclick = async () => {
         try {
-          UI.loading(true, '正在載入行程…');
+          UI.progress(0, '正在載入行程…');
+          UI.progressCreep(90);
           const r = await Api.cloudGetTrip(trips[Number(b.dataset.open)].editCode);
           Store.load(r.trip, r.role);
-          UI.loading(false);
+          await UI.progressDone('載入完成！');
           UI.closeModal();
           UI.toast('行程載入成功！');
           App.enterMain();

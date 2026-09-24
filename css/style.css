@@ -307,6 +307,12 @@ body.readonly .edit-only { display: none !important; }
 }
 .stay-edit .stay-val { font-size: .95rem; color: var(--text-2); min-width: 84px; text-align: center; }
 .stay-edit a { white-space: nowrap; }
+.stay-edit .stay-sel {
+  font-size: .95rem; color: var(--text); width: auto; min-width: 96px; height: 30px; padding: 0 6px; margin-bottom: 0;
+  border: 1.5px solid var(--main); border-radius: 8px; background: var(--white); text-align: center;
+}
+.spot-meal-tag { color: var(--ok) !important; font-weight: 700; }
+.spot-actions button.on { background: var(--card); box-shadow: inset 0 0 0 1.5px var(--ok); }
 
 /* 飯店付款狀態 / 請客標籤 */
 .pay-badge, .treat-badge {
@@ -494,7 +500,7 @@ body.readonly .edit-only { display: none !important; }
   z-index: 120; box-shadow: var(--shadow); max-width: 88vw; text-align: center;
 }
 .loading {
-  position: fixed; inset: 0; background: rgba(250,246,240,.75); z-index: 110;
+  position: fixed; inset: 0; background: rgba(250,246,240,.9); z-index: 110;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
 }
 .spinner {
@@ -502,6 +508,14 @@ body.readonly .edit-only { display: none !important; }
   border: 5px solid var(--card); border-top-color: var(--main); animation: spin .9s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.loading-bar, .loading-pct { display: none; }
+.loading.with-bar .loading-bar {
+  display: block; width: min(280px, 72vw); height: 12px; border-radius: 999px;
+  background: var(--card); overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,.08);
+}
+.loading-bar-fill { height: 100%; width: 0; background: var(--main); border-radius: 999px; transition: width .25s ease-out; }
+.loading.with-bar .loading-pct { display: block; font-size: 1.1rem; font-weight: 700; color: var(--main); }
+#loadingText { text-align: center; padding: 0 16px; }
 
 /* ---------- 桌面版微調 ---------- */
 @media (min-width: 768px) {
