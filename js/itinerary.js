@@ -537,18 +537,7 @@ const Itin = (() => {
     }).catch(e => {
       console.warn('雲端儲存失敗', e);
       if (e && e.conflict) {
-        // 版本不一致：預設就是「用我這份覆蓋」；只有偵測到還有別人在線上編輯，才多問一句再覆蓋
-        const others = Store.getLastEditorCount() - 1;
-        const doForceSave = () => Store.forceCloudSave()
-          .then(() => UI.toast('☁️ 已儲存到雲端'))
-          .catch(e2 => UI.alert('儲存失敗', e2.message || String(e2)));
-        if (others > 0) {
-          UI.confirm('有人同時在編輯',
-            `目前還有 ${others} 人也在編輯這份行程，儲存會用你這份覆蓋雲端上的版本。\n\n確定要儲存嗎？`,
-            doForceSave);
-        } else {
-          doForceSave();
-        }
+        // v2.1.23：衝突一律交給「其他人剛更新了行程」三選一視窗（Store 已自動跳出），不再默默覆蓋對方
       } else {
         UI.alert('雲端尚未儲存', '你的變更目前只存在這台裝置，還沒上傳到雲端。\n\n可能是網路不穩，請確認連線後，再按一次「儲存」。');
       }

@@ -430,12 +430,16 @@ const Api = (() => {
   function mockCloud() { try { return JSON.parse(localStorage.getItem(CLOUD_KEY)) || {}; } catch { return {}; } }
   function mockCloudSave(db) { localStorage.setItem(CLOUD_KEY, JSON.stringify(db)); }
 
-  // 逾時上限：後端排隊最多等 20 秒＋處理時間；超過就放棄這次，避免存檔隊伍被一筆卡死
-  const GAS_TIMEOUT_MS = 45000;
+  // 逾時上限（v2.1.23 依動作分開）：Apps Script 執行紀錄顯示後端實際只跑 0.5～3 秒，
+  // 等很久多半是手機剛恢復網路時回應卡在路上 → 早點放棄、下一輪重試反而恢復得快。
+  // 存檔帶 _saveSession，就算逾時但其實已存好，下次也認得出是自己存的，不會誤判衝突。
+  const GAS_TIMEOUT_MS = { presencePing: 15000, getTrip: 30000, saveTrip: 30000 };
+  const GAS_TIMEOUT_DEFAULT_MS = 45000;
   async function gasCall(action, payload) {
+    const ms = GAS_TIMEOUT_MS[action] || GAS_TIMEOUT_DEFAULT_MS;
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), GAS_TIMEOUT_MS) : null;
-    let res;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), ms) : null;
+    let res, j;
     try {
       res = await fetch(CONFIG.gasUrl, {
         method: 'POST',
@@ -443,12 +447,12 @@ const Api = (() => {
         body: JSON.stringify({ action, ...payload }),
         signal: ctrl ? ctrl.signal : undefined
       });
+      if (!res.ok) throw new Error('雲端連線失敗（' + res.status + '），請稍後再試');
+      j = await res.json(); // 讀回應內容也算在逾時內（手機網路不穩時可能卡在這一步）
     } catch (e) {
-      if (e && e.name === 'AbortError') throw new Error('雲端回應太久（超過 45 秒），請稍後再試');
+      if (e && e.name === 'AbortError') throw new Error(`雲端回應太久（超過 ${ms / 1000} 秒），請稍後再試`);
       throw e;
     } finally { clearTimeout(timer); }
-    if (!res.ok) throw new Error('雲端連線失敗（' + res.status + '），請稍後再試');
-    const j = await res.json();
     if (!j.ok) { const err = new Error(j.error || '雲端回應異常'); err.conflict = !!j.conflict; throw err; }
     return j.data;
   }

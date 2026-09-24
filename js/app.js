@@ -377,6 +377,8 @@ const App = (() => {
     });
     // 偵測到雲端新版本：手上還有未存的變更 → 只提醒，不強制蓋掉
     document.addEventListener('cloud-update-available', () => {
+      // 同一個視窗已經開著就不再疊一個（存檔衝突和心跳可能幾乎同時發現）
+      if ([...document.querySelectorAll('.modal-box h3')].some(h => h.textContent === '其他人剛更新了行程')) return;
       UI.modal('其他人剛更新了行程',
         '剛剛有其他人（或你的另一台裝置）存了這份行程，而你手上也有還沒存上雲端的修改。\n\n兩邊的修改無法自動合併，請選擇要保留哪一份：',
         [{

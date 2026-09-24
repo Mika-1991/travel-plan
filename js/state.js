@@ -313,9 +313,10 @@ const Store = (() => {
         const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
         afterSaved(r, seqAtSend, tripAtSend, sendAt);
       } catch (e) {
-        // 只設狀態並往外丟；是否要彈「版本不一致」對話框由呼叫端（明確按儲存時）決定
         syncState = e.conflict ? 'conflict' : (navigator.onLine ? 'error' : 'offline');
         notifySync();
+        // v2.1.23：存檔被判衝突＝雲端確定有別人的新版本 → 立刻請使用者選擇（不再等心跳才發現）
+        if (e.conflict) askConflictChoice();
         throw e;
       }
     });
@@ -402,6 +403,11 @@ const Store = (() => {
     } catch (e) { pingFailCount++; syncLog('📡 心跳失敗：' + ((e && e.message) || e)); }
   }
   let pingFailCount = 0; // 累計心跳失敗次數（runPing 用來判斷這次有沒有失敗、決定退避）
+  // 跳出「其他人剛更新了行程」三選一（同一時間只跳一個，由 app.js 的 cloud-update-available 處理）
+  function askConflictChoice() {
+    syncLog('⚠️ 存檔時發現別人已更新 → 請使用者選擇');
+    document.dispatchEvent(new CustomEvent('cloud-update-available'));
+  }
   function retryPendingSave() {
     if (!trip || isReadonly() || !pendingLocalChange || savesInFlight > 0) return;
     if (!['error', 'offline'].includes(syncState)) return;
