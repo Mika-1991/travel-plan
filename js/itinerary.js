@@ -648,7 +648,7 @@ const Itin = (() => {
         if (gen !== routeGen) break;                // 寫入前再確認沒被新變更蓋過
         if (!t.legsByDay[d]) { t.legsByDay[d] = legs; changed = true; }
       }
-      if (changed && gen === routeGen) { Store.cloudSaveNow().catch(() => {}); render(); }
+      if (changed && gen === routeGen) { Store.saveDerived(); render(); }
     } catch (e) {
       console.warn('自動更新車程失敗（維持估算值）', e);
     } finally {

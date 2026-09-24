@@ -294,8 +294,8 @@ const App = (() => {
     Itin.render();
     switchPage('page-trip');
     updateSaveReminder();
-    if (Store.isReadonly()) { Store.stopPresencePoll(); $('presenceBadge').classList.add('hidden'); }
-    else Store.startPresencePoll();
+    if (Store.isReadonly()) $('presenceBadge').classList.add('hidden');
+    Store.startPresencePoll(); // 唯讀者也要：才能在別人更新時自動刷新
   }
 
   function initHeader() {
@@ -343,7 +343,12 @@ const App = (() => {
         });
     };
 
-    // 同步狀態小圓點
+    // 同步狀態小圓點：點它看最近的同步紀錄（出狀況時截圖回報用）
+    $('syncDot').style.cursor = 'pointer';
+    $('syncDot').onclick = () => {
+      const lines = Store.getSyncLog();
+      UI.alert('同步紀錄（最近 40 筆）', lines.length ? lines.slice().reverse().join('\n') : '目前還沒有紀錄');
+    };
     document.addEventListener('sync-state', e => {
       $('syncDot').className = 'sync-dot ' + (e.detail === 'idle' ? '' : e.detail);
       $('syncDot').title = {

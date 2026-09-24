@@ -309,6 +309,7 @@ const Store = (() => {
       const seqAtSend = changeSeq, tripAtSend = trip, sendAt = Date.now();
       try {
         syncState = 'saving'; notifySync();
+        trip._saveSession = sessionId; // 標記「這一版是這個分頁存的」：回應掉了也認得出是自己，不會誤判衝突
         const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
         afterSaved(r, seqAtSend, tripAtSend, sendAt);
       } catch (e) {
@@ -328,6 +329,7 @@ const Store = (() => {
       try {
         const latest = await Api.cloudGetTrip(trip.editCode);
         trip.baseUpdatedAt = (latest.trip && latest.trip.baseUpdatedAt) || Date.now();
+        trip._saveSession = sessionId;
         const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
         afterSaved(r, seqAtSend, tripAtSend, sendAt);
       } catch (e) {
@@ -336,7 +338,16 @@ const Store = (() => {
       }
     });
   }
+  // 同步紀錄（最近 40 筆）：點頂部小圓點可查看，出狀況時截圖回報用
+  const syncLogArr = [];
+  function syncLog(msg) {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    syncLogArr.push(`${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${msg}`);
+    if (syncLogArr.length > 40) syncLogArr.shift();
+  }
+  const SYNC_LABEL = { idle: '✅ 已存上雲端', saving: '⏳ 儲存中', error: '❌ 存檔失敗', offline: '📴 離線', conflict: '⚠️ 版本衝突' };
   function notifySync() {
+    syncLog((SYNC_LABEL[syncState] || syncState) + (pendingLocalChange ? '（有未存修改）' : ''));
     document.dispatchEvent(new CustomEvent('sync-state', { detail: syncState }));
   }
 
@@ -352,29 +363,43 @@ const Store = (() => {
   let lastEditorCount = 1; // 最近一次心跳回報的人數（含自己）；存檔衝突時用來判斷要不要多問一句
   const getLastEditorCount = () => lastEditorCount;
   async function presenceTick(isInitial) {
-    if (!trip || isReadonly()) return;
+    if (!trip) return;
+    const ro = isReadonly();
     try {
-      const r = await Api.cloudPresencePing(trip.editCode, sessionId);
-      lastEditorCount = r.editorCount;
-      document.dispatchEvent(new CustomEvent('presence-update', { detail: { count: r.editorCount, initial: !!isInitial } }));
+      // 唯讀者也問：只為了知道雲端有沒有新版本（自動刷新），後端不會把唯讀者算進編輯人數
+      const r = await Api.cloudPresencePing(ro ? trip.viewCode : trip.editCode, sessionId);
+      if (!ro) {
+        lastEditorCount = r.editorCount;
+        document.dispatchEvent(new CustomEvent('presence-update', { detail: { count: r.editorCount, initial: !!isInitial } }));
+      }
       // 自己的存檔還在進行中：雲端的新時間戳很可能就是自己剛存的，先不判斷，等下一次心跳
       if (savesInFlight > 0) return;
+      // 雲端最新版其實是「這個分頁自己」存的（回應在路上掉了）→ 接受這個時間戳，不當成別人更新
+      if (!ro && r.updatedAt > trip.baseUpdatedAt && r.lastSaveSession && r.lastSaveSession === sessionId) {
+        trip.baseUpdatedAt = r.updatedAt;
+        syncLog('🔎 雲端最新版是自己剛存的（回應曾遺失），已對齊');
+        if (pendingLocalChange) cloudSaveNow({ auto: true }).catch(() => {}); // 之後的修改再補存
+        else { syncState = 'idle'; notifySync(); }
+        return;
+      }
       if (r.updatedAt && r.updatedAt > trip.baseUpdatedAt && r.updatedAt !== notifiedUpdatedAt) {
         if (!pendingLocalChange) {
           // 目前沒有還沒存的變更 → 安靜刷新為最新版本
           notifiedUpdatedAt = r.updatedAt;
+          syncLog('☁️ 偵測到別人更新 → 自動載入');
           await reloadFromCloud();
           document.dispatchEvent(new CustomEvent('cloud-auto-refreshed'));
         } else {
           // 手上還有未存的變更 → 只提醒，不強制蓋掉
           notifiedUpdatedAt = r.updatedAt;
+          syncLog('☁️ 偵測到別人更新，但自己也有未存修改 → 請使用者選擇');
           document.dispatchEvent(new CustomEvent('cloud-update-available'));
         }
         return;
       }
       // 心跳通了＝網路恢復；之前存失敗、還有未存的修改 → 自動重存（不用使用者再按）
       retryPendingSave();
-    } catch (e) { /* 心跳失敗不影響操作，靜默略過 */ }
+    } catch (e) { syncLog('📡 心跳失敗：' + ((e && e.message) || e)); }
   }
   function retryPendingSave() {
     if (!trip || isReadonly() || !pendingLocalChange || savesInFlight > 0) return;
@@ -383,6 +408,16 @@ const Store = (() => {
   }
   // 瀏覽器偵測到恢復連線 → 馬上重試（不等下一次心跳）
   window.addEventListener('online', () => setTimeout(retryPendingSave, 1000));
+  // 手機切回這個網頁（螢幕重新亮起／從別的 App 回來）→ 背景時計時器會被暫停，馬上補一次心跳
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && presenceTimer) presenceTick(false);
+  });
+  // 自動算出來的資料（例如車程）：自己手上有未存修改時才一起存；否則只留在本機，避免兩台裝置互相覆蓋
+  function saveDerived() {
+    if (!trip || isReadonly()) return;
+    if (pendingLocalChange) { markChanged(); persistLocal(); scheduleCloudSave(); }
+    else persistLocal();
+  }
   function startPresencePoll() {
     stopPresencePoll();
     lastEditorCount = 1;
@@ -402,6 +437,7 @@ const Store = (() => {
     undo, redo, canUndo, canRedo,
     markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved, needsSaveReminder,
     cloudSaveNow, forceCloudSave, reloadFromCloud,
-    startPresencePoll, stopPresencePoll, getLastEditorCount
+    startPresencePoll, stopPresencePoll, getLastEditorCount, saveDerived,
+    getSyncLog: () => syncLogArr.slice()
   };
 })();
