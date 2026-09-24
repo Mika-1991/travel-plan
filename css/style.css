@@ -76,11 +76,12 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
 .line-banner {
   position: fixed; left: 0; right: 0; top: var(--header-h); z-index: 60;
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-  background: #FFF1D6; color: var(--text); font-size: .9rem; border-bottom: 1px solid #ecd3a4;
+  background: #9E1B1B; color: var(--white); font-size: .95rem; font-weight: 700;
+  box-shadow: 0 3px 10px rgba(0,0,0,.25);
 }
 .line-banner span { flex: 1; }
-.line-banner #btnOpenExternal { background: var(--main); color: var(--white); border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: .9rem; white-space: nowrap; }
-.line-banner #btnLineBannerX { font-size: 1.2rem; padding: 0 4px; color: var(--text-2); }
+.line-banner #btnOpenExternal { background: var(--white); color: #9E1B1B; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: .9rem; white-space: nowrap; }
+.line-banner #btnLineBannerX { font-size: 1.3rem; padding: 0 4px; color: var(--white); }
 .change-log { max-height: 60vh; overflow-y: auto; }
 .change-log .cl-row { padding: 8px 0; border-bottom: 1px dashed #e6d8c8; line-height: 1.5; }
 .change-log .cl-meta { color: var(--text-2); font-size: .85rem; }
