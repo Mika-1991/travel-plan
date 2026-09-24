@@ -12,6 +12,12 @@ const Store = (() => {
   let saveTimer = null;
   let pendingLocalChange = false; // 有變更還沒成功存回雲端（決定偵測到新版本時要「安靜刷新」還是「只提醒」）
   let notifiedUpdatedAt = 0; // 避免同一個雲端新版本每 10 秒重複提醒
+  // 存檔排隊：GAS 存一次要好幾秒，前一次沒存完就送下一次會帶舊版本號 → 被後端誤判衝突。
+  // 所以存檔一律串成一條隊伍；changeSeq 記錄第幾次修改，savedSeq 記錄雲端已存到第幾次。
+  let saveChain = Promise.resolve();
+  let savesInFlight = 0;
+  let changeSeq = 0, savedSeq = 0;
+  let pendingSince = 0; // 最早一筆「還沒存上雲端」的修改發生時間（決定要不要跳「還沒存到雲端」提醒）
   const sessionId = 'sess-' + Math.random().toString(36).slice(2) + Date.now().toString(36); // 本次分頁的識別碼（線上人數心跳用）
 
   function newTrip(basic) {
@@ -80,6 +86,7 @@ const Store = (() => {
     manualDirty = false;
     pendingLocalChange = false;
     notifiedUpdatedAt = 0;
+    changeSeq = 1; savedSeq = 0; pendingSince = 0; // 新行程＝雲端還沒有，第一次存檔一定要送
     resetHistory();
     loadSavedSnap();
     reminderBaselineSig = arrangementSig(trip);
@@ -93,6 +100,7 @@ const Store = (() => {
     manualDirty = false;
     pendingLocalChange = false;
     notifiedUpdatedAt = 0;
+    changeSeq = 0; savedSeq = 0; pendingSince = 0; // 剛從雲端載入＝跟雲端一致
     resetHistory();
     loadSavedSnap();
     reminderBaselineSig = arrangementSig(trip);
@@ -146,6 +154,7 @@ const Store = (() => {
   }
   function afterHistoryJump() {
     trip.updatedAt = Date.now();
+    markChanged();
     persistLocal();
     scheduleCloudSave();
     document.dispatchEvent(new CustomEvent('trip-changed'));
@@ -189,7 +198,11 @@ const Store = (() => {
 
   // 「記得按儲存」提醒的比對基準：獨立於「還原」快照，新行程一開始就有基準，才能一改就提醒
   let reminderBaselineSig = '';
-  const needsSaveReminder = () => !!trip && !isReadonly() && arrangementSig(trip) !== reminderBaselineSig;
+  // v2.1.19 起：只有「自動存檔沒成功」才提醒（存失敗／離線／衝突，或修改超過 10 秒還沒被任何一次存檔存上雲端）
+  const SAVE_LATE_MS = 10000;
+  const needsSaveReminder = () => !!trip && !isReadonly() &&
+    (['error', 'offline', 'conflict'].includes(syncState) ||
+     (pendingLocalChange && pendingSince > 0 && Date.now() - pendingSince > SAVE_LATE_MS));
   // 目前安排與已儲存版本不同，且可編輯時才需要顯示「還原」
   const canRestoreSaved = () => !!savedSnap && !isReadonly() && arrangementSig(trip) !== savedSnap.sig;
   function restoreSaved() {
@@ -199,6 +212,7 @@ const Store = (() => {
     restored.baseUpdatedAt = trip.baseUpdatedAt;  // 保留最新雲端衝突基準
     trip = restored;
     trip.updatedAt = Date.now();
+    markChanged();
     lastSnap = snap();
     persistLocal();
     scheduleCloudSave();
@@ -231,11 +245,17 @@ const Store = (() => {
     if (!trip) return;
     if (opts && opts.manual) manualDirty = true;
     trip.updatedAt = Date.now();
-    pendingLocalChange = true;
+    markChanged();
     recordHistory();
     persistLocal();
     scheduleCloudSave();
     document.dispatchEvent(new CustomEvent('trip-changed'));
+  }
+  // 記一筆「本機有新修改、還沒存上雲端」
+  function markChanged() {
+    if (!pendingLocalChange) pendingSince = Date.now();
+    pendingLocalChange = true;
+    changeSeq++;
   }
   const isManualDirty = () => manualDirty;
   const clearManualDirty = () => { manualDirty = false; };
@@ -245,38 +265,62 @@ const Store = (() => {
     if (isReadonly()) return;
     clearTimeout(saveTimer);
     // 背景自動存檔：失敗只反映在同步小圓點（紅點），不彈窗打擾編輯
-    saveTimer = setTimeout(() => cloudSaveNow().catch(() => {}), 1500);
+    saveTimer = setTimeout(() => cloudSaveNow({ auto: true }).catch(() => {}), 1500);
   }
-  async function cloudSaveNow() {
-    if (!trip || isReadonly()) return;
-    try {
-      syncState = 'saving'; notifySync();
-      const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
-      trip.baseUpdatedAt = r.updatedAt;
-      pendingLocalChange = false; notifiedUpdatedAt = 0;
-      syncState = 'idle'; notifySync();
-    } catch (e) {
-      // 只設狀態並往外丟；是否要彈「版本不一致」對話框由呼叫端（明確按儲存時）決定
-      syncState = e.conflict ? 'conflict' : (navigator.onLine ? 'error' : 'offline');
-      notifySync();
-      throw e;
-    }
+  // 把一次存檔排進隊伍：等前一次（不論成敗）結束才開始，確保每次都帶最新的版本號
+  function enqueueSave(job) {
+    const p = saveChain.catch(() => {}).then(async () => {
+      savesInFlight++;
+      try { return await job(); } finally { savesInFlight--; }
+    });
+    saveChain = p;
+    return p;
+  }
+  // 存檔成功後：雲端已存到「送出當下」那一次修改；若存檔期間又有新修改，仍算有未存變更
+  function afterSaved(r, seqAtSend, tripAtSend, sendAt) {
+    if (trip !== tripAtSend) return; // 存檔期間已切換成別的行程 → 結果不套用到新行程
+    trip.baseUpdatedAt = r.updatedAt;
+    savedSeq = Math.max(savedSeq, seqAtSend);
+    pendingLocalChange = changeSeq !== savedSeq;
+    // 還沒存到的修改一定發生在這次送出之後 → 從送出時間重新起算（持續編輯時提醒才不會一直亮）
+    pendingSince = pendingLocalChange ? sendAt : 0;
+    notifiedUpdatedAt = 0;
+    syncState = 'idle'; notifySync();
+  }
+  function cloudSaveNow(opts) {
+    return enqueueSave(async () => {
+      if (!trip || isReadonly()) return;
+      // 背景自動存檔：排隊期間前一次已經把最新修改存上去了 → 不用再存一次
+      if (opts && opts.auto && savedSeq === changeSeq) return;
+      const seqAtSend = changeSeq, tripAtSend = trip, sendAt = Date.now();
+      try {
+        syncState = 'saving'; notifySync();
+        const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
+        afterSaved(r, seqAtSend, tripAtSend, sendAt);
+      } catch (e) {
+        // 只設狀態並往外丟；是否要彈「版本不一致」對話框由呼叫端（明確按儲存時）決定
+        syncState = e.conflict ? 'conflict' : (navigator.onLine ? 'error' : 'offline');
+        notifySync();
+        throw e;
+      }
+    });
   }
   // 衝突時「用本機這份覆蓋雲端」：先取雲端最新時間戳蓋過衝突檢查，再整筆存回
-  async function forceCloudSave() {
-    if (!trip || isReadonly()) throw new Error('唯讀模式無法儲存');
-    syncState = 'saving'; notifySync();
-    try {
-      const latest = await Api.cloudGetTrip(trip.editCode);
-      trip.baseUpdatedAt = (latest.trip && latest.trip.baseUpdatedAt) || Date.now();
-      const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
-      trip.baseUpdatedAt = r.updatedAt;
-      pendingLocalChange = false; notifiedUpdatedAt = 0;
-      syncState = 'idle'; notifySync();
-    } catch (e) {
-      syncState = navigator.onLine ? 'error' : 'offline'; notifySync();
-      throw e;
-    }
+  function forceCloudSave() {
+    return enqueueSave(async () => {
+      if (!trip || isReadonly()) throw new Error('唯讀模式無法儲存');
+      const seqAtSend = changeSeq, tripAtSend = trip, sendAt = Date.now();
+      syncState = 'saving'; notifySync();
+      try {
+        const latest = await Api.cloudGetTrip(trip.editCode);
+        trip.baseUpdatedAt = (latest.trip && latest.trip.baseUpdatedAt) || Date.now();
+        const r = await Api.cloudSaveTrip(JSON.parse(JSON.stringify(trip)), trip.editCode);
+        afterSaved(r, seqAtSend, tripAtSend, sendAt);
+      } catch (e) {
+        syncState = navigator.onLine ? 'error' : 'offline'; notifySync();
+        throw e;
+      }
+    });
   }
   function notifySync() {
     document.dispatchEvent(new CustomEvent('sync-state', { detail: syncState }));
@@ -299,6 +343,8 @@ const Store = (() => {
       const r = await Api.cloudPresencePing(trip.editCode, sessionId);
       lastEditorCount = r.editorCount;
       document.dispatchEvent(new CustomEvent('presence-update', { detail: { count: r.editorCount, initial: !!isInitial } }));
+      // 自己的存檔還在進行中：雲端的新時間戳很可能就是自己剛存的，先不判斷，等下一次心跳
+      if (savesInFlight > 0) return;
       if (r.updatedAt && r.updatedAt > trip.baseUpdatedAt && r.updatedAt !== notifiedUpdatedAt) {
         if (!pendingLocalChange) {
           // 目前沒有還沒存的變更 → 安靜刷新為最新版本

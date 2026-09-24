@@ -87,7 +87,7 @@ const UI = (() => {
       box.appendChild(p);
     } else if (body) box.appendChild(body);
     const act = document.createElement('div');
-    act.className = 'modal-actions';
+    act.className = 'modal-actions' + (opts.stackActions ? ' stacked' : ''); // stackActions：按鈕文字長時改成直向排列
     (actions || []).forEach(a => {
       const b = document.createElement('button');
       b.className = a.primary ? 'btn-primary' : 'btn-outline';
@@ -250,10 +250,11 @@ const App = (() => {
     $('fabWrap').classList.toggle('hidden', ro);
   }
 
-  // 有手動安排還沒按「💾 儲存」（跟雲端自動同步是兩件事）→ 顯示浮動提醒（同時也是唯一的儲存按鈕）
+  // 自動存檔沒成功（失敗／離線／超過 5 秒還沒存上）才顯示浮動提醒；點它＝手動重試儲存
   function updateSaveReminder() {
     $('saveReminder').classList.toggle('hidden', !Store.needsSaveReminder());
   }
+  setInterval(updateSaveReminder, 1000); // 「超過 5 秒還沒存上」是時間條件，需要定時檢查
 
   // 剛進來行程時，如果真的有別人在線上編輯 → 畫面中間大大提示一下，1.5 秒後淡出
   let splashTimer = null;
@@ -323,6 +324,7 @@ const App = (() => {
         idle: '已同步', saving: '儲存中…', error: '同步失敗，稍後會再試',
         offline: '離線中，恢復連線後會自動同步', conflict: '偵測到其他人更新了行程'
       }[e.detail] || '';
+      updateSaveReminder();
     });
     // 線上共同編輯人數（旁邊心跳每 10 秒更新一次）
     document.addEventListener('presence-update', e => {
@@ -347,10 +349,18 @@ const App = (() => {
     });
     // 偵測到雲端新版本：手上還有未存的變更 → 只提醒，不強制蓋掉
     document.addEventListener('cloud-update-available', () => {
-      UI.modal('雲端有新版本',
-        '有人（或另一台裝置）更新了這份行程，但你手上還有還沒存的變更，所以沒有自動刷新。\n\n要現在載入最新版本嗎？（你目前的變更會被取代，建議先按「儲存」再載入）',
+      UI.modal('其他人剛更新了行程',
+        '剛剛有其他人（或你的另一台裝置）存了這份行程，而你手上也有還沒存上雲端的修改。\n\n兩邊的修改無法自動合併，請選擇要保留哪一份：',
         [{
-          label: '現在載入最新版本', danger: true, onClick: async () => {
+          label: '💾 儲存我的版本（會蓋掉對方剛存的內容）', primary: true, onClick: () => {
+            UI.closeModal();
+            Store.markSaved();
+            Store.forceCloudSave()
+              .then(() => { Itin.render(); UI.toast('☁️ 已用你的版本儲存到雲端'); })
+              .catch(e => UI.alert('儲存失敗', (e && e.message) || String(e)));
+          }
+        }, {
+          label: '☁️ 載入雲端版本（放棄我還沒存的修改）', danger: true, onClick: async () => {
             UI.closeModal();
             try {
               UI.progress(0, '載入最新版本…');
@@ -360,7 +370,7 @@ const App = (() => {
               enterMain();
             } catch (e) { UI.loading(false); UI.alert('載入失敗', e.message); }
           }
-        }]);
+        }], { stackActions: true });
     });
     // 行程資料變動 → 重畫目前頁面相關區塊
     document.addEventListener('trip-changed', () => {

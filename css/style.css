@@ -22,7 +22,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html { font-size: 16px; }
 body {
-  font-family: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  font-family: "LXGW WenKai TC", "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
   background: var(--bg); color: var(--text);
   font-size: 1rem; line-height: 1.55;
 }
@@ -481,6 +481,7 @@ body.readonly .edit-only { display: none !important; }
 .modal-x:active { color: var(--main); background: var(--card); }
 .modal-actions { display: flex; gap: 10px; margin-top: 16px; }
 .modal-actions button { flex: 1; }
+.modal-actions.stacked { flex-direction: column; }
 /* 全螢幕預覽（每日行程 / 攜帶清單）：app 內開，手機可返回 */
 .modal-box.fullscreen { max-width: 760px; height: 88vh; max-height: 88vh; display: flex; flex-direction: column; padding: 16px; }
 .modal-box.fullscreen > h3 { flex: none; }
