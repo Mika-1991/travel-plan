@@ -539,6 +539,7 @@ const Itin = (() => {
       opts.push({ label: '🔄 重新計算車程（抓最新實際時間）', value: 'refresh' });
     }
     opts.push({ label: '📋 複製成我的行程', value: 'copy' });
+    opts.push({ label: '📋 複製景點／航班到其他行程', value: 'copyto' });
     opts.push({ label: '📝 修改紀錄（誰改了什麼）', value: 'changelog' });
     opts.push({ label: '🔎 同步紀錄（出狀況時截圖給 Mika）', value: 'synclog' });
     UI.choose('更多操作', opts, v => {
@@ -550,6 +551,7 @@ const Itin = (() => {
       else if (v === 'copy') Feat.copyTrip();
       else if (v === 'synclog') App.showSyncLog();
       else if (v === 'changelog') App.showChangeLog();
+      else if (v === 'copyto') CopyTo.open();
     });
   }
 
@@ -899,13 +901,13 @@ const Itin = (() => {
   const minsOf = v => Number(v) || 0;
   // 機場外的地面交通列（可手動調整分鐘數）
   // autoMin：系統預估（Google 或直線估算）。手動調整時兩個都顯示：「約 2 小時（手動）｜預估約 1 時 40 分」
-  function groundLegRow(min, mode, f, d, toAirport, autoMin) {
+  function groundLegRow(min, mode, f, d, toAirport, autoMin, from, to) {
     const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[mode || trip().transport];
     const div = document.createElement('div');
     div.className = 'leg-row';
-    const autoSrc = f.groundAuto ? 'Google' : '估算';
+    const autoSrc = Flights.autoSource(f, from, to, mode);
     const autoTxt = Flights.isManualGround(f) ? `｜預估約 ${Logic.fmtDur(autoMin)}（${autoSrc}）` : '';
-    div.innerHTML = `↓ ${icon} ${toAirport ? '到機場' : '到目的地'}約 ${Logic.fmtDur(min)}（${Flights.groundSource(f)}）${autoTxt}
+    div.innerHTML = `↓ ${icon} ${toAirport ? '到機場' : '到目的地'}約 ${Logic.fmtDur(min)}（${Flights.groundSource(f, from, to, mode)}）${autoTxt}
       <button class="edit-only ground-edit" type="button" title="手動調整這段時間">✎</button>`;
     div.querySelector('.ground-edit').onclick = () => {
       const body = document.createElement('div');
@@ -932,7 +934,7 @@ const Itin = (() => {
     if (origin) {
       const g = Flights.groundMin(f, origin.p, f.depAirport, mode);
       card.appendChild(pointRow(origin, `${Logic.toHHMM(checkinAt - g)} 建議出發前往機場`, d, 'start'));
-      card.appendChild(groundLegRow(g, mode, f, d, true, Flights.autoGroundMin(f, origin.p, f.depAirport, mode)));
+      card.appendChild(groundLegRow(g, mode, f, d, true, Flights.autoGroundMin(f, origin.p, f.depAirport, mode), origin.p, f.depAirport));
       Flights.ensureGroundAuto(f, origin.p, f.depAirport, mode, render);
     }
     card.appendChild(Flights.cardEl(f, Store.isReadonly() ? null : () => Flights.openForm(d, 'arrive', f, render)));
@@ -943,7 +945,7 @@ const Itin = (() => {
     if (!dest) return;
     const mode = dayTransportOf(d);
     const g = Flights.groundMin(f, f.arrAirport, dest.p, mode);
-    card.appendChild(groundLegRow(g, mode, f, d, false, Flights.autoGroundMin(f, f.arrAirport, dest.p, mode)));
+    card.appendChild(groundLegRow(g, mode, f, d, false, Flights.autoGroundMin(f, f.arrAirport, dest.p, mode), f.arrAirport, dest.p));
     const at = Logic.toHHMM(Logic.toMin(f.arrTime) + minsOf(f.clearMin) + g);
     card.appendChild(pointRow(dest, `約 ${at} 抵達${dest.kind === 'end' ? '解散地' : '飯店'}${Flights.tz(f)}`, d, 'end'));
     Flights.ensureGroundAuto(f, f.arrAirport, dest.p, mode, render);
@@ -1454,8 +1456,10 @@ const Itin = (() => {
     for (let d = 1; d <= days; d++) {
       if (d !== s.day) opts.push({ label: `📅 移到第 ${d} 天`, value: 'day' + d });
     }
+    opts.push({ label: '📋 複製到其他行程', value: 'copyto' });
     opts.push({ label: '🗑 刪除景點', value: 'del', danger: true });
     UI.choose(s.name, opts, v => {
+      if (v === 'copyto') { CopyTo.open(s.id); return; }
       if (v === 'visited') {
         s.visited = !s.visited; Store.touch(); render();
         if (s.visited) UI.toast(`✅ 「${s.name}」打卡完成！`);

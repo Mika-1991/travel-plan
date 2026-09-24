@@ -83,6 +83,12 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
 .line-banner #btnOpenExternal { background: var(--white); color: #9E1B1B; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: .9rem; white-space: nowrap; }
 .line-banner #btnLineBannerX { font-size: 1.3rem; padding: 0 4px; color: var(--white); }
 .change-log { max-height: 60vh; overflow-y: auto; }
+/* 複製到其他行程（v2.1.29） */
+.copy-list { max-height: 46vh; overflow-y: auto; border: 1px solid #e6d8c8; border-radius: 10px; padding: 6px 10px; margin-top: 8px; }
+.copy-day { font-weight: 700; color: var(--main); margin: 8px 0 2px; }
+.copy-item { display: flex; align-items: center; gap: 8px; font-weight: 400; margin: 4px 0; line-height: 1.4; }
+.copy-item input { width: auto; margin: 0; flex: none; }
+.copy-item .hint { margin-left: 4px; }
 /* 航班卡（v2.1.27） */
 .flight-card {
   margin: 6px 14px; padding: 10px 12px; border-radius: 12px;

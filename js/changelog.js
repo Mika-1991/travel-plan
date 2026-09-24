@@ -75,7 +75,7 @@ const ChangeLog = (() => {
 
   // v2.1.27 航班（groundAuto＝自動算的地面交通，不算使用者修改）
   function diffFlights(a, b, out) {
-    const clean = f => { const c = Object.assign({}, f); delete c.groundAuto; return c; };
+    const clean = f => { const c = Object.assign({}, f); delete c.groundAuto; delete c.groundAutoKey; return c; };
     const label = f => `第 ${f.day} 天${f.type === 'arrive' ? '抵達' : '起飛'}航班${f.flightNo ? ' ' + f.flightNo : ''}`;
     const A = new Map((a.flights || []).map(f => [f.id, f]));
     const B = new Map((b.flights || []).map(f => [f.id, f]));
@@ -114,7 +114,7 @@ const ChangeLog = (() => {
     diffExpenses(base, b, out);
     diffFlights(base, b, out);
     // 只有「自動算的地面交通」變了 → 不算修改
-    const noAuto = t => { const c = JSON.parse(JSON.stringify(t)); (c.flights || []).forEach(f => delete f.groundAuto); return c; };
+    const noAuto = t => { const c = JSON.parse(JSON.stringify(t)); (c.flights || []).forEach(f => { delete f.groundAuto; delete f.groundAutoKey; }); return c; };
     if (!out.length && same(noAuto(base), noAuto(b))) return [];
     if (!out.length) out.push('更新了行程設定');
     if (out.length > MAX_LINES_PER_SAVE) {

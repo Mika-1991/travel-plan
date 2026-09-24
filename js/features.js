@@ -1160,6 +1160,18 @@ tr.flight .type{color:#FFD27A}
 tr.flight .addr,tr.flight .note{color:#DCE6F2}
 tr.airport td{background:#EAF1FA}
 tr.airport .type{color:#3E5F8A}`;
+  // v2.1.29：每一天用不同深淺的主色底區分；「第 N 天」標題列放大、深色底白字、左右置中；
+  // 表格內容上下置中；只用主色（奶茶棕）的深淺，不加其他顏色
+  const PRINT_DAY_CSS = `.day{border:none!important;border-radius:10px;overflow:hidden;padding:0!important;box-shadow:none!important}
+.day:nth-of-type(odd){background:#FBF6EF}
+.day:nth-of-type(even){background:#EFE3D3}
+.day h2{margin:0!important;padding:12px;text-align:center;font-size:24px!important;font-weight:800;letter-spacing:2px;color:#fff!important;background:#A9805B}
+.day:nth-of-type(even) h2{background:#7A5A3E}
+.day h2 span{color:#F6ECDF!important;font-size:15px!important;letter-spacing:0}
+.day table{margin:0}
+.day td{vertical-align:middle!important;border-top:1px solid rgba(122,90,62,.22)}
+.day tr:first-child td{border-top:none}
+.day .type{padding-left:14px}`;
   function printableHtml() {
     const t = trip();
     const daySections = Array.from({ length: Store.days() }, (_, i) => {
@@ -1178,6 +1190,7 @@ h1{margin:0 0 8px;color:#8f6a49}.meta{color:#8C7B6B;margin-bottom:18px}.day{page
 h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:10px;vertical-align:top}.type{width:90px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:14px;margin-top:3px}
 @media print{body{background:#fff;padding:0}.day{box-shadow:none;border:1px solid #ddd}}
 ${PRINT_FLIGHT_CSS}
+${PRINT_DAY_CSS}
 </style></head><body><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</body></html>`;
   }
   function printableDailyHtml() {
@@ -1200,6 +1213,7 @@ h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom
 h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:8px;vertical-align:top}.type{width:86px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:13px;margin-top:3px}.pic{width:64px;text-align:right}.pic img{width:60px;height:60px;object-fit:cover;border-radius:6px}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.day{break-inside:avoid}}
 ${PRINT_FLIGHT_CSS}
+${PRINT_DAY_CSS}
 </style></head><body><main class="sheet"><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</main></body></html>`;
   }
   function packingHtml() {

@@ -33,29 +33,37 @@ const Flights = (() => {
 
   // 機場外的地面交通（抵達航班：出發地→出發機場；起飛航班：抵達機場→目的地）
   // 手動調整優先，其次 Google 真實車程，最後直線估算
+  // v2.1.29：Google 車程要記住「是從哪裡算到哪裡」（groundAutoKey）。起點或終點換了（例如集合地從
+  // 桃園機場改成龍井車站）就不能再用舊值——原本會一直沿用舊的「1 分鐘」。
+  const pt = p => (Logic.hasCoords(p) ? `${Number(p.lat).toFixed(4)},${Number(p.lng).toFixed(4)}` : '');
+  const autoKey = (from, to, mode) => `${pt(from)}>${pt(to)}|${mode || ''}`;
+  const validAuto = (f, from, to, mode) => !!f.groundAuto && f.groundAutoKey === autoKey(from, to, mode);
   function groundMin(f, from, to, mode) {
     if (f.groundMin !== undefined && f.groundMin !== null && f.groundMin !== '') return mins(f.groundMin);
-    if (f.groundAuto) return mins(f.groundAuto);
-    return from && to ? Logic.travelMinutes(from, to, mode) : 0;
+    return autoGroundMin(f, from, to, mode);
   }
-  // 系統預估（不看手動值）：Google 真實車程，沒有就直線估算——手動調整時也一起顯示，方便比對
+  // 系統預估（不看手動值）：Google 真實車程（且起訖點沒變），否則直線估算——手動調整時也一起顯示，方便比對
   function autoGroundMin(f, from, to, mode) {
-    if (f.groundAuto) return mins(f.groundAuto);
+    if (validAuto(f, from, to, mode)) return mins(f.groundAuto);
     return from && to ? Logic.travelMinutes(from, to, mode) : 0;
   }
   const isManualGround = f => f.groundMin !== undefined && f.groundMin !== null && f.groundMin !== '';
-  const groundSource = f =>
-    (f.groundMin !== undefined && f.groundMin !== null && f.groundMin !== '') ? '手動' : (f.groundAuto ? 'Google' : '估算');
+  const groundSource = (f, from, to, mode) =>
+    isManualGround(f) ? '手動' : (validAuto(f, from, to, mode) ? 'Google' : '估算');
+  const autoSource = (f, from, to, mode) => (validAuto(f, from, to, mode) ? 'Google' : '估算');
 
-  // 背景抓 Google 真實車程（每班只抓一次，抓到就記在 groundAuto）
+  // 背景抓 Google 真實車程（起訖點沒變就不重抓；變了就重抓，連同 groundAutoKey 一起記）
   const fetching = new Set();
   function ensureGroundAuto(f, from, to, mode, onDone) {
-    if (!f || f.groundAuto || !Logic.hasCoords(from) || !Logic.hasCoords(to)) return;
-    const key = f.id + ':' + mode;
+    if (!f || validAuto(f, from, to, mode) || !Logic.hasCoords(from) || !Logic.hasCoords(to)) return;
+    const key = f.id + ':' + autoKey(from, to, mode);
     if (fetching.has(key)) return;
     fetching.add(key);
     Api.travelTime(from, to, mode).then(min => {
-      if (min && !f.groundAuto) { f.groundAuto = Math.round(min); Store.saveDerived(); onDone && onDone(); }
+      if (min && !validAuto(f, from, to, mode)) {
+        f.groundAuto = Math.round(min); f.groundAutoKey = autoKey(from, to, mode);
+        Store.saveDerived(); onDone && onDone();
+      }
     }).catch(() => {}).finally(() => fetching.delete(key));
   }
 
@@ -89,7 +97,9 @@ const Flights = (() => {
     opts.push(dep
       ? { label: `🛫 編輯起飛航班（${dep.flightNo || dep.depAirport.name} ${dep.depTime} 起飛）`, value: 'edit-depart' }
       : { label: '🛫 新增起飛航班（這天行程結束後到機場搭飛機）', value: 'new-depart' });
+    if (arr || dep) opts.push({ label: '📋 複製航班到其他行程', value: 'copyto' });
     UI.choose(`✈️ 第 ${day} 天的航班`, opts, v => {
+      if (v === 'copyto') { CopyTo.open(); return; }
       const [act, type] = v.split('-');
       openForm(day, type, act === 'edit' ? of(day, type) : null, onChanged);
     });
@@ -240,7 +250,7 @@ const Flights = (() => {
     };
     const commit = () => {
       // 換了機場 → 自動算的地面交通要重抓
-      if (existing && ((existing.depAirport || {}).placeId !== f.depAirport.placeId || (existing.arrAirport || {}).placeId !== f.arrAirport.placeId)) delete f.groundAuto;
+      if (existing && ((existing.depAirport || {}).placeId !== f.depAirport.placeId || (existing.arrAirport || {}).placeId !== f.arrAirport.placeId)) { delete f.groundAuto; delete f.groundAutoKey; }
       if (!t.flights) t.flights = [];
       t.flights = t.flights.filter(x => x.id !== f.id);
       t.flights.push(f);
@@ -269,5 +279,5 @@ const Flights = (() => {
   // 改旅遊天數時：超出天數的航班
   const beyond = newDays => all().filter(f => Number(f.day) > newDays);
 
-  return { of, all, isComplete, dayStartMin, dayEndMin, groundMin, groundSource, autoGroundMin, isManualGround, ensureGroundAuto, cardEl, openDay, openForm, beyond, tz };
+  return { of, all, isComplete, dayStartMin, dayEndMin, groundMin, groundSource, autoSource, autoGroundMin, isManualGround, ensureGroundAuto, cardEl, openDay, openForm, beyond, tz };
 })();
