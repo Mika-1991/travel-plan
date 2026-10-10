@@ -91,6 +91,7 @@ const Store = (() => {
     t.flights = Array.isArray(t.flights) ? t.flights : []; // v2.1.27 航班
     if (!t.hotelPoll || !Array.isArray(t.hotelPoll.candidates)) t.hotelPoll = { owner: (t.hotelPoll && t.hotelPoll.owner) || '', candidates: [] }; // v2.1.30 飯店投票
     if (!t.prep || !Array.isArray(t.prep.tasks)) t.prep = { templateAsked: !!(t.prep && t.prep.templateAsked), tasks: [], autoOwners: (t.prep && t.prep.autoOwners) || {} }; // v2.1.32 行前準備
+    t.dayTitles = t.dayTitles || {}; t.dayIcons = t.dayIcons || {}; // v2.1.33 每天主題
     t.dayTransportOv = t.dayTransportOv || {};
     t.rainPlans = t.rainPlans || {};
     t.rainActive = t.rainActive || {};

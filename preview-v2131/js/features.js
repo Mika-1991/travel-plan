@@ -943,7 +943,7 @@ const Feat = (() => {
     ];
     const itinerary = [['天數', '日期', '類型', '名稱', '地址', '備註']];
     for (let d = 1; d <= days; d++) {
-      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
+      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天${themeTxt(d, true)}`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
     }
     const hotels = [['晚別', '名稱', '地址', '付款狀態', '備註', '平日價', '假日價']];
     (t.hotels || []).sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
@@ -987,7 +987,7 @@ ${sheetXml('攜帶清單', packing)}
     ];
     const itinerary = [['天數', '日期', '類型', '名稱', '地址', '備註']];
     for (let d = 1; d <= days; d++) {
-      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
+      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天${themeTxt(d, true)}`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
     }
     const hotels = [['夜晚', '名稱', '地址', '付款狀態', '備註', '平日價格', '假日價格']];
     (t.hotels || []).slice().sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
@@ -1183,7 +1183,7 @@ tr.airport .type{color:#004D73}`;
           <td class="type">${r.type === '航班' ? '✈️ 航班' : textEsc(r.type)}</td>
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
         </tr>`).join('');
-      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="2">尚無安排</td></tr>'}</table></section>`;
+      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}${themeTxt(d)}</h2><table>${rows || '<tr><td colspan="2">尚無安排</td></tr>'}</table></section>`;
     }).join('');
     return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 每日行程</title>
 <style>
@@ -1205,7 +1205,7 @@ ${PRINT_DAY_CSS}
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
           <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="">` : ''}</td>
         </tr>`).join('');
-      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))} <span style="font-weight:400;color:#617587;font-size:15px">・${textEsc(dayTransportText(d))}</span></h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
+      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}${themeTxt(d)} <span style="font-weight:400;color:#617587;font-size:15px">・${textEsc(dayTransportText(d))}</span></h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
     }).join('');
     return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 每日行程 PDF</title>
 <style>
@@ -1217,6 +1217,11 @@ h2{margin:0 0 8px;color:#006599;font-size:18px}table{width:100%;border-collapse:
 ${PRINT_FLIGHT_CSS}
 ${PRINT_DAY_CSS}
 </style></head><body><main class="sheet"><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</main></body></html>`;
+  }
+  // v2.1.33 每天主題（只用自訂的；沒設就不加）
+  function themeTxt(d, raw) {
+    const v = String(((trip() || {}).dayTitles || {})[d] || '').trim();
+    return v ? `｜${raw ? v : textEsc(v)}` : '';
   }
   function packingHtml() {
     const t = trip();

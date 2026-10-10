@@ -8,6 +8,41 @@ const Itin = (() => {
   const trip = () => Store.get();
   const DAY_COLORS = ['#006599', '#E07B00', '#0F9D58', '#7C3AED', '#D6336C', '#0891B2'];
   const dayColor = d => DAY_COLORS[(d - 1 + DAY_COLORS.length * 9) % DAY_COLORS.length];
+  const WEEK = '日一二三四五六';
+  const weekdayOf = iso => WEEK[new Date(iso + 'T00:00:00').getDay()];
+
+  // ---------- v2.1.33 一次看一天：0＝全部、'un'＝待排、1..N＝第幾天 ----------
+  let viewDay = null, viewTrip = '', daySwap = '';
+  let openRowId = '';          // 時間軸上展開動作列的那一列（一次只開一列）
+  const VIEW_KEY = id => 'mika_day:' + id;
+  function currentView() {
+    const t = trip(), days = Store.days();
+    if (viewTrip !== t.tripId) { // 換了行程：重新決定看哪天
+      viewTrip = t.tripId; viewDay = null;
+      const now = new Date();
+      const ti = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      for (let d = 1; d <= days; d++) if (Store.dateOfDay(d) === ti) viewDay = d; // 旅行中 → 今天
+      if (viewDay === null) {
+        let saved = null;
+        try { saved = localStorage.getItem(VIEW_KEY(t.tripId)); } catch {}
+        viewDay = saved === 'un' ? 'un' : saved !== null ? Number(saved) : 1;
+      }
+    }
+    if (viewDay === 'un' && !unassigned().length) viewDay = 1;
+    if (typeof viewDay === 'number' && (viewDay < 0 || viewDay > days || isNaN(viewDay))) viewDay = 1;
+    return viewDay;
+  }
+  function showDay(d, dir) {
+    currentView();
+    if (d === viewDay) return;
+    daySwap = dir || '';
+    viewDay = d;
+    try { localStorage.setItem(VIEW_KEY(trip().tripId), String(d)); } catch {}
+    openRowId = '';
+    render();
+    const strip = $('dayStrip');
+    if (strip && strip.getBoundingClientRect().top < 0) window.scrollTo(0, Math.max(0, strip.offsetTop - 120));
+  }
 
   // ---------- 每天的起點與終點 ----------
   // 起點：第 1 天優先用「集合出發地」；否則前一晚飯店（第 1 天用當晚）
@@ -171,7 +206,8 @@ const Itin = (() => {
     t.spots.push(spot);
     if (day) delete t.legsByDay[day];
     Store.touch(day ? { manual: true } : undefined);
-    UI.toast(hasCoords ? `已加入「${place.name}」${day ? `到第 ${day} 天` : ''}` : `已加入「${place.name}」，但沒有座標，路程會略過估算`);
+    UI.toast(hasCoords ? `已加入「${place.name}」${day ? `到第 ${day} 天` : '到待排（按「自動安排」會分到各天）'}` : `已加入「${place.name}」，但沒有座標，路程會略過估算`);
+    if (day && viewDay !== 0) viewDay = day;
     render();
     // 加入時抓一次營業時間（真實地點），存起來給行程顯示＋公休日提醒
     if (placeId && !String(placeId).startsWith('custom') && !String(placeId).startsWith('m-')) {
@@ -467,7 +503,6 @@ const Itin = (() => {
     const showDays = anySpot || hasRoutePlan;
     $('tripEmpty').classList.toggle('hidden', showDays);
     $('tripSummaryBar').classList.toggle('hidden', !showDays);
-    if (!showDays && $('prepPanel')) $('prepPanel').classList.add('hidden');
 
     const fab = $('btnOptimize');
     fab.disabled = t.spots.length < 2;
@@ -479,11 +514,16 @@ const Itin = (() => {
     const wrap = $('dayList');
     wrap.innerHTML = '';
     const un = unassigned();
-    if (un.length) wrap.appendChild(renderUnassignedCard(un));
+    const view = showDays ? currentView() : 0;
+    renderDayStrip(showDays, un.length);
+    wrap.classList.toggle('single', showDays && view !== 0);
+    if (un.length && (view === 0 || view === 'un' || !showDays)) wrap.appendChild(renderUnassignedCard(un));
     for (let d = 1; d <= days; d++) {
       if (!showDays) continue; // 完全沒景點與住宿/集合點時只顯示空狀態引導
+      if (view !== 0 && view !== d) continue; // 一次看一天
       wrap.appendChild(renderDayCard(d, spotsOfDay(d)));
     }
+    if (daySwap) { wrap.classList.remove('swap-l', 'swap-r'); void wrap.offsetWidth; wrap.classList.add(daySwap === 'next' ? 'swap-l' : 'swap-r'); daySwap = ''; }
     renderMiniMap();
     Feat.fillWeather();
     notifyOverflowDays();
@@ -543,6 +583,9 @@ const Itin = (() => {
     opts.push({ label: '📋 複製景點／航班到其他行程', value: 'copyto' });
     opts.push({ label: '📝 修改紀錄（誰改了什麼）', value: 'changelog' });
     opts.push({ label: '🔎 同步紀錄（出狀況時截圖給 Mika）', value: 'synclog' });
+    opts.push({ label: '🧭 新手導覽（重看一次）', value: 'tour' });
+    opts.push({ label: '💬 意見回饋', value: 'feedback' });
+    opts.push({ label: '🧹 清除這台裝置的資料', value: 'clear' });
     UI.choose('更多操作', opts, v => {
       if (v === 'undo') doUndo();
       else if (v === 'save') saveCurrentArrangement();
@@ -551,6 +594,9 @@ const Itin = (() => {
       else if (v === 'refresh') refreshRoutes();
       else if (v === 'copy') Feat.copyTrip();
       else if (v === 'synclog') App.showSyncLog();
+      else if (v === 'tour') Tour.start(true);
+      else if (v === 'feedback') App.openFeedback();
+      else if (v === 'clear') document.getElementById('btnClear').click();
       else if (v === 'changelog') App.showChangeLog();
       else if (v === 'copyto') CopyTo.open();
     });
@@ -676,6 +722,129 @@ const Itin = (() => {
     }
   }
 
+  // 日期軸：全部｜待排｜每天一個圓點（選中的那天亮起、📍 標示），點了看那一天
+  function renderDayStrip(show, unCount) {
+    const box = $('dayStrip');
+    if (!box) return;
+    box.classList.toggle('hidden', !show);
+    if (!show) return;
+    const days = Store.days(), view = currentView();
+    let html = `<button class="ds-all${view === 0 ? ' on' : ''}" data-v="0">全部</button>`;
+    if (unCount) html += `<button class="ds-un${view === 'un' ? ' on' : ''}" data-v="un">待排 ${unCount}</button>`;
+    html += '<div class="ds-days">';
+    for (let d = 1; d <= days; d++) {
+      const iso = Store.dateOfDay(d);
+      const on = view === d;
+      html += `<button class="ds-day${on ? ' on' : ''}" data-v="${d}" style="--dc:${dayColor(d)}">
+        <span class="ds-dot">${on ? '📍' : ''}</span>
+        <b>${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}</b><small>週${weekdayOf(iso)}${hasFlightDay(d) ? ' ✈' : ''}</small></button>`;
+    }
+    html += '</div>';
+    box.innerHTML = html;
+    box.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
+      const v = b.dataset.v === 'un' ? 'un' : Number(b.dataset.v);
+      const cur = currentView();
+      showDay(v, typeof v === 'number' && typeof cur === 'number' && v > 0 && cur > 0 ? (v > cur ? 'next' : 'prev') : '');
+    });
+    const on = box.querySelector('.ds-day.on');
+    if (on) { const row = box.querySelector('.ds-days'); row.scrollLeft = on.offsetLeft - row.clientWidth / 2 + on.clientWidth / 2; }
+  }
+  // 左右滑換天（只在看單一天時）
+  function initSwipe() {
+    const el = $('dayList');
+    if (!el) return;
+    let x0 = 0, y0 = 0, ok = false;
+    el.addEventListener('touchstart', e => {
+      const tg = e.target;
+      ok = e.touches.length === 1 && !tg.closest('input,select,textarea,.drag-grip,.spot-expand');
+      x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+    }, { passive: true });
+    el.addEventListener('touchend', e => {
+      if (!ok) return;
+      const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+      const v = currentView();
+      if (typeof v !== 'number' || v < 1 || Math.abs(dx) < 70 || Math.abs(dy) > 45) return;
+      const nd = dx < 0 ? v + 1 : v - 1;
+      if (nd >= 1 && nd <= Store.days()) showDay(nd, dx < 0 ? 'next' : 'prev');
+    }, { passive: true });
+  }
+
+  // 每天主題：自訂標題／圖示；沒設就用當天前兩個景點
+  const THEME_ICONS = ['📍', '♨️', '🏔️', '🛍️', '🌃', '🏯', '🌸', '🍜', '🚗', '✈️', '🏖️', '🎢', '🍁', '❄️'];
+  function dayTheme(d) {
+    const t = trip();
+    const own = String((t.dayTitles || {})[d] || '').trim();
+    if (own) return { title: own, auto: false };
+    const list = spotsOfDay(d);
+    const names = list.slice(0, 2).map(s => s.name);
+    return { title: names.length ? names.join('＋') + (list.length > 2 ? '…' : '') : '還沒有景點', auto: true };
+  }
+  function editDayTheme(d) {
+    if (Store.isReadonly()) return;
+    const t = trip();
+    let icon = (t.dayIcons || {})[d] || '📍';
+    const body = document.createElement('div');
+    const auto = dayTheme(d);
+    body.innerHTML = `
+      <label>這天的主題（例如：十和田湖＋奧入瀨）</label>
+      <input id="dtTitle" type="text" maxlength="30" placeholder="${UI.esc(auto.auto ? auto.title : '')}" value="${UI.esc((t.dayTitles || {})[d] || '')}">
+      <label>圖示</label>
+      <div class="dt-icons">${THEME_ICONS.map(i => `<button type="button" class="dt-icon${i === icon ? ' on' : ''}" data-i="${i}">${i}</button>`).join('')}</div>
+      <p class="hint">空白＝自動用當天前兩個景點當標題。</p>`;
+    body.querySelectorAll('.dt-icon').forEach(b => b.onclick = () => {
+      icon = b.dataset.i;
+      body.querySelectorAll('.dt-icon').forEach(x => x.classList.toggle('on', x === b));
+    });
+    UI.modal(`✎ 第 ${d} 天主題`, body, [{ label: '儲存', primary: true, onClick: () => {
+      t.dayTitles = t.dayTitles || {}; t.dayIcons = t.dayIcons || {};
+      const v = body.querySelector('#dtTitle').value.trim();
+      if (v) t.dayTitles[d] = v; else delete t.dayTitles[d];
+      if (icon && icon !== '📍') t.dayIcons[d] = icon; else delete t.dayIcons[d];
+      Store.touch({ manual: true }); UI.closeModal(); render();
+    } }]);
+    setTimeout(() => body.querySelector('#dtTitle').focus(), 50);
+  }
+  // ⋯ 這天設定：原本一整排按鈕收進同一個選單
+  function dayMenu(d, list) {
+    const t = trip();
+    const opts = [
+      { label: `🕘 出發／結束時間（${dayStartOf(d)}–${dayEndOf(d)}）`, value: 'time' },
+      { label: `${TRANSPORT_META[dayTransportOf(d)][0]} 這天的交通方式（${TRANSPORT_META[dayTransportOf(d)][1]}）`, value: 'trans' },
+      { label: '🍜 附近美食', value: 'food' },
+      ...(list.length ? [{ label: '🧭 全日導航', value: 'nav' }] : []),
+      { label: `☔ 雨天備案${t.rainActive[d] ? '（使用中）' : (t.rainPlans[d] && t.rainPlans[d].spots && t.rainPlans[d].spots.length ? '（已設定）' : '')}`, value: 'rain' },
+      { label: `🏨 ${Store.hotelOfNight(d - 1) || Store.hotelOfNight(d - 2) ? '換飯店' : '推薦飯店'}`, value: 'hotel' },
+      { label: `✈️ 航班${hasFlightDay(d) ? '（已設定）' : ''}`, value: 'flight' },
+      { label: '✎ 這天的主題與圖示', value: 'theme' }
+    ];
+    if (d === 1) opts.push({ label: `🚩 集合地${t.meetPoint ? '（已設定）' : ''}`, value: 'pts' });
+    if (d === Store.days()) opts.push({ label: `🏁 解散地${t.endPoint ? '（已設定）' : ''}`, value: 'pts' });
+    UI.choose(`第 ${d} 天設定`, opts, v => {
+      if (v === 'time') editDayTime(d);
+      else if (v === 'trans') openDayTransport(d);
+      else if (v === 'food') Feat.openFood(d);
+      else if (v === 'nav') window.open(dayNavLink(d, list), '_blank', 'noopener');
+      else if (v === 'rain') Feat.openRainPlan(d);
+      else if (v === 'hotel') Feat.recommendHotel(d);
+      else if (v === 'flight') Flights.openDay(d, render);
+      else if (v === 'theme') editDayTheme(d);
+      else if (v === 'pts') Feat.openRoutePoints();
+    });
+  }
+  // 時間軸列：點卡片展開／收合動作列（一次只開一列）
+  function bindExpand(div, id) {
+    if (id === openRowId) div.classList.add('open');
+    div.addEventListener('click', e => {
+      if (e.target.closest('button,a,select,input,.spot-thumb,.thumb')) return;
+      if (!div.querySelector('.spot-expand')) return;
+      const willOpen = !div.classList.contains('open');
+      document.querySelectorAll('.spot-row.open').forEach(r => r.classList.remove('open'));
+      div.classList.toggle('open', willOpen);
+      openRowId = willOpen ? id : '';
+    });
+  }
+  const timeOf = txt => { const m = String(txt || '').match(/(\d{1,2}:\d{2})/); return m ? m[1] : ''; };
+
   function renderSummaryBar() {
     const t = trip();
     const modeTxt = { driving: '🚗 開車', transit: '🚇 大眾運輸', walking: '🚶 走路' };
@@ -696,10 +865,10 @@ const Itin = (() => {
           <button id="btnSwitchMode" class="sb-chip">${modeTxt[t.transport]}${caret}</button>
         </div>
       </div>
-      ${Prep.cardHtml()}
+      ${Prep.miniHtml()}
       <p class="sb-facts">${facts.map(UI.esc).join('｜')}</p>
       <p class="sb-note">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同</p>`;
-    Prep.bindCard();
+    Prep.bindMini();
     const dBtn = $('btnTripDates');
     if (Store.isReadonly()) dBtn.style.pointerEvents = 'none';
     else dBtn.onclick = () => Feat.editTripDates();
@@ -832,81 +1001,78 @@ const Itin = (() => {
     const dateTxt = `${Number(dateISO.slice(5, 7))}/${Number(dateISO.slice(8, 10))}`;
     const head = document.createElement('div');
     head.className = 'day-head';
+    const theme = dayTheme(d);
+    const icon = (t.dayIcons || {})[d] || '📍';
+    const stay = d < Store.days() ? Store.hotelOfNight(d - 1) : null;
+    const visitedTxt = list.some(s => s.visited) ? `<span class="dh-visited">✅ ${list.filter(s => s.visited).length}/${list.length}</span>` : '';
+    const rainSet = t.rainPlans[d] && t.rainPlans[d].spots && t.rainPlans[d].spots.length;
     head.innerHTML = `
-      <div class="day-head-top">
-        <span class="day-title" style="color:${dayColor(d)}">第 ${d} 天 <span class="day-date" style="color:var(--text-2)">${dateTxt}</span>${list.some(s => s.visited) ? ` <span style="font-size:.9rem;color:var(--ok)">✅ ${list.filter(s => s.visited).length}/${list.length}</span>` : ''}</span>
+      <div class="dh-top">
+        <span class="dh-day" style="background:${dayColor(d)}">Day ${d}</span>
+        <span class="dh-date">${dateTxt}（${weekdayOf(dateISO)}）</span>${visitedTxt}
         <span class="day-weather" data-day-weather="${d}">☁️ 查天氣中…</span>
       </div>
+      <button class="dh-theme" data-theme="${d}" type="button" ${Store.isReadonly() ? 'disabled' : ''}>
+        <span class="dh-icon">${icon}</span><span class="dh-title${theme.auto ? ' auto' : ''}">${UI.esc(theme.title)}</span>${Store.isReadonly() ? '' : '<span class="dh-edit">✎</span>'}
+      </button>
+      ${stay ? `<div class="dh-stay">🏨 住 ${UI.esc(stay.name)}${HotelPoll.isConfirmedHotel(stay) ? ' <span class="hp-tag ok">✅ 已確定</span>' : ''}</div>` : ''}
       <div class="day-outfit" data-day-outfit="${d}"></div>
       ${estimateHint}
       <div data-rain-slot="${d}"></div>
-      ${list.length ? `<p class="hint" style="margin-top:4px">車程 ${Logic.fmtDur(tl.totalTravel)}｜停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ` <span style="color:var(--danger);font-weight:700">${overTxt}</span>` : ''}</p>` : ''}
+      ${list.length ? `<p class="dh-sum">🚗 車程 ${Logic.fmtDur(tl.totalTravel)}｜⏱ 停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ` <span style="color:var(--danger);font-weight:700">${overTxt}</span>` : ''}</p>` : ''}
       ${list.length ? mealSummaryHtml(list, d) : ''}
       <div class="day-tools">
-        <button data-daytime="${d}" class="edit-only">🕘 ${dayStartOf(d)}–${dayEndOf(d)}${hasFlightDay(d) ? ' ✈️' : (((t.dayStartOv || {})[d] || (t.dayEndOv || {})[d]) ? '＊' : '')}</button>
-        <button data-daytrans="${d}" class="edit-only">${TRANSPORT_META[dayTransportOf(d)][0]} ${TRANSPORT_META[dayTransportOf(d)][1]}${(t.dayTransportOv || {})[d] ? '＊' : ''} ▾</button>
-        <button data-addspot="${d}" class="edit-only">➕ 加景點</button>
-        <button data-food="${d}" class="edit-only">🍜 附近美食</button>
-        ${list.length ? `<a href="${dayNavLink(d, list)}" target="_blank" rel="noopener">🧭 全日導航</a>` : ''}
-        <button data-rainbtn="${d}" class="edit-only-inline">☔ 雨天備案${t.rainActive[d] ? '（使用中）' : (t.rainPlans[d]?.spots?.length ? '（已設定）' : '')}</button>
-        <button data-hotelrec="${d}" class="edit-only">🏨 ${Store.hotelOfNight(d - 1) || Store.hotelOfNight(d - 2) ? '換飯店' : '推薦飯店'}</button>
-        <button data-flight="${d}" class="edit-only">✈️ 航班${hasFlightDay(d) ? ' ✓' : ''}</button>
-        ${d === 1 ? `<button data-routepts="${d}" class="edit-only">🚩 集合地${t.meetPoint ? ' ✓' : ''}</button>` : ''}
-        ${d === Store.days() ? `<button data-routepts="${d}" class="edit-only">🏁 解散地${t.endPoint ? ' ✓' : ''}</button>` : ''}
+        <button data-addspot="${d}" class="edit-only dt-add">➕ 加景點</button>
+        <button data-daymenu="${d}" class="edit-only">⋯ 這天設定</button>
+        ${Store.isReadonly() && list.length ? `<a href="${dayNavLink(d, list)}" target="_blank" rel="noopener">🧭 全日導航</a>` : ''}
+        ${Store.isReadonly() && rainSet ? `<button data-rainbtn="${d}">☔ 雨天備案</button>` : ''}
       </div>`;
     card.appendChild(head);
+    const tlw = document.createElement('div'); // v2.1.33 時間軸：左邊時間＋虛線＋卡片
+    tlw.className = 'tl-wrap';
+    card.appendChild(tlw);
 
-    if (Store.isReadonly()) head.querySelectorAll('.edit-only-inline').forEach(b => {
-      if (b.dataset.rainbtn && !(t.rainPlans[d]?.spots?.length)) b.remove();
-    });
 
     // 搭機前（有抵達航班）：出發地 → 地面交通 → 出發機場 → ✈️ 航班卡
-    if (Flights.isComplete(arriveF)) appendPreFlight(card, d, arriveF);
+    if (Flights.isComplete(arriveF)) appendPreFlight(tlw, d, arriveF);
     // 起點列
     const startLabel = sp ? ({ meet: '從集合地出發', airport: '出關後從機場出發' }[sp.kind] || '從飯店出發') : '';
-    if (sp && list.length) card.appendChild(pointRow(sp, `${dayStartOf(d)} ${startLabel}`, d, 'start'));
+    if (sp && list.length) tlw.appendChild(pointRow(sp, `${dayStartOf(d)} ${startLabel}`, d, 'start'));
 
     // 景點列 + 路段
     const dMode = dayTransportOf(d);
     tl.rows.forEach((row, i) => {
-      if (row.legMin > 0) card.appendChild(legRow(row.legMin, dMode));
-      card.appendChild(spotRow(row.spot, row, i + 1, d));
+      if (row.legMin > 0) tlw.appendChild(legRow(row.legMin, dMode));
+      tlw.appendChild(spotRow(row.spot, row, i + 1, d));
     });
     if (list.length && ep) {
-      if (tl.backLeg > 0) card.appendChild(legRow(tl.backLeg, dMode));
+      if (tl.backLeg > 0) tlw.appendChild(legRow(tl.backLeg, dMode));
       const endLabel = ep.kind === 'end' ? '抵達解散地' : ep.kind === 'airport' ? `抵達機場（${dayEndOf(d)} 前報到）` : '回到飯店';
-      card.appendChild(pointRow(ep, `${tl.endTime} ${endLabel}`, d, 'end'));
+      tlw.appendChild(pointRow(ep, `${tl.endTime} ${endLabel}`, d, 'end'));
     }
     if (!list.length) {
-      if (sp) card.appendChild(pointRow(sp, pointEmptyDayText(sp), d, 'start'));
+      if (sp) tlw.appendChild(pointRow(sp, pointEmptyDayText(sp), d, 'start'));
       const shouldShowEmptyLeg = sp && ep && !sameRoutePoint(sp, ep) && legs[0] > 0 && !(sp.kind === 'hotel' && ep.kind === 'hotel');
-      if (shouldShowEmptyLeg) card.appendChild(legRow(legs[0], dMode));
-      if (ep && !sameRoutePoint(sp, ep)) card.appendChild(pointRow(ep, pointEmptyDayText(ep), d, 'end'));
+      if (shouldShowEmptyLeg) tlw.appendChild(legRow(legs[0], dMode));
+      if (ep && !sameRoutePoint(sp, ep)) tlw.appendChild(pointRow(ep, pointEmptyDayText(ep), d, 'end'));
       const p = document.createElement('p');
       p.className = 'hint'; p.style.padding = '0 14px 12px';
       p.textContent = (sp || ep)
         ? '這天還沒有景點，但住宿已列出。按上面的「➕ 加景點」，或按住 ☰ 把景點拖過來。'
         : '這天還沒有景點：按上面的「➕ 加景點」，或按住 ☰ 把景點拖過來。';
-      card.appendChild(p);
+      tlw.appendChild(p);
     }
     // 起飛後（有起飛航班）：✈️ 航班卡 → 抵達機場 → 地面交通 → 解散地／當晚飯店
-    if (Flights.isComplete(departF)) appendPostFlight(card, d, departF);
+    if (Flights.isComplete(departF)) appendPostFlight(tlw, d, departF);
 
-    const flightBtn = head.querySelector(`[data-flight="${d}"]`);
-    if (flightBtn) flightBtn.onclick = () => Flights.openDay(d, render);
-    const timeBtn = head.querySelector(`[data-daytime="${d}"]`);
-    if (timeBtn) timeBtn.onclick = () => editDayTime(d);
-    const transBtn = head.querySelector(`[data-daytrans="${d}"]`);
-    if (transBtn) transBtn.onclick = () => openDayTransport(d);
     const addBtn = head.querySelector(`[data-addspot="${d}"]`);
     if (addBtn) addBtn.onclick = () => openAddSpot(d);
-    const foodBtn = head.querySelector(`[data-food="${d}"]`);
-    if (foodBtn) foodBtn.onclick = () => Feat.openFood(d);
+    const menuBtn = head.querySelector(`[data-daymenu="${d}"]`);
+    if (menuBtn) menuBtn.onclick = () => dayMenu(d, list);
     const rainBtn = head.querySelector(`[data-rainbtn="${d}"]`);
     if (rainBtn) rainBtn.onclick = () => Feat.openRainPlan(d);
-    const hotelRec = head.querySelector(`[data-hotelrec="${d}"]`);
-    if (hotelRec) hotelRec.onclick = () => Feat.recommendHotel(d);
-    head.querySelectorAll(`[data-routepts]`).forEach(b => b.onclick = () => Feat.openRoutePoints());
+    const themeBtn = head.querySelector(`[data-theme="${d}"]`);
+    if (themeBtn) themeBtn.onclick = () => editDayTheme(d);
     return card;
   }
 
@@ -920,7 +1086,7 @@ const Itin = (() => {
     div.className = 'leg-row';
     const autoSrc = Flights.autoSource(f, from, to, mode);
     const autoTxt = Flights.isManualGround(f) ? `｜預估約 ${Logic.fmtDur(autoMin)}（${autoSrc}）` : '';
-    div.innerHTML = `↓ ${icon} ${toAirport ? '到機場' : '到目的地'}約 ${Logic.fmtDur(min)}（${Flights.groundSource(f, from, to, mode)}）${autoTxt}
+    div.innerHTML = `<span class="tl-pill">${icon} ${toAirport ? '到機場' : '到目的地'}</span><span>約 ${Logic.fmtDur(min)}（${Flights.groundSource(f, from, to, mode)}）${autoTxt}</span>
       <button class="edit-only ground-edit" type="button" title="手動調整這段時間">✎</button>`;
     div.querySelector('.ground-edit').onclick = () => {
       const body = document.createElement('div');
@@ -1032,7 +1198,8 @@ const Itin = (() => {
     const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[mode || trip().transport];
     const div = document.createElement('div');
     div.className = 'leg-row';
-    div.innerHTML = `↓ ${icon} 車程約 ${Logic.fmtDur(min)}`;
+    const name = { driving: '開車', transit: '大眾運輸', walking: '走路' }[mode || trip().transport];
+    div.innerHTML = `<span class="tl-pill">${icon} ${name}</span><span>約 ${Logic.fmtDur(min)}</span>`;
     return div;
   }
 
@@ -1050,9 +1217,12 @@ const Itin = (() => {
       ? `<div class="spot-times">💲 ${p.priceWeekday ? `平日 $${Number(p.priceWeekday).toLocaleString()}` : ''}${p.priceWeekday && p.priceWeekend ? '｜' : ''}${p.priceWeekend ? `假日 $${Number(p.priceWeekend).toLocaleString()}` : ''}</div>` : '';
     const coordWarning = Logic.hasCoords(p) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;
     const mapLink = Logic.hasCoords(p) || p.name ? `<a href="${UI.gmapLink(p)}" target="_blank" rel="noopener" style="padding:6px">📍</a>` : '';
+    div.classList.add('pt-row', 'pt-' + kind);
+    const ptId = 'pt:' + day + ':' + pos + ':' + kind;
     div.innerHTML = `
+      <div class="tl-time">${timeOf(timeTxt)}</div>
       <div class="spot-main">
-        ${p.photo ? `<img class="thumb thumb-sm" src="${p.photo}" alt="">` : `<span class="spot-no hotel">${icon}</span>`}
+        <span class="spot-no hotel">${icon}</span>
         <div class="spot-info">
           <div class="spot-name">${kind !== 'hotel' ? icon + ' ' : ''}${UI.esc(p.name)} ${payTag}</div>
           <div class="spot-times">${timeTxt}</div>
@@ -1062,9 +1232,12 @@ const Itin = (() => {
           ${mealTags}
           ${coordWarning}
         </div>
+        ${p.photo ? `<img class="thumb thumb-sm" src="${p.photo}" alt="">` : ''}
+        ${kind === 'hotel' ? `<button class="drag-grip edit-only" data-act="hdrag" title="按住拖曳，把住宿移到其他天">☰</button>` : ''}
+      </div>
+      <div class="spot-expand">
         <div class="spot-actions">
-          ${kind === 'hotel' ? `<button class="drag-grip edit-only" data-act="hdrag" title="按住拖曳，把住宿移到其他天">☰</button>
-          <button class="edit-only" data-act="hmeal" title="在這裡用餐：早／午／晚／點心">🍽</button>
+          ${kind === 'hotel' ? `<button class="edit-only" data-act="hmeal" title="在這裡用餐：早／午／晚／點心">🍽</button>
           <button class="edit-only" data-act="hexp" title="記一筆帳">💰</button>
           <button class="edit-only" data-act="hedit" title="編輯住宿備註">✎</button>` : ''}
           ${(kind === 'meet' || kind === 'end') ? `<button class="edit-only" data-act="ptmenu" title="更多：更改地點／移除／導航／記帳">⋯</button>` : ''}
@@ -1072,6 +1245,7 @@ const Itin = (() => {
           ${mapLink}
         </div>
       </div>`;
+    bindExpand(div, ptId);
     const thumb = div.querySelector('.thumb');
     if (thumb) thumb.onclick = () => UI.photoZoom(p.photo, p.name);
     const he = div.querySelector('[data-act="hedit"]');
@@ -1319,33 +1493,38 @@ const Itin = (() => {
       ? `<div class="spot-times" style="color:var(--danger);font-weight:700">⚠️ 這天是公休日，出發前請再確認！</div>` : '';
     if (s.visited) div.classList.add('visited');
     div.innerHTML = `
+      <div class="tl-time">${tlRow ? tlRow.arrive : ''}</div>
       <div class="spot-main">
         <span class="spot-no" style="background:${s.visited ? 'var(--ok)' : (d ? dayColor(d) : 'var(--text-2)')}">${s.visited ? '✓' : (no || '·')}</span>
         <div class="spot-info">
           <div class="spot-name">${s.locked ? '<span class="lock-badge" title="已鎖定：當天必去，自動安排不會移動它">🔒</span> ' : ''}${UI.esc(s.name)}${s.visited ? ' <span class="visited-badge">已去過</span>' : ''}</div>
-          <div class="spot-times">${tlRow ? `${tlRow.arrive} 抵達（停留 ${stayH}）→ ${tlRow.depart} 出發` : `停留 ${stayH}`}</div>
+          <div class="spot-times">${tlRow ? `停留 ${stayH} → ${tlRow.depart} 出發` : `停留 ${stayH}`}</div>
           ${mealLabel(s.meal) ? `<div class="spot-times spot-meal-tag">${mealLabel(s.meal)}</div>` : ''}
           ${hoursHtml}
           ${noteLine}
           ${coordWarning}
           ${closedWarn}
-          <div class="stay-edit edit-only">
-            <button data-act="stay-" aria-label="減少停留時間">−</button>
-            <select class="stay-sel" data-act="staysel" aria-label="停留時間">${stayOptionsHtml(s.stayMin)}</select>
-            <button data-act="stay+" aria-label="增加停留時間">＋</button>
-          </div>
         </div>
         ${s.photo ? `<img class="spot-thumb" src="${UI.esc(s.photo)}" alt="" title="${UI.esc(s.name)}">` : ''}
+        <button class="drag-grip edit-only" title="按住拖曳排序（可拖到其他天）">☰</button>
+      </div>
+      <div class="spot-expand">
+        <div class="stay-edit edit-only">
+          <span class="hint">停留</span>
+          <button data-act="stay-" aria-label="減少停留時間">−</button>
+          <select class="stay-sel" data-act="staysel" aria-label="停留時間">${stayOptionsHtml(s.stayMin)}</select>
+          <button data-act="stay+" aria-label="增加停留時間">＋</button>
+        </div>
         <div class="spot-actions edit-only">
-          <button class="drag-grip" title="按住拖曳排序（可拖到其他天）">☰</button>
           <button data-act="lock" title="${s.locked ? '解除鎖定' : '鎖定在這天（自動安排不會移動）'}">${s.locked ? '🔒' : '🔓'}</button>
           <button data-act="meal" title="設定餐別：早餐／午餐／晚餐／點心"${s.meal ? ' class="on"' : ''}>🍽</button>
           <button data-act="exp" title="記一筆帳">💰</button>
           ${Logic.hasCoords(s) ? `<a class="ico-link" href="${UI.navLink(s)}" target="_blank" rel="noopener" title="導航">🧭</a>` : ''}
           <button data-act="menu" title="更多：打卡／備註／必去／移到某天／刪除">⋯</button>
         </div>
-        ${Store.isReadonly() ? `<div class="spot-actions"><a href="${UI.navLink(s)}" target="_blank" rel="noopener" style="padding:6px">🧭</a></div>` : ''}
+        ${Store.isReadonly() ? `<div class="spot-actions"><a class="ico-link" href="${UI.navLink(s)}" target="_blank" rel="noopener">🧭 導航</a></div>` : ''}
       </div>`;
+    bindExpand(div, s.id);
 
     div.querySelector('[data-act="stay-"]').onclick = () => changeStay(s, -15);
     div.querySelector('[data-act="stay+"]').onclick = () => changeStay(s, 15);
@@ -1582,7 +1761,7 @@ const Itin = (() => {
     return groups;
   }
 
-  function renderMiniMap() { drawMap($('miniMap'), null); }
+  function renderMiniMap() { if ($('miniMap')) drawMap($('miniMap'), null); } // v2.1.33 行程頁不放地圖（路線分頁有）
   function renderFullMap(selDay) {
     drawMap($('fullMap'), selDay || null);
     const days = Store.days();
@@ -1789,6 +1968,7 @@ const Itin = (() => {
   // ---------- 地圖高度拖曳把手 ----------
   function initDragHandle() {
     const handle = $('dragHandle');
+    if (!handle) return; // v2.1.33 行程頁已拿掉地圖與把手
     handle.addEventListener('pointerdown', e => {
       const startY = e.clientY;
       const startH = $('mapPane').getBoundingClientRect().height;
@@ -1811,11 +1991,12 @@ const Itin = (() => {
     initSpotInput();
     initOptimize();
     initDragHandle();
+    initSwipe();
   }
 
   return {
     init, render, renderFullMap, addSpot, openAddSpot,
     spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf, stayMealsOf,
-    saveCurrentArrangement, baseStartPoint, baseEndPoint, dayStartOf, dayEndOf
+    saveCurrentArrangement, baseStartPoint, baseEndPoint, dayStartOf, dayEndOf, showDay, dayTheme
   };
 })();

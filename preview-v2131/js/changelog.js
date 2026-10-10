@@ -126,7 +126,15 @@ const ChangeLog = (() => {
     B.forEach((x, id) => {
       const o = A.get(id), nm = `「${x.title}」`;
       if (!o) { addedCount++; if (addedCount <= 3) out.push(`📋 新增待辦${nm}`); return; }
-      if (o.status !== x.status) out.push(x.status === 'done' ? `✅ 完成待辦${nm}` : `📋 待辦${nm}改成「${ST[x.status] || x.status}」`);
+      if (x.perPerson) {
+        // 每人各自完成：記「誰」勾了／取消
+        const oc = o.checks || {}, nc = x.checks || {};
+        const who = (x.owners && x.owners.length) ? x.owners : Object.keys(nc);
+        const cnt = who.filter(n => nc[n]).length;
+        const on = Object.keys(nc).filter(n => nc[n] && !oc[n]), off = Object.keys(oc).filter(n => oc[n] && !nc[n]);
+        if (on.length) out.push(`✅ ${on.join('、')} 完成${nm}（${cnt}/${who.length} 人）`);
+        if (off.length) out.push(`↩ ${off.join('、')} 取消完成${nm}`);
+      } else if (o.status !== x.status) out.push(x.status === 'done' ? `✅ 完成待辦${nm}` : `📋 待辦${nm}改成「${ST[x.status] || x.status}」`);
       if (JSON.stringify(o.owners || []) !== JSON.stringify(x.owners || [])) out.push(`👤 待辦${nm}負責人：${(x.owners || []).join('、') || '（未指派）'}`);
       if ((o.due || '') !== (x.due || '')) out.push(`📅 待辦${nm}截止日：${x.due || '（無）'}`);
       if (o.title !== x.title || (o.note || '') !== (x.note || '') || Number(o.cost || 0) !== Number(x.cost || 0) || o.cat !== x.cat) out.push(`📋 修改待辦${nm}`);
@@ -146,6 +154,11 @@ const ChangeLog = (() => {
     if (pt(a.endPoint) !== pt(b.endPoint)) out.push(`🏁 解散地改為 ${pt(b.endPoint)}`);
     if (a.dayStart !== b.dayStart || a.dayEnd !== b.dayEnd || !same(a.dayStartOv, b.dayStartOv) || !same(a.dayEndOv, b.dayEndOv)) out.push('🕘 調整每日出發／結束時間');
     if (!same(a.dayTransportOv, b.dayTransportOv)) out.push('調整某幾天的交通方式');
+    const dt = (o, k) => (o[k] || {});
+    [...new Set([...Object.keys(dt(a, 'dayTitles')), ...Object.keys(dt(b, 'dayTitles')), ...Object.keys(dt(a, 'dayIcons')), ...Object.keys(dt(b, 'dayIcons'))])].sort((x, y) => x - y).forEach(d => {
+      if ((dt(a, 'dayTitles')[d] || '') !== (dt(b, 'dayTitles')[d] || '') || (dt(a, 'dayIcons')[d] || '') !== (dt(b, 'dayIcons')[d] || ''))
+        out.push(`✎ 第 ${d} 天主題：${dt(b, 'dayIcons')[d] || ''}${dt(b, 'dayTitles')[d] || '（自動）'}`);
+    });
     if (!same(a.stayMeals, b.stayMeals)) out.push('🍽 調整住宿用餐');
     if (!same(rainOf(a.rainPlans), rainOf(b.rainPlans)) || !same(actOf(a.rainActive), actOf(b.rainActive))) out.push('☔ 調整雨天備案');
   }

@@ -250,6 +250,7 @@ const App = (() => {
   const $ = id => document.getElementById(id);
 
   function switchPage(pageId) {
+    if (pageId === 'page-res') pageId = 'page-prep'; // v2.1.33：下載收進「準備」分頁
     document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
     $(pageId).classList.remove('hidden');
     document.querySelectorAll('#tabbar button').forEach(b =>
@@ -258,7 +259,7 @@ const App = (() => {
     if (pageId === 'page-map') Itin.renderFullMap(0);
     if (pageId === 'page-exp') Feat.renderExpensePage();
     if (pageId === 'page-hotel') HotelPoll.render();
-    if (pageId === 'page-res') Feat.renderResourcePage();
+    if (pageId === 'page-prep') { Prep.renderPage(); Feat.renderResourcePage(); }
     window.scrollTo(0, 0);
   }
 
@@ -303,7 +304,7 @@ const App = (() => {
     updateEditorChip();
     // v2.1.25：用編輯代碼進來、這台裝置還沒選過身分 → 一定要先選「你是誰」才能編輯
     if (!Store.isReadonly() && !Store.getEditor()) askIdentity(true);
-    else Prep.remindMine(); // v2.1.32：自己負責的待辦快到期／逾期 → 進場提醒
+    else { Prep.remindMine(); setTimeout(() => Tour.start(), 900); } // v2.1.32 待辦提醒；v2.1.33 第一次進來跑新手導覽
     Store.startPresencePoll(); // 唯讀者也要：才能在別人更新時自動刷新
   }
 
@@ -338,6 +339,7 @@ const App = (() => {
       UI.toast(`👋 ${name}，你好！之後的修改都會記上你的名字`);
       Itin.render(); // 進度表「只看我的」、狀態按鈕權限依身分
       Prep.remindMine();
+      setTimeout(() => Tour.start(), 700); // 第一次選完身分 → 新手導覽（看過就不再自動出現）
     };
     const list = body.querySelector('#whoList');
     members.forEach(m => {
@@ -402,6 +404,7 @@ const App = (() => {
     const roCopy = $('btnCopyTripRO');
     if (roCopy) roCopy.onclick = () => Feat.copyTrip();
     $('btnHome').onclick = () => { Store.stopPresencePoll(); location.href = location.pathname; };
+    $('btnFeedback').onclick = openFeedback;
     $('btnClear').onclick = () => {
       UI.confirm('清除本機資料？',
         '會清除這台裝置記住的行程與偏好設定。\n\n☁️ 雲端的行程不受影響，之後仍可用行程代碼載入。\n\n確定要清除嗎？', () => {
@@ -446,6 +449,7 @@ const App = (() => {
     document.addEventListener('trip-merged', () => {
       Itin.render();
       if (!$('page-hotel').classList.contains('hidden')) HotelPoll.render();
+      if (!$('page-prep').classList.contains('hidden')) Prep.renderPage();
       updateSaveReminder();
       UI.toast('🗳️ 別人也剛更新，已自動合併你的投票');
     });
@@ -453,6 +457,7 @@ const App = (() => {
       applyRole();
       Itin.render();
       if (!$('page-hotel').classList.contains('hidden')) HotelPoll.render();
+      if (!$('page-prep').classList.contains('hidden')) Prep.renderPage();
       if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();
       updateSaveReminder();
       const by = (Store.get() && Store.get()._saveBy) || '';
@@ -521,6 +526,69 @@ const App = (() => {
     };
   }
 
+  // ---------- v2.1.33 💬 意見回饋 ----------
+  let fbDraft = '';
+  // 這台裝置的固定代號（回饋每小時上限用；不含個資）
+  function deviceId() {
+    try {
+      let id = localStorage.getItem('mika_device');
+      if (!id) { id = 'dev-' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('mika_device', id); }
+      return id;
+    } catch { return 'dev-anon'; }
+  }
+  function openFeedback() {
+    const t = Store.get();
+    const body = document.createElement('div');
+    body.className = 'fb-form';
+    body.innerHTML = `
+      <p class="hint">遇到問題、有想要的功能，或是看不懂的地方，都可以告訴 Mika 👋 <button type="button" id="fbTour" class="btn-ghost">🧭 重看新手導覽</button></p>
+      <label>類型</label>
+      <div class="seg" id="fbKind"><button type="button" data-k="bug" class="on">🐞 問題</button><button type="button" data-k="idea">💡 建議</button><button type="button" data-k="ask">❓ 疑問</button></div>
+      <label>內容</label>
+      <textarea id="fbText" rows="5" maxlength="1000" placeholder="例如：手機打開投票分頁時，照片沒有出來"></textarea>
+      <div class="hint fb-count"><span id="fbCount">0</span>/1000</div>
+      <label>聯絡方式（選填，想收到回覆可以留 Email 或 LINE ID）</label>
+      <input id="fbContact" type="text" maxlength="80" placeholder="例：xxx@gmail.com">
+      <label class="check-row" style="margin:8px 0 0"><input type="checkbox" id="fbDiag" checked> 附上診斷資訊（版本、裝置、行程代碼、同步紀錄），方便 Mika 找問題</label>`;
+    let kind = 'bug';
+    body.querySelector('#fbTour').onclick = () => { UI.closeModal(); setTimeout(() => Tour.start(true), 250); };
+    body.querySelectorAll('#fbKind button').forEach(b => b.onclick = () => {
+      kind = b.dataset.k;
+      body.querySelectorAll('#fbKind button').forEach(x => x.classList.toggle('on', x === b));
+    });
+    const ta = body.querySelector('#fbText');
+    ta.value = fbDraft;
+    const cnt = () => { body.querySelector('#fbCount').textContent = ta.value.length; fbDraft = ta.value; };
+    ta.addEventListener('input', cnt); cnt();
+    UI.modal('💬 意見回饋', body, [{
+      label: '送出', primary: true, onClick: async () => {
+        const text = ta.value.trim();
+        if (!text) { UI.toast('請寫下回饋內容'); return; }
+        const diag = body.querySelector('#fbDiag').checked ? {
+          版本: CONFIG.version,
+          裝置: navigator.userAgent,
+          螢幕: `${window.innerWidth}×${window.innerHeight}`,
+          行程: t ? `${t.name}（${Store.isReadonly() ? t.viewCode : t.editCode}）` : '（還沒開行程）',
+          身分: (t && Store.getEditor()) || '（未選）',
+          頁面: location.href.split('?')[0],
+          同步紀錄: (Store.getSyncLog ? Store.getSyncLog() : []).slice(0, 20).map(x => typeof x === 'string' ? x : JSON.stringify(x)).join('\n')
+        } : null;
+        UI.loading(true, '送出中…');
+        try {
+          await Api.sendFeedback({ kind, text, contact: body.querySelector('#fbContact').value.trim(), diag, sid: deviceId() });
+          UI.loading(false);
+          fbDraft = '';
+          UI.closeModal();
+          UI.toast('🙏 謝謝你的回饋！Mika 會收到');
+        } catch (e) {
+          UI.loading(false);
+          UI.alert('送出失敗', UI.friendlyError(e) + '\n\n剛剛寫的內容已經保留，可以稍後再送一次。');
+        }
+      }
+    }], { stackActions: true });
+    setTimeout(() => ta.focus(), 50);
+  }
+
   async function initFromUrl() {
     const code = new URLSearchParams(location.search).get('code');
     if (!code) return false;
@@ -564,5 +632,5 @@ const App = (() => {
 
   document.addEventListener('DOMContentLoaded', init);
 
-  return { enterMain, switchPage, showSyncLog, showChangeLog };
+  return { enterMain, switchPage, showSyncLog, showChangeLog, openFeedback };
 })();

@@ -22,6 +22,7 @@
     <button id="btnReload" class="icon-btn hidden" title="重新從雲端載入" aria-label="重新從雲端載入">🔄</button>
     <button id="btnHome" class="icon-btn hidden" title="回到開始畫面" aria-label="回到開始畫面">🏠</button>
     <button id="btnClear" class="icon-btn hidden" title="清除本機資料" aria-label="清除本機資料">🧹</button>
+    <button id="btnFeedback" class="icon-btn" title="意見回饋" aria-label="意見回饋">💬</button>
   </div>
 </header>
 
@@ -180,17 +181,15 @@
 <!-- ===== 主畫面 ===== -->
 <main id="app" class="app hidden">
 
-  <!-- 行程頁：上圖下表 -->
+  <!-- 行程頁：大卡＋日期軸＋一次看一天的時間軸（v2.1.33） -->
   <section id="page-trip" class="page">
-    <div id="mapPane" class="map-pane"><div id="miniMap" class="map-canvas"></div></div>
-    <div id="dragHandle" class="drag-handle" title="上下拖曳調整地圖大小"><span></span></div>
     <div class="trip-body">
+      <div id="tripSummaryBar" class="summary-bar hidden"></div>
       <div class="add-spot-row edit-only">
         <input id="inpSpot" type="text" placeholder="🔍 輸入想去的景點，例如：台北101" autocomplete="off">
         <div id="spotSuggest" class="suggest hidden"></div>
       </div>
-      <div id="tripSummaryBar" class="summary-bar hidden"></div>
-      <div id="prepPanel" class="prep-panel hidden"></div>
+      <div id="dayStrip" class="day-strip hidden"></div>
       <div id="dayList" class="day-list"></div>
       <div id="tripEmpty" class="empty-state">
         <p>👇 還沒有景點</p>
@@ -252,10 +251,13 @@
     </div>
   </section>
 
-  <!-- 下載資源頁 -->
-  <section id="page-res" class="page hidden">
+  <!-- 準備頁（v2.1.33）：行前準備進度＋待辦清單，下面是下載 -->
+  <section id="page-prep" class="page hidden">
     <div class="page-pad">
-      <h2 class="page-title">📥 參考資料</h2>
+      <h2 class="page-title">🧭 行前準備</h2>
+      <div id="prepRoot"></div>
+      <h2 class="page-title prep-dl-title">📥 下載與列印</h2>
+      <div id="page-res">
       <div class="card">
         <div class="step-title"><span class="step-badge">1</span><span class="step-text">每日行程 PDF</span></div>
         <p class="hint">A4 列印版：依日期列出住宿、景點、車程與備註。點「預覽 PDF」後，在預覽頁左下角按「列印／存 PDF」即可輸出或列印。</p>
@@ -282,6 +284,7 @@
         <p class="hint">下載 .ics 行事曆檔案，用 Google 日曆／Apple 日曆／Outlook 開啟即可加入一筆整趟旅程的行事曆事件（不需登入、不需授權）。</p>
         <button id="btnExportCalendar" class="btn-primary" style="width:100%">📅 下載日曆檔</button>
       </div>
+      </div>
       <div class="bottom-space"></div>
     </div>
   </section>
@@ -299,10 +302,10 @@
   <!-- 頂部分頁列 -->
   <nav id="tabbar" class="tabbar">
     <button data-page="page-trip" class="on"><span>🗓️</span>行程</button>
-    <button data-page="page-map"><span>🗺️</span>路線</button>
+    <button data-page="page-map"><span>🗺️</span>地圖</button>
+    <button data-page="page-prep"><span>🧭</span>準備</button>
     <button data-page="page-hotel"><span>🗳️</span>投票</button>
     <button data-page="page-exp"><span>💰</span>分帳</button>
-    <button data-page="page-res"><span>📥</span>下載</button>
   </nav>
 </main>
 
@@ -323,6 +326,7 @@
 <script src="js/copyto.js"></script>
 <script src="js/hotelpoll.js"></script>
 <script src="js/prep.js"></script>
+<script src="js/tour.js"></script>
 <script src="js/features.js"></script>
 <script src="js/app.js"></script>
 </body>
