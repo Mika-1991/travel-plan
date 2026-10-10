@@ -87,6 +87,27 @@ const ChangeLog = (() => {
     A.forEach((f, id) => { if (!B.has(id)) out.push(`✈️ 刪除${label(f)}`); });
   }
 
+  // v2.1.30 飯店投票：候選增刪、確定；同一次存檔的投票合併成一行
+  function diffHotelPoll(a, b, out) {
+    const nts = ns => (ns || []).map(n => n + 1).join('、');
+    const A = new Map(((a.hotelPoll || {}).candidates || []).map(c => [c.id, c]));
+    const B = new Map(((b.hotelPoll || {}).candidates || []).map(c => [c.id, c]));
+    const voteLines = [];
+    B.forEach((c, id) => {
+      const o = A.get(id);
+      const nm = `「${(c.place || {}).name || '飯店'}」`;
+      if (!o) { out.push(`🏨 新增候選飯店${nm}（第 ${nts(c.nights)} 晚）`); return; }
+      if (!!o.must !== !!c.must) out.push(`${c.must ? '⭐ 設為必去' : '☆ 取消必去'}${nm}`);
+      if (JSON.stringify(o.nights) !== JSON.stringify(c.nights) || o.price !== c.price || o.link !== c.link || o.note !== c.note) out.push(`🏨 修改候選${nm}`);
+      if (JSON.stringify(o.votes || {}) !== JSON.stringify(c.votes || {})) voteLines.push(nm);
+    });
+    A.forEach((c, id) => { if (!B.has(id)) out.push(`🏨 刪除候選「${(c.place || {}).name || '飯店'}」`); });
+    if (voteLines.length) out.push(`👍 投票：${voteLines.join('、')}`);
+    if ((a.hotelPoll || {}).owner !== (b.hotelPoll || {}).owner && (b.hotelPoll || {}).owner) out.push(`👑 主揪改為 ${b.hotelPoll.owner}`);
+    const conf = t => (t.hotels || []).filter(h => h.fromPoll).map(h => h.fromPoll + ':' + h.night).sort().join(',');
+    if (conf(a) !== conf(b)) out.push('✅ 更新已確定的住宿');
+  }
+
   function diffBasics(a, b, out) {
     if (a.name !== b.name) out.push(`行程名稱改為「${b.name}」`);
     if (a.startDate !== b.startDate || a.endDate !== b.endDate) out.push(`日期改為 ${b.startDate} ~ ${b.endDate}`);
@@ -113,6 +134,7 @@ const ChangeLog = (() => {
     diffHotels(base, b, out);
     diffExpenses(base, b, out);
     diffFlights(base, b, out);
+    diffHotelPoll(base, b, out);
     // 只有「自動算的地面交通」變了 → 不算修改
     const noAuto = t => { const c = JSON.parse(JSON.stringify(t)); (c.flights || []).forEach(f => { delete f.groundAuto; delete f.groundAutoKey; }); return c; };
     if (!out.length && same(noAuto(base), noAuto(b))) return [];

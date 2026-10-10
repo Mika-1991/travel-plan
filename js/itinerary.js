@@ -1031,7 +1031,8 @@ const Itin = (() => {
     const mealTags = stayM.length ? `<div class="spot-times" style="color:var(--ok)">🍽 ${stayM.map(m => MEAL_TAG[m]).join('｜')}（在這裡吃）</div>` : '';
     const div = document.createElement('div');
     div.className = 'spot-row';
-    const payTag = kind === 'hotel' && p.pay ? `<span class="pay-badge pay-${p.pay}">${UI.PAY_LABELS[p.pay] || ''}</span>` : '';
+    const payTag = (kind === 'hotel' && p.pay ? `<span class="pay-badge pay-${p.pay}">${UI.PAY_LABELS[p.pay] || ''}</span>` : '') +
+      (kind === 'hotel' && HotelPoll.isConfirmedHotel(p) ? '<span class="hp-tag ok" title="大家投票、主揪確定的住宿">✅ 已確定</span>' : '');
     const priceTxt = kind === 'hotel' && (p.priceWeekday || p.priceWeekend)
       ? `<div class="spot-times">💲 ${p.priceWeekday ? `平日 $${Number(p.priceWeekday).toLocaleString()}` : ''}${p.priceWeekday && p.priceWeekend ? '｜' : ''}${p.priceWeekend ? `假日 $${Number(p.priceWeekend).toLocaleString()}` : ''}</div>` : '';
     const coordWarning = Logic.hasCoords(p) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;

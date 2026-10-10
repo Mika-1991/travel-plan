@@ -22,6 +22,7 @@ const Store = (() => {
   let editorName = '';
   let syncedBase = null;        // 上次存上雲端的版本（ChangeLog.strip 過）；'NEW'＝新行程；null＝未知
   let lastRemoteSaveBy = '';    // 心跳看到的「雲端最新版是誰存的」
+  let pendingVoteOps = [];      // v2.1.30 飯店投票：還沒存上雲端的投票操作（撞版本時自動重放用）
   const EDITOR_KEY = id => 'mika_editor:' + id;
   function loadEditorFor(t) {
     try { editorName = (t && localStorage.getItem(EDITOR_KEY(t.tripId))) || ''; } catch { editorName = ''; }
@@ -84,6 +85,7 @@ const Store = (() => {
     });
     t.legsByDay = t.legsByDay || {};
     t.flights = Array.isArray(t.flights) ? t.flights : []; // v2.1.27 航班
+    if (!t.hotelPoll || !Array.isArray(t.hotelPoll.candidates)) t.hotelPoll = { owner: (t.hotelPoll && t.hotelPoll.owner) || '', candidates: [] }; // v2.1.30 飯店投票
     t.dayTransportOv = t.dayTransportOv || {};
     t.rainPlans = t.rainPlans || {};
     t.rainActive = t.rainActive || {};
@@ -118,6 +120,7 @@ const Store = (() => {
     pendingLocalChange = false;
     notifiedUpdatedAt = 0;
     changeSeq = 0; savedSeq = 0; pendingSince = 0; // 剛從雲端載入＝跟雲端一致
+    if (!(opts && opts.keepVoteOps)) pendingVoteOps = [];
     syncedBase = ChangeLog.strip(trip); loadEditorFor(trip);
     syncState = 'idle'; notifySync();               // 換了一份資料，上一份的存檔失敗狀態不再適用
     resetHistory();
@@ -275,6 +278,7 @@ const Store = (() => {
   function touch(opts) {
     if (!trip) return;
     if (opts && opts.manual) manualDirty = true;
+    if (opts && opts.voteOps) pendingVoteOps.push(...opts.voteOps);
     trip.updatedAt = Date.now();
     markChanged();
     recordHistory();
@@ -317,9 +321,10 @@ const Store = (() => {
     payload.changeLog = ChangeLog.merge(extraLog, trip.changeLog, entries);
     return payload;
   }
-  function afterSaved(r, seqAtSend, tripAtSend, sendAt, payload) {
+  function afterSaved(r, seqAtSend, tripAtSend, sendAt, payload, opsSent) {
     if (trip !== tripAtSend) return; // 存檔期間已切換成別的行程 → 結果不套用到新行程
     trip.baseUpdatedAt = r.updatedAt;
+    if (opsSent) pendingVoteOps.splice(0, opsSent); // 已存上雲端的投票操作不用再重放
     if (payload) { trip.changeLog = payload.changeLog; syncedBase = ChangeLog.strip(payload); }
     saveRetryStep = 0; clearTimeout(saveRetryTimer);
     savedSeq = Math.max(savedSeq, seqAtSend);
@@ -339,12 +344,17 @@ const Store = (() => {
       try {
         syncState = 'saving'; notifySync();
         const payload = buildPayload();
+        const opsSent = pendingVoteOps.length;
         const r = await Api.cloudSaveTrip(payload, trip.editCode);
-        afterSaved(r, seqAtSend, tripAtSend, sendAt, payload);
+        afterSaved(r, seqAtSend, tripAtSend, sendAt, payload, opsSent);
       } catch (e) {
         syncState = e.conflict ? 'conflict' : (navigator.onLine ? 'error' : 'offline');
         notifySync();
         // v2.1.23：存檔被判衝突＝雲端確定有別人的新版本 → 立刻請使用者選擇（不再等心跳才發現）
+        // v2.1.30：這段期間本機只有「投票」變動 → 不用問使用者，自動讀最新版、重放投票再存
+        if (e.conflict && votesOnlyChanged()) {
+          try { await autoMergeVotes(); scheduleCloudSave(); return; } catch (e2) { /* 合併失敗 → 照原本流程問使用者 */ }
+        }
         if (e.conflict) askConflictChoice();
         else scheduleSaveRetry(); // v2.1.24：網路類失敗 → 自己排重試，不等心跳
         throw e;
@@ -362,8 +372,9 @@ const Store = (() => {
         trip.baseUpdatedAt = (latest.trip && latest.trip.baseUpdatedAt) || Date.now();
         // 覆蓋雲端時保留對方的修改紀錄（只蓋掉行程內容，不蓋掉「誰改過什麼」）
         const payload = buildPayload(latest.trip && latest.trip.changeLog);
+        const opsSent = pendingVoteOps.length;
         const r = await Api.cloudSaveTrip(payload, trip.editCode);
-        afterSaved(r, seqAtSend, tripAtSend, sendAt, payload);
+        afterSaved(r, seqAtSend, tripAtSend, sendAt, payload, opsSent);
       } catch (e) {
         syncState = navigator.onLine ? 'error' : 'offline'; notifySync();
         throw e;
@@ -425,6 +436,11 @@ const Store = (() => {
         } else {
           // 手上還有未存的變更 → 只提醒，不強制蓋掉
           notifiedUpdatedAt = r.updatedAt;
+          if (votesOnlyChanged()) {
+            // 自己只有投票變動 → 直接合併，不打擾
+            enqueueSave(autoMergeVotes).then(scheduleCloudSave).catch(() => document.dispatchEvent(new CustomEvent('cloud-update-available')));
+            return;
+          }
           syncLog('☁️ 偵測到別人更新，但自己也有未存修改 → 請使用者選擇');
           document.dispatchEvent(new CustomEvent('cloud-update-available'));
         }
@@ -439,6 +455,24 @@ const Store = (() => {
   function askConflictChoice() {
     syncLog('⚠️ 存檔時發現別人已更新 → 請使用者選擇');
     document.dispatchEvent(new CustomEvent('cloud-update-available'));
+  }
+  // ---------- v2.1.30 投票自動合併 ----------
+  // 本機跟「上次存上雲端的版本」比，除了投票以外完全一樣？
+  function votesOnlyChanged() {
+    if (!pendingVoteOps.length || !syncedBase || syncedBase === 'NEW' || !trip) return false;
+    const noVotes = t => { const c = JSON.parse(JSON.stringify(t)); ((c.hotelPoll || {}).candidates || []).forEach(x => { x.votes = {}; }); return JSON.stringify(c); };
+    return noVotes(syncedBase) === noVotes(ChangeLog.strip(trip));
+  }
+  // 讀雲端最新版 → 重放本機的投票操作 → 等下一次自動存檔送出
+  async function autoMergeVotes() {
+    const ops = pendingVoteOps.slice();
+    const r = await Api.cloudGetTrip(trip.editCode);
+    load(r.trip, 'edit', { keepVoteOps: true });
+    ops.forEach(op => HotelPoll.applyVote(trip, op));
+    trip.updatedAt = Date.now();
+    markChanged(); persistLocal();
+    syncLog('🗳️ 別人也剛存檔：已自動讀取最新版並保留你的投票');
+    document.dispatchEvent(new CustomEvent('trip-merged'));
   }
   function retryPendingSave() {
     if (!trip || isReadonly() || !pendingLocalChange || savesInFlight > 0) return;

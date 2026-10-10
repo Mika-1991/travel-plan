@@ -896,7 +896,7 @@ const Feat = (() => {
       rows.push(flightRow(arrF));
       rows.push({ type: '機場', name: arrF.arrAirport.name, address: arrF.arrAirport.address || '', note: `${Itin.dayStartOf(d)} 出關後出發` });
     } else if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '', photo: t.meetPoint.photo || '' });
-    else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: stayMealNote(d, 'start'), photo: sp.photo || '' });
+    else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: [HotelPoll.isConfirmedHotel(sp) ? '✅ 已確定' : '', stayMealNote(d, 'start')].filter(Boolean).join('｜'), photo: sp.photo || '' });
     const shouldShowEmptyLeg = !list.length && sp && ep && sp !== ep && legs[0] > 0 &&
       ((d === 1 && t.meetPoint) || (d === Store.days() && t.endPoint));
     if (shouldShowEmptyLeg) rows.push({ type: '路程', name: legName(legs[0]), address: '', note: '' });
@@ -907,7 +907,7 @@ const Feat = (() => {
       rows.push({ type: rowType, name: s.name, address: s.address || '', note: s.note || '', photo: s.photo || '' });
     });
     const epType = ep && Flights.isComplete(depF) ? '機場' : (ep === t.endPoint ? '解散地' : '住宿');
-    const epNote = ep && Flights.isComplete(depF) ? `${Itin.dayEndOf(d)} 前報到` : [ep && ep.note, stayMealNote(d, 'end')].filter(Boolean).join('｜');
+    const epNote = ep && Flights.isComplete(depF) ? `${Itin.dayEndOf(d)} 前報到` : [HotelPoll.isConfirmedHotel(ep) ? '✅ 已確定' : '', ep && ep.note, stayMealNote(d, 'end')].filter(Boolean).join('｜');
     if (list.length && ep) {
       if (legs[list.length] > 0) rows.push({ type: '路程', name: legName(legs[list.length]), address: '', note: '' });
       rows.push({ type: epType, name: ep.name, address: ep.address || '', note: epNote, photo: ep.photo || '' });

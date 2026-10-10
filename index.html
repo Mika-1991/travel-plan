@@ -206,6 +206,15 @@
     <div id="mapDaySummary" class="map-day-summary"></div>
   </section>
 
+  <!-- 飯店投票頁（v2.1.30） -->
+  <section id="page-hotel" class="page hidden">
+    <div class="page-pad">
+      <h2 class="page-title">🏨 飯店投票</h2>
+      <div id="hotelPollRoot"></div>
+      <div class="bottom-space"></div>
+    </div>
+  </section>
+
   <!-- 分帳頁 -->
   <section id="page-exp" class="page hidden">
     <div class="page-pad">
@@ -285,8 +294,9 @@
   <nav id="tabbar" class="tabbar">
     <button data-page="page-trip" class="on"><span>🗓️</span>行程</button>
     <button data-page="page-map"><span>🗺️</span>路線</button>
+    <button data-page="page-hotel"><span>🏨</span>飯店</button>
     <button data-page="page-exp"><span>💰</span>分帳</button>
-    <button data-page="page-res"><span>📥</span>下載行程</button>
+    <button data-page="page-res"><span>📥</span>下載</button>
   </nav>
 </main>
 
@@ -305,6 +315,7 @@
 <script src="js/flights.js"></script>
 <script src="js/itinerary.js"></script>
 <script src="js/copyto.js"></script>
+<script src="js/hotelpoll.js"></script>
 <script src="js/features.js"></script>
 <script src="js/app.js"></script>
 </body>

@@ -83,6 +83,32 @@ h1 { font-size: 1.1rem; } h2 { font-size: 1.25rem; }
 .line-banner #btnOpenExternal { background: var(--white); color: #9E1B1B; border-radius: 8px; padding: 6px 10px; font-weight: 700; font-size: .9rem; white-space: nowrap; }
 .line-banner #btnLineBannerX { font-size: 1.3rem; padding: 0 4px; color: var(--white); }
 .change-log { max-height: 60vh; overflow-y: auto; }
+/* 飯店投票（v2.1.30） */
+.hp-intro { background: var(--card); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+.hp-owner { margin-top: 6px; }
+.hp-night { margin-bottom: 16px; }
+.hp-night-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.hp-night-title { font-weight: 800; font-size: 1.1rem; color: var(--main-dark); }
+.hp-card { background: var(--white); border: 1.5px solid #eadccd; border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+.hp-card.hp-confirmed { border-color: var(--ok); box-shadow: 0 0 0 2px rgba(108,154,91,.15); }
+.hp-top { display: flex; gap: 10px; }
+.hp-photo { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; flex: none; cursor: pointer; }
+.hp-noimg { display: flex; align-items: center; justify-content: center; background: var(--card); font-size: 1.6rem; }
+.hp-info { flex: 1; min-width: 0; }
+.hp-name { font-weight: 700; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hp-must { font-size: .78rem; font-weight: 800; color: #fff; background: var(--accent); border-radius: 8px; padding: 1px 7px; }
+.hp-tag { font-size: .78rem; font-weight: 800; border-radius: 8px; padding: 1px 8px; white-space: nowrap; }
+.hp-tag.ok { background: var(--ok); color: #fff; }
+.hp-tag.lead { background: #FFE8C7; color: #A0560F; }
+.hp-bar { height: 8px; border-radius: 99px; background: #F0E6DA; margin: 10px 0 4px; overflow: hidden; }
+.hp-bar i { display: block; height: 100%; background: var(--main); border-radius: 99px; transition: width .3s; }
+.hp-voters { font-size: .9rem; color: var(--text-2); }
+.hp-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.hp-actions > * { padding: 8px 12px; font-size: .95rem; }
+.hp-actions [data-act="vote"] { flex: 1; }
+.hp-link { text-decoration: none; display: inline-flex; align-items: center; }
+.hp-empty { padding: 8px 4px; }
+.hp-nights { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px; }
 /* 複製到其他行程（v2.1.29） */
 .copy-list { max-height: 46vh; overflow-y: auto; border: 1px solid #e6d8c8; border-radius: 10px; padding: 6px 10px; margin-top: 8px; }
 .copy-day { font-weight: 700; color: var(--main); margin: 8px 0 2px; }

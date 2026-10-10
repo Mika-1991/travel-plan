@@ -257,6 +257,7 @@ const App = (() => {
     $('fabWrap').classList.toggle('hidden', pageId !== 'page-trip' || Store.isReadonly());
     if (pageId === 'page-map') Itin.renderFullMap(0);
     if (pageId === 'page-exp') Feat.renderExpensePage();
+    if (pageId === 'page-hotel') HotelPoll.render();
     if (pageId === 'page-res') Feat.renderResourcePage();
     window.scrollTo(0, 0);
   }
@@ -438,9 +439,17 @@ const App = (() => {
       if (initial && n > 1) showSplash(who.length ? `👥 ${who.join('、')} 正在線上編輯，請確認資訊同步` : `👥 現在 ${n} 人在線上編輯，請確認資訊同步`, 1500);
     });
     // 偵測到雲端新版本：手上沒有未存的變更 → 已安靜刷新完成，提示一下（不強制切回行程分頁，避免打斷瀏覽）
+    // 投票撞版本、已自動合併 → 重畫畫面（不打擾）
+    document.addEventListener('trip-merged', () => {
+      Itin.render();
+      if (!$('page-hotel').classList.contains('hidden')) HotelPoll.render();
+      updateSaveReminder();
+      UI.toast('🗳️ 別人也剛更新，已自動合併你的投票');
+    });
     document.addEventListener('cloud-auto-refreshed', () => {
       applyRole();
       Itin.render();
+      if (!$('page-hotel').classList.contains('hidden')) HotelPoll.render();
       if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();
       updateSaveReminder();
       const by = (Store.get() && Store.get()._saveBy) || '';
