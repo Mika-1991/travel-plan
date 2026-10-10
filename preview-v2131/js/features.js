@@ -683,10 +683,10 @@ const Feat = (() => {
       <input id="qeItem" type="text" maxlength="30" value="${UI.esc(preset.item || '')}">
       <div class="row-2">
         <div><label>日期</label><input id="qeDate" type="date" value="${preset.date || t.startDate}"></div>
-        <div><label>金額</label><input id="qeAmt" type="number" min="1" inputmode="numeric" placeholder="金額"></div>
+        <div><label>金額</label><input id="qeAmt" type="number" min="1" inputmode="numeric" placeholder="金額" value="${Number(preset.amount) > 0 ? Number(preset.amount) : ''}"></div>
       </div>
       <label>誰先付的？</label>
-      <select id="qePayer">${t.members.map(m => `<option>${UI.esc(m)}</option>`).join('')}</select>
+      <select id="qePayer">${t.members.map(m => `<option ${m === preset.payer ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
       <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="qeTreat"> 🎁 這筆是請客，不用分帳</label>
       <div id="qePartsWrap">
         <label>誰參與（預設全員）</label>
@@ -705,12 +705,14 @@ const Feat = (() => {
         if (!item) { UI.toast('請輸入項目名稱'); return; }
         if (!amount || amount <= 0) { UI.toast('請輸入大於 0 的金額'); return; }
         if (!treat && !participants.length) { UI.toast('請至少選一位參與人，或勾「請客」'); return; }
+        const id = Logic.uid();
         t.expenses.push({
-          id: Logic.uid(), date: body.querySelector('#qeDate').value || t.startDate,
+          id, date: body.querySelector('#qeDate').value || t.startDate,
           item, amount, payer: body.querySelector('#qePayer').value, participants, treat
         });
         Store.touch();
         UI.closeModal();
+        if (preset.onSaved) preset.onSaved(id); // v2.1.32 行前準備：記下分帳 id，避免重複記
         UI.toast(`已記到分帳：「${item}」$${amount.toLocaleString()}`);
       }
     }]);
@@ -1258,6 +1260,7 @@ h2{margin:0 0 6px;color:#006599;font-size:16px}ul{list-style:none;margin:0;paddi
     $('btnExportExcel').onclick = () => downloadBlob(`${trip().name || '旅遊行程'}-資料匯出.xlsx`, xlsxBlob());
     $('btnPreviewPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程 PDF', false);
     $('btnPackingPreview').onclick = () => openPreview(packingHtml(), '攜帶物品清單', false);
+    $('btnPrepPreview').onclick = () => openPreview(Prep.printHtml(), '行前準備清單', false);
     $('btnExportCalendar').onclick = () => downloadBlob(icsFilename(), icsBlob());
     renderPackingList();
   }

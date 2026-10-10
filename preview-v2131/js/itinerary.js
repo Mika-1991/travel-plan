@@ -467,6 +467,7 @@ const Itin = (() => {
     const showDays = anySpot || hasRoutePlan;
     $('tripEmpty').classList.toggle('hidden', showDays);
     $('tripSummaryBar').classList.toggle('hidden', !showDays);
+    if (!showDays && $('prepPanel')) $('prepPanel').classList.add('hidden');
 
     const fab = $('btnOptimize');
     fab.disabled = t.spots.length < 2;
@@ -680,30 +681,25 @@ const Itin = (() => {
     const modeTxt = { driving: '🚗 開車', transit: '🚇 大眾運輸', walking: '🚶 走路' };
     const visitedCount = t.spots.filter(s => s.visited).length;
     const caret = Store.isReadonly() ? '' : ' ▾';
-    // v2.1.31 行程重點大卡：天數／景點／總車程／住宿已定，主色漸層、放在最上面
+    // v2.1.32 行程大卡＝行程重點＋行前準備進度（主色漸層、放在最上面）
     const days = Store.days();
     const nights = Math.max(days - 1, 0);
     let travel = 0;
     for (let d = 1; d <= days; d++) travel += legsForDay(d).reduce((x, y) => x + (y || 0), 0);
-    const hotelNights = new Set((t.hotels || []).map(h => Number(h.night))).size;
-    const confirmed = new Set((t.hotels || []).filter(h => h.fromPoll).map(h => Number(h.night))).size;
     const dateTxt = iso => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
-    const stats = [
-      [`${days} 天${nights ? ` ${nights} 夜` : ''}`, '天數'],
-      [`${t.spots.length}`, visitedCount ? `景點（已去 ${visitedCount}）` : '個景點'],
-      [travel ? Logic.fmtDur(travel) : '—', '總車程'],
-      ...(nights ? [[`${hotelNights}/${nights}`, confirmed ? `晚住宿（✅ ${confirmed}）` : '晚住宿已定']] : [])
-    ];
+    const facts = [`${days} 天${nights ? ` ${nights} 夜` : ''}`, `${t.spots.length} 個景點${visitedCount ? `（已去 ${visitedCount}）` : ''}`, travel ? `總車程 ${Logic.fmtDur(travel)}` : ''].filter(Boolean);
     $('tripSummaryBar').innerHTML = `
       <div class="sb-top">
-        <div class="sb-name">${UI.esc(t.name)}</div>
+        <div><div class="sb-name">${UI.esc(t.name)}</div><div class="sb-count">${UI.esc(Prep.countdown())}</div></div>
         <div class="sb-chips">
           <button id="btnTripDates" class="sb-chip" title="變更旅遊天數">🗓️ ${dateTxt(t.startDate)}–${dateTxt(t.endDate)}${caret}</button>
           <button id="btnSwitchMode" class="sb-chip">${modeTxt[t.transport]}${caret}</button>
         </div>
       </div>
-      <div class="sb-stats">${stats.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('')}</div>
+      ${Prep.cardHtml()}
+      <p class="sb-facts">${facts.map(UI.esc).join('｜')}</p>
       <p class="sb-note">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同</p>`;
+    Prep.bindCard();
     const dBtn = $('btnTripDates');
     if (Store.isReadonly()) dBtn.style.pointerEvents = 'none';
     else dBtn.onclick = () => Feat.editTripDates();

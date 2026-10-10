@@ -90,6 +90,7 @@ const Store = (() => {
     t.legsByDay = t.legsByDay || {};
     t.flights = Array.isArray(t.flights) ? t.flights : []; // v2.1.27 航班
     if (!t.hotelPoll || !Array.isArray(t.hotelPoll.candidates)) t.hotelPoll = { owner: (t.hotelPoll && t.hotelPoll.owner) || '', candidates: [] }; // v2.1.30 飯店投票
+    if (!t.prep || !Array.isArray(t.prep.tasks)) t.prep = { templateAsked: !!(t.prep && t.prep.templateAsked), tasks: [], autoOwners: (t.prep && t.prep.autoOwners) || {} }; // v2.1.32 行前準備
     t.dayTransportOv = t.dayTransportOv || {};
     t.rainPlans = t.rainPlans || {};
     t.rainActive = t.rainActive || {};
@@ -153,6 +154,8 @@ const Store = (() => {
     copy.createdAt = Date.now();
     copy.updatedAt = Date.now();
     copy.baseUpdatedAt = 0;
+    // 行前準備：項目留著，但狀態重來、記帳連結清掉（新行程的分帳是另一份）
+    if (copy.prep && Array.isArray(copy.prep.tasks)) copy.prep.tasks.forEach(x => { x.status = 'todo'; x.doneBy = ''; x.doneAt = 0; x.expenseId = ''; });
     return normalizeTrip(copy);
   }
 

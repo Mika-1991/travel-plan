@@ -190,6 +190,7 @@
         <div id="spotSuggest" class="suggest hidden"></div>
       </div>
       <div id="tripSummaryBar" class="summary-bar hidden"></div>
+      <div id="prepPanel" class="prep-panel hidden"></div>
       <div id="dayList" class="day-list"></div>
       <div id="tripEmpty" class="empty-state">
         <p>👇 還沒有景點</p>
@@ -272,7 +273,12 @@
         <div id="packingListBox" class="resource-list"></div>
       </div>
       <div class="card">
-        <div class="step-title"><span class="step-badge">4</span><span class="step-text">加入 Google／Apple 日曆</span></div>
+        <div class="step-title"><span class="step-badge">4</span><span class="step-text">行前準備清單</span></div>
+        <p class="hint">依分類列出待辦、負責人、截止日、狀態與費用，可列印或存 PDF 貼在群組。</p>
+        <button id="btnPrepPreview" class="btn-primary" style="width:100%">📄 預覽 PDF</button>
+      </div>
+      <div class="card">
+        <div class="step-title"><span class="step-badge">5</span><span class="step-text">加入 Google／Apple 日曆</span></div>
         <p class="hint">下載 .ics 行事曆檔案，用 Google 日曆／Apple 日曆／Outlook 開啟即可加入一筆整趟旅程的行事曆事件（不需登入、不需授權）。</p>
         <button id="btnExportCalendar" class="btn-primary" style="width:100%">📅 下載日曆檔</button>
       </div>
@@ -316,6 +322,7 @@
 <script src="js/itinerary.js"></script>
 <script src="js/copyto.js"></script>
 <script src="js/hotelpoll.js"></script>
+<script src="js/prep.js"></script>
 <script src="js/features.js"></script>
 <script src="js/app.js"></script>
 </body>

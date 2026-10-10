@@ -303,6 +303,7 @@ const App = (() => {
     updateEditorChip();
     // v2.1.25：用編輯代碼進來、這台裝置還沒選過身分 → 一定要先選「你是誰」才能編輯
     if (!Store.isReadonly() && !Store.getEditor()) askIdentity(true);
+    else Prep.remindMine(); // v2.1.32：自己負責的待辦快到期／逾期 → 進場提醒
     Store.startPresencePoll(); // 唯讀者也要：才能在別人更新時自動刷新
   }
 
@@ -335,6 +336,8 @@ const App = (() => {
       UI.closeModal();
       updateEditorChip();
       UI.toast(`👋 ${name}，你好！之後的修改都會記上你的名字`);
+      Itin.render(); // 進度表「只看我的」、狀態按鈕權限依身分
+      Prep.remindMine();
     };
     const list = body.querySelector('#whoList');
     members.forEach(m => {

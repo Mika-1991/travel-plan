@@ -117,6 +117,25 @@ const ChangeLog = (() => {
   const rainOf = p => { const o = {}; Object.entries(p || {}).forEach(([k, v]) => { if (v && ((v.spots || []).length || Object.keys(v).some(x => x !== 'spots'))) o[k] = v; }); return o; };
   const actOf = r => { const o = {}; Object.entries(r || {}).forEach(([k, v]) => { if (v) o[k] = v; }); return o; };
 
+  // v2.1.32 行前準備：待辦增刪、狀態、指派、截止日／費用；自動項目負責人
+  function diffPrep(a, b, out) {
+    const A = new Map((((a.prep || {}).tasks) || []).map(x => [x.id, x]));
+    const B = new Map((((b.prep || {}).tasks) || []).map(x => [x.id, x]));
+    const ST = { todo: '未開始', doing: '進行中', done: '完成' };
+    let addedCount = 0;
+    B.forEach((x, id) => {
+      const o = A.get(id), nm = `「${x.title}」`;
+      if (!o) { addedCount++; if (addedCount <= 3) out.push(`📋 新增待辦${nm}`); return; }
+      if (o.status !== x.status) out.push(x.status === 'done' ? `✅ 完成待辦${nm}` : `📋 待辦${nm}改成「${ST[x.status] || x.status}」`);
+      if (JSON.stringify(o.owners || []) !== JSON.stringify(x.owners || [])) out.push(`👤 待辦${nm}負責人：${(x.owners || []).join('、') || '（未指派）'}`);
+      if ((o.due || '') !== (x.due || '')) out.push(`📅 待辦${nm}截止日：${x.due || '（無）'}`);
+      if (o.title !== x.title || (o.note || '') !== (x.note || '') || Number(o.cost || 0) !== Number(x.cost || 0) || o.cat !== x.cat) out.push(`📋 修改待辦${nm}`);
+    });
+    if (addedCount > 3) out.push(`📋 另外新增 ${addedCount - 3} 項待辦`);
+    A.forEach((x, id) => { if (!B.has(id)) out.push(`🗑 刪除待辦「${x.title}」`); });
+    if (JSON.stringify((a.prep || {}).autoOwners || {}) !== JSON.stringify((b.prep || {}).autoOwners || {})) out.push('👤 調整自動項目的負責人');
+  }
+
   function diffBasics(a, b, out) {
     if (a.name !== b.name) out.push(`行程名稱改為「${b.name}」`);
     if (a.startDate !== b.startDate || a.endDate !== b.endDate) out.push(`日期改為 ${b.startDate} ~ ${b.endDate}`);
@@ -144,8 +163,9 @@ const ChangeLog = (() => {
     diffExpenses(base, b, out);
     diffFlights(base, b, out);
     diffHotelPoll(base, b, out);
+    diffPrep(base, b, out);
     // 只有「自動算的地面交通」變了 → 不算修改
-    const noAuto = t => { const c = JSON.parse(JSON.stringify(t)); (c.flights || []).forEach(f => { delete f.groundAuto; delete f.groundAutoKey; }); c.rainPlans = rainOf(c.rainPlans); c.rainActive = actOf(c.rainActive); ((c.hotelPoll || {}).candidates || []).forEach(x => { delete x.photos; }); return c; };
+    const noAuto = t => { const c = JSON.parse(JSON.stringify(t)); (c.flights || []).forEach(f => { delete f.groundAuto; delete f.groundAutoKey; }); c.rainPlans = rainOf(c.rainPlans); c.rainActive = actOf(c.rainActive); ((c.hotelPoll || {}).candidates || []).forEach(x => { delete x.photos; }); if (c.prep) delete c.prep.templateAsked; return c; };
     if (!out.length && same(noAuto(base), noAuto(b))) return [];
     if (!out.length) out.push('更新了行程設定');
     if (out.length > MAX_LINES_PER_SAVE) {

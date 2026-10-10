@@ -481,5 +481,5 @@ const HotelPoll = (() => {
     });
   }
 
-  return { render, applyVote, isConfirmedHotel: h => !!(h && h.confirmed && h.fromPoll) };
+  return { render, applyVote, owner, isConfirmedHotel: h => !!(h && h.confirmed && h.fromPoll) };
 })();
