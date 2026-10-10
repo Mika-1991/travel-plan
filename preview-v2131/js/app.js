@@ -1,0 +1,565 @@
+// ============================================================
+// App 主控：共用 UI 元件、分頁切換、初始化
+// ============================================================
+
+// ---------- 共用 UI ----------
+const UI = (() => {
+  const $ = id => document.getElementById(id);
+
+  const esc = s => String(s ?? '').replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const isRealPlaceId = p => p.placeId && !String(p.placeId).startsWith('m-') && !String(p.placeId).startsWith('custom-');
+  const gmapLink = p => isRealPlaceId(p)
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name)}&query_place_id=${p.placeId}`
+    : Logic.hasCoords(p)
+      ? `https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name || p.address || '')}`;
+  const navLink = p =>
+    Logic.hasCoords(p)
+      ? `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}` +
+        (isRealPlaceId(p) ? `&destination_place_id=${p.placeId}` : '')
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name || p.address || '')}`;
+  // Google 旅館頁：可切換日期看平日/假日房價（Google API 不直接提供房價）
+  const hotelPriceLink = name =>
+    `https://www.google.com/travel/hotels?q=${encodeURIComponent(name)}`;
+
+  let toastTimer = null;
+  function toast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.add('hidden'), 2600);
+  }
+
+  function loading(on, text) {
+    $('loading').classList.toggle('hidden', !on);
+    if (text) $('loadingText').textContent = text;
+    if (!on) { stopCreep(); barPct = 0; $('loading').classList.remove('with-bar'); }
+  }
+
+  // ---------- 進度條（0→100%）：progress=真實進度；progressCreep=估算緩慢前進到 cap；progressDone=跳 100% 後收起 ----------
+  let barPct = 0, creepTimer = null;
+  function stopCreep() { clearInterval(creepTimer); creepTimer = null; }
+  function setBar(pct, text) {
+    barPct = Math.max(barPct, Math.min(100, pct)); // 只進不退
+    $('loading').classList.remove('hidden');
+    $('loading').classList.add('with-bar');
+    if (text) $('loadingText').textContent = text;
+    $('loadingBarFill').style.width = barPct + '%';
+    $('loadingPct').textContent = Math.floor(barPct) + '%';
+  }
+  function progress(pct, text) { stopCreep(); setBar(pct, text); }
+  function progressCreep(cap, text) {
+    stopCreep();
+    setBar(barPct, text);
+    // 先快後慢逼近 cap（永遠不會自己到 cap，真正完成時由 progress/progressDone 接手）
+    creepTimer = setInterval(() => {
+      if (barPct < cap) setBar(Math.min(cap, barPct + Math.max(0.1, (cap - barPct) * 0.04)));
+    }, 150);
+  }
+  async function progressDone(text) {
+    progress(100, text);
+    await new Promise(r => setTimeout(r, 350));
+    loading(false);
+  }
+
+  // ---------- 通用彈窗（支援疊層：彈窗裡再開彈窗會疊在上面，關閉只退回上一層）----------
+  // body 可為 HTML 字串或元素；actions: [{label, onClick, primary, danger}]；opts.noClose = 不顯示「關閉」也不可點背景關
+  const modalStack = [];
+  let guardPushed = false;   // 是否已在 history 放一個「返回鍵先關彈窗」的守衛
+  let suppressPop = false;   // 我們自己呼叫 history.back() 造成的 popstate，忽略之
+  let backTimer = null;      // 延後清 guard 的計時器（避免關閉後同一輪又開彈窗時 back()+pushState 打架）
+
+  function modal(title, body, actions, opts) {
+    opts = opts || {};
+    const overlay = $('modalOverlay');
+    if (modalStack.length) modalStack[modalStack.length - 1].box.style.display = 'none';
+    const box = document.createElement('div');
+    box.className = 'modal-box' + (opts.fullscreen ? ' fullscreen' : '');
+    box.innerHTML = `<button class="modal-x" type="button" aria-label="關閉視窗" title="關閉">×</button><h3>${esc(title)}</h3>`;
+    box.querySelector('.modal-x').onclick = () => closeModal();
+    if (opts.locked) box.querySelector('.modal-x').remove(); // locked：一定要做選擇，不能關掉
+    if (typeof body === 'string') {
+      const p = document.createElement('div');
+      p.style.whiteSpace = 'pre-wrap';
+      p.textContent = body;
+      box.appendChild(p);
+    } else if (body) box.appendChild(body);
+    const act = document.createElement('div');
+    act.className = 'modal-actions' + (opts.stackActions ? ' stacked' : ''); // stackActions：按鈕文字長時改成直向排列
+    (actions || []).forEach(a => {
+      const b = document.createElement('button');
+      b.className = a.primary ? 'btn-primary' : 'btn-outline';
+      if (a.danger) { b.style.borderColor = 'var(--danger)'; b.style.color = 'var(--danger)'; }
+      b.textContent = a.label;
+      b.onclick = a.onClick || (() => closeModal());
+      act.appendChild(b);
+    });
+    if (!opts.noClose) {
+      const c = document.createElement('button');
+      c.className = 'btn-outline';
+      c.textContent = '關閉';
+      c.onclick = () => closeModal();
+      act.appendChild(c);
+    }
+    box.appendChild(act);
+    overlay.appendChild(box);
+    modalStack.push({ box, opts });
+    overlay.classList.remove('hidden');
+    clearTimeout(backTimer); // 上一個彈窗剛關又立刻開新彈窗（choose→onPick→再開）→ 取消那次返回，續用同一個 guard
+    if (!guardPushed) { guardPushed = true; try { history.pushState({ mikaModal: 1 }, ''); } catch {} }
+  }
+
+  // 關閉最上層彈窗
+  function closeModal() {
+    const top = modalStack.pop();
+    if (top && top.box && top.box.parentNode) top.box.parentNode.removeChild(top.box);
+    if (modalStack.length) modalStack[modalStack.length - 1].box.style.display = '';
+    else finishModals();
+  }
+  // 一次關閉所有彈窗（流程完成、母資料已變動時用）
+  function closeAllModals() {
+    while (modalStack.length) {
+      const m = modalStack.pop();
+      if (m.box && m.box.parentNode) m.box.parentNode.removeChild(m.box);
+    }
+    finishModals();
+  }
+  function finishModals() {
+    $('modalOverlay').classList.add('hidden');
+    if (!guardPushed) return;
+    // 延後一拍才清 guard：若同一輪又開了新彈窗，modal() 會 clearTimeout 取消這次返回，
+    // 避免 history.back() 與同步的 pushState 在同一個 tick 打架（桌機會誤跳上一頁）。
+    clearTimeout(backTimer);
+    backTimer = setTimeout(() => {
+      if (!modalStack.length && guardPushed) {
+        guardPushed = false; suppressPop = true;
+        try { history.back(); } catch { suppressPop = false; }
+      }
+    }, 0);
+  }
+  // 供 App 初始化時掛：點背景關、手機返回鍵先關彈窗
+  function initModalDismiss() {
+    const overlay = $('modalOverlay');
+    overlay.addEventListener('click', e => {
+      if (e.target !== overlay || !modalStack.length) return;
+      const top = modalStack[modalStack.length - 1];
+      if (!top.opts.noClose) closeModal();
+    });
+    window.addEventListener('popstate', () => {
+      if (suppressPop) { suppressPop = false; return; }
+      if (modalStack.length) {
+        // 有「一定要做選擇」的視窗（例如選編輯者身分）→ 返回鍵不關它，重新放回守衛
+        if (modalStack.some(m => m.opts.locked)) { try { history.pushState({ mikaModal: 1 }, ''); guardPushed = true; } catch {} return; }
+        guardPushed = false; closeAllModals();
+      }
+    });
+  }
+
+  // 把瀏覽器／網路的英文錯誤翻成看得懂的中文＋下一步；本來就是中文說明的原樣保留
+  function friendlyError(e) {
+    const msg = String((e && e.message) || e || '');
+    if (/Load failed|Failed to fetch|NetworkError|network|Internet connection/i.test(msg))
+      return '連不上網路。請確認手機有網路（或已關閉飛航模式）後再試一次。';
+    if (/Lock|timed out|timeout/i.test(msg) || msg.includes('太久'))
+      return '雲端目前比較忙，請等幾秒再試一次。';
+    if (/JSON|Unexpected token|expected pattern/i.test(msg))
+      return '雲端暫時回應異常（可能正忙），請等幾秒再試一次。';
+    if (/[一-鿿]/.test(msg)) return msg;
+    return '發生未預期的錯誤，請重新整理頁面後再試一次。\n\n（技術訊息，可截圖給 Mika：' + msg + '）';
+  }
+
+  function alertBox(title, msg) { modal(title, msg, []); }
+  function confirmBox(title, msg, onYes) {
+    modal(title, msg, [
+      { label: '確定', primary: true, onClick: () => { closeModal(); onYes && onYes(); } },
+      { label: '取消', onClick: closeModal }
+    ], { noClose: true });
+  }
+  // 選項清單彈窗
+  function choose(title, options, onPick) {
+    const body = document.createElement('div');
+    body.className = 'stack';
+    options.forEach(o => {
+      const b = document.createElement('button');
+      b.className = 'btn-outline';
+      if (o.danger) { b.style.borderColor = 'var(--danger)'; b.style.color = 'var(--danger)'; }
+      b.textContent = o.label;
+      b.onclick = () => { closeModal(); onPick(o.value); };
+      body.appendChild(b);
+    });
+    modal(title, body, []);
+  }
+
+  async function copy(text, okMsg) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(okMsg || '已複製');
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); ta.remove();
+      toast(okMsg || '已複製');
+    }
+  }
+
+  // 飯店付款狀態標籤（全站共用）
+  const PAY_LABELS = { full: '已刷全額', part: '已刷部分', onsite: '當天現刷' };
+
+  // 照片點擊放大
+  function photoZoom(url, title) {
+    if (!url) return;
+    const body = document.createElement('div');
+    const img = document.createElement('img');
+    img.className = 'zoom-img';
+    img.alt = title || '';
+    img.onerror = () => { body.innerHTML = '<p class="hint" style="text-align:center;padding:20px 0">這張照片已過期或無法顯示。</p>'; };
+    img.src = url;
+    body.appendChild(img);
+    modal(title || '照片', body, []);
+  }
+
+  // 搜尋結果卡片：非同步補上「旅遊當天營業時間」（每筆一次 Google 查詢，一次拿整週；模擬模式自動略過）
+  // dayInfos: [{ n: 天數(可 null), wd: 星期0-6 }]。指定某天→傳 1 筆；待排→傳全部天。星期用旅遊日期換算＝當地那天。
+  const WEEK_ZH = ['日', '一', '二', '三', '四', '五', '六'];
+  function fillResultHours(container, results, dayInfos) {
+    if (!container) return;
+    const infos = (dayInfos && dayInfos.length) ? dayInfos : [{ n: null, wd: new Date().getDay() }];
+    container.querySelectorAll('[data-hours-i]').forEach(el => {
+      const r = results[Number(el.dataset.hoursI)];
+      if (!r || !r.placeId) { el.remove(); return; }
+      Api.placeWeekHours(r.placeId).then(w => {
+        if (!w) { el.remove(); return; }
+        const parts = infos.map(info => {
+          const d = w.days[info.wd] || { text: '?', closed: false };
+          const tag = info.n ? `Day${info.n}(${WEEK_ZH[info.wd]})` : `週${WEEK_ZH[info.wd]}`;
+          return d.closed ? `<span class="closed">${tag} 公休</span>` : `${tag} ${esc(d.text)}`;
+        });
+        el.innerHTML = '🕒 ' + parts.join('｜');
+      }).catch(() => el.remove());
+    });
+  }
+
+  return { esc, gmapLink, navLink, hotelPriceLink, toast, loading, friendlyError, progress, progressCreep, progressDone, modal, closeModal, closeAllModals, initModalDismiss, alert: alertBox, confirm: confirmBox, choose, copy, PAY_LABELS, photoZoom, fillResultHours };
+})();
+
+// ---------- App 主控 ----------
+const App = (() => {
+  const $ = id => document.getElementById(id);
+
+  function switchPage(pageId) {
+    document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+    $(pageId).classList.remove('hidden');
+    document.querySelectorAll('#tabbar button').forEach(b =>
+      b.classList.toggle('on', b.dataset.page === pageId));
+    $('fabWrap').classList.toggle('hidden', pageId !== 'page-trip' || Store.isReadonly());
+    if (pageId === 'page-map') Itin.renderFullMap(0);
+    if (pageId === 'page-exp') Feat.renderExpensePage();
+    if (pageId === 'page-hotel') HotelPoll.render();
+    if (pageId === 'page-res') Feat.renderResourcePage();
+    window.scrollTo(0, 0);
+  }
+
+  function applyRole() {
+    const ro = Store.isReadonly();
+    document.body.classList.toggle('readonly', ro);
+    $('readonlyBanner').classList.toggle('hidden', !ro);
+    $('fabWrap').classList.toggle('hidden', ro);
+  }
+
+  // 自動存檔沒成功（失敗／離線／超過 5 秒還沒存上）才顯示浮動提醒；點它＝手動重試儲存
+  function updateSaveReminder() {
+    $('saveReminder').classList.toggle('hidden', !Store.needsSaveReminder());
+  }
+  setInterval(updateSaveReminder, 1000); // 「超過 5 秒還沒存上」是時間條件，需要定時檢查
+
+  // 剛進來行程時，如果真的有別人在線上編輯 → 畫面中間大大提示一下，1.5 秒後淡出
+  let splashTimer = null;
+  // 畫面中間大提示，ms 毫秒後淡出
+  function showSplash(text, ms) {
+    const el = $('presenceSplash');
+    el.textContent = text;
+    el.classList.remove('hidden');
+    setTimeout(() => el.classList.add('show'), 20); // 讓 hidden 先真正移除、觸發一次 reflow，淡入動畫才會生效
+    clearTimeout(splashTimer);
+    splashTimer = setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.classList.add('hidden'), 500); // 等淡出動畫跑完再真的藏起來
+    }, ms);
+  }
+
+  function enterMain() {
+    $('wizard').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    document.body.classList.add('in-app');
+    ['btnManualSave', 'btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
+    applyRole();
+    Itin.render();
+    switchPage('page-trip');
+    updateSaveReminder();
+    if (Store.isReadonly()) $('presenceBadge').classList.add('hidden');
+    updateEditorChip();
+    // v2.1.25：用編輯代碼進來、這台裝置還沒選過身分 → 一定要先選「你是誰」才能編輯
+    if (!Store.isReadonly() && !Store.getEditor()) askIdentity(true);
+    Store.startPresencePoll(); // 唯讀者也要：才能在別人更新時自動刷新
+  }
+
+  // ---------- v2.1.25：編輯者身分 ----------
+  function updateEditorChip() {
+    const chip = $('editorChip');
+    const name = Store.getEditor();
+    const show = !Store.isReadonly() && !!name;
+    chip.classList.toggle('hidden', !show);
+    if (show) chip.textContent = '👤 ' + name;
+  }
+  // mandatory：第一次進來一定要選（不能關掉、返回鍵也關不掉）；否則是從頁首切換身分
+  function askIdentity(mandatory) {
+    const t = Store.get();
+    const members = (t.members || []).map(m => String(m).trim()).filter(Boolean);
+    const cur = Store.getEditor();
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <p class="hint" style="margin-bottom:10px">選擇你的名字，大家就知道是誰修改了行程（這台裝置會記住，之後點頁首的 👤 可以切換）。</p>
+      <div class="stack" id="whoList"></div>
+      <label style="margin-top:14px">不在名單上？輸入你的名字</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="whoOther" type="text" maxlength="20" placeholder="例：小明" style="margin-bottom:0">
+        <button id="whoOtherOk" class="btn-small" type="button">確定</button>
+      </div>`;
+    const pick = name => {
+      name = String(name || '').trim();
+      if (!name) { UI.toast('請選擇或輸入你的名字'); return; }
+      Store.setEditor(name);
+      UI.closeModal();
+      updateEditorChip();
+      UI.toast(`👋 ${name}，你好！之後的修改都會記上你的名字`);
+    };
+    const list = body.querySelector('#whoList');
+    members.forEach(m => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = m === cur ? 'btn-primary' : 'btn-outline';
+      b.textContent = (m === cur ? '✓ ' : '👤 ') + m;
+      b.onclick = () => pick(m);
+      list.appendChild(b);
+    });
+    if (!members.length) list.innerHTML = '<p class="hint">這份行程還沒有設定成員，請直接輸入你的名字。</p>';
+    body.querySelector('#whoOtherOk').onclick = () => pick(body.querySelector('#whoOther').value);
+    body.querySelector('#whoOther').addEventListener('keydown', e => { if (e.key === 'Enter') pick(e.target.value); });
+    UI.modal('你是誰？', body, [], mandatory ? { noClose: true, locked: true } : {});
+  }
+
+  // ---------- v2.1.25：修改紀錄 ----------
+  function showChangeLog() {
+    const log = ((Store.get() && Store.get().changeLog) || []).slice().reverse();
+    const p = n => String(n).padStart(2, '0');
+    const when = ts => { const d = new Date(ts); return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+    const body = document.createElement('div');
+    body.className = 'change-log';
+    body.innerHTML = log.length
+      ? log.map(e => `<div class="cl-row"><div class="cl-meta">${when(e.t)}｜👤 ${UI.esc(e.by || '（未具名）')}</div><div>${UI.esc(e.text)}</div></div>`).join('')
+      : '<p class="hint">目前還沒有修改紀錄。從這個版本開始，每次存檔都會記下誰改了什麼。</p>';
+    UI.modal(`📝 修改紀錄（最近 ${log.length} 筆）`, body, []);
+  }
+
+  function initHeader() {
+    $('appTitle').textContent = `Mika 旅遊路線規劃 ${CONFIG.version}`;
+    document.title = `Mika 旅遊路線規劃 ${CONFIG.version}`;
+    // 點標題 → 回行程主畫面
+    $('appTitle').onclick = () => {
+      if (!$('app').classList.contains('hidden')) {
+        switchPage('page-trip');
+      }
+    };
+    $('btnReload').onclick = async () => {
+      // 手上有還沒存上雲端的修改 → 先問，避免重新載入把它們默默丟掉
+      if (Store.hasPendingChanges() && !Store.isReadonly()) {
+        UI.modal('還有修改沒存上雲端', '重新載入會用雲端版本取代，你還沒存上雲端的修改會不見。', [
+          { label: '💾 先儲存我的修改', primary: true, onClick: () => { UI.closeModal(); Itin.saveCurrentArrangement(); } },
+          { label: '☁️ 放棄修改，載入雲端版本', danger: true, onClick: () => { UI.closeModal(); doReload(); } }
+        ], { stackActions: true });
+        return;
+      }
+      doReload();
+    };
+    async function doReload() {
+      try {
+        UI.progress(0, '重新載入中…');
+        UI.progressCreep(90);
+        await Store.reloadFromCloud();
+        await UI.progressDone('載入完成！');
+        enterMain();
+        UI.toast('已載入最新版本');
+      } catch (e) { UI.loading(false); UI.alert('載入失敗', UI.friendlyError(e)); }
+    }
+    $('saveReminder').onclick = () => Itin.saveCurrentArrangement();
+    $('btnManualSave').onclick = () => Itin.saveCurrentArrangement();
+    const roCopy = $('btnCopyTripRO');
+    if (roCopy) roCopy.onclick = () => Feat.copyTrip();
+    $('btnHome').onclick = () => { Store.stopPresencePoll(); location.href = location.pathname; };
+    $('btnClear').onclick = () => {
+      UI.confirm('清除本機資料？',
+        '會清除這台裝置記住的行程與偏好設定。\n\n☁️ 雲端的行程不受影響，之後仍可用行程代碼載入。\n\n確定要清除嗎？', () => {
+          Store.stopPresencePoll();
+          Store.clearLocal();
+          UI.toast('已清除，即將回到開始畫面');
+          setTimeout(() => location.href = location.pathname, 900);
+        });
+    };
+
+    // 同步狀態小圓點：點它看最近的同步紀錄（出狀況時截圖回報用）
+    $('editorChip').onclick = () => askIdentity(false);
+    $('presenceBadge').onclick = () => { if ($('presenceBadge').title) UI.toast($('presenceBadge').title); };
+    $('syncDot').style.cursor = 'pointer';
+    $('syncDot').onclick = () => showSyncLog();
+    document.addEventListener('sync-state', e => {
+      $('syncDot').className = 'sync-dot ' + (e.detail === 'idle' ? '' : e.detail);
+      $('syncDot').title = {
+        idle: '已同步', saving: '儲存中…', error: '同步失敗，稍後會再試',
+        offline: '離線中，恢復連線後會自動同步', conflict: '偵測到其他人更新了行程'
+      }[e.detail] || '';
+      updateSaveReminder();
+    });
+    // 線上共同編輯人數（旁邊心跳每 10 秒更新一次）
+    document.addEventListener('presence-update', e => {
+      const { count: n, names, initial } = e.detail;
+      const badge = $('presenceBadge');
+      // v2.1.25：顯示是誰在線上（名字去重；沒選身分的分頁顯示「未具名」）
+      const who = [...new Set((names || []).map(x => x || '未具名'))];
+      if (!n || n <= 1) { badge.classList.add('hidden'); badge.title = ''; }
+      else {
+        // 手機窄螢幕只顯示人數（點一下會跳出名字），桌面最多直接列 2 個名字
+        badge.textContent = window.innerWidth > 480 && who.length && who.length <= 2 ? `👥 ${who.join('、')}` : `👥 ${n}`;
+        badge.title = who.length ? `正在編輯：${who.join('、')}` : `目前有 ${n} 人正在編輯這份行程`;
+        badge.classList.remove('hidden');
+      }
+      // 剛進來這份行程、且真的有別人在線 → 大大提示一下，1.5 秒後淡出
+      if (initial && n > 1) showSplash(who.length ? `👥 ${who.join('、')} 正在線上編輯，請確認資訊同步` : `👥 現在 ${n} 人在線上編輯，請確認資訊同步`, 1500);
+    });
+    // 偵測到雲端新版本：手上沒有未存的變更 → 已安靜刷新完成，提示一下（不強制切回行程分頁，避免打斷瀏覽）
+    // 投票撞版本、已自動合併 → 重畫畫面（不打擾）
+    document.addEventListener('trip-merged', () => {
+      Itin.render();
+      if (!$('page-hotel').classList.contains('hidden')) HotelPoll.render();
+      updateSaveReminder();
+      UI.toast('🗳️ 別人也剛更新，已自動合併你的投票');
+    });
+    document.addEventListener('cloud-auto-refreshed', () => {
+      applyRole();
+      Itin.render();
+      if (!$('page-hotel').classList.contains('hidden')) HotelPoll.render();
+      if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();
+      updateSaveReminder();
+      const by = (Store.get() && Store.get()._saveBy) || '';
+      showSplash(`☁️ ${by && by !== Store.getEditor() ? by : '其他人'}剛更新了行程，已自動載入最新版本`, 2500);
+    });
+    // 偵測到雲端新版本：手上還有未存的變更 → 只提醒，不強制蓋掉
+    document.addEventListener('cloud-update-available', () => {
+      // 同一個視窗已經開著就不再疊一個（存檔衝突和心跳可能幾乎同時發現）
+      if ([...document.querySelectorAll('.modal-box h3')].some(h => h.textContent === '其他人剛更新了行程')) return;
+      UI.modal('其他人剛更新了行程',
+        `剛剛${Store.getLastRemoteSaveBy() && Store.getLastRemoteSaveBy() !== Store.getEditor() ? `「${Store.getLastRemoteSaveBy()}」` : '有其他人（或你的另一台裝置）'}存了這份行程，而你手上也有還沒存上雲端的修改。\n\n兩邊的修改無法自動合併，請選擇要保留哪一份：`,
+        [{
+          label: '💾 儲存我的版本（會蓋掉對方剛存的內容）', primary: true, onClick: () => {
+            UI.closeModal();
+            Store.markSaved();
+            Store.forceCloudSave()
+              .then(() => { Itin.render(); UI.toast('☁️ 已用你的版本儲存到雲端'); })
+              .catch(e => UI.alert('儲存失敗', (e && e.message) || String(e)));
+          }
+        }, {
+          label: '☁️ 載入雲端版本（放棄我還沒存的修改）', danger: true, onClick: async () => {
+            UI.closeModal();
+            try {
+              UI.progress(0, '載入最新版本…');
+              UI.progressCreep(90);
+              await Store.reloadFromCloud();
+              await UI.progressDone('載入完成！');
+              enterMain();
+            } catch (e) { UI.loading(false); UI.alert('載入失敗', UI.friendlyError(e)); }
+          }
+        }], { stackActions: true });
+    });
+    // 行程資料變動 → 重畫目前頁面相關區塊
+    document.addEventListener('trip-changed', () => {
+      if (!$('page-exp').classList.contains('hidden')) Feat.renderExpensePage();
+      updateSaveReminder();
+    });
+  }
+
+  // 同步紀錄：點頂部小圓點或「⋯ 更多 → 🔎 同步紀錄」（手機小圓點不好點）
+  function showSyncLog() {
+    const lines = Store.getSyncLog();
+    UI.alert('同步紀錄（最近 40 筆）', lines.length ? lines.slice().reverse().join('\n') : '目前還沒有紀錄');
+  }
+
+  function initTabs() {
+    document.querySelectorAll('#tabbar button').forEach(b =>
+      b.onclick = () => switchPage(b.dataset.page));
+  }
+
+  // v2.1.25：在 LINE 內建瀏覽器裡開啟 → 提示改用手機瀏覽器（LINE 裡網路恢復後同步很慢）
+  function initLineBanner() {
+    if (!/\bLine\//i.test(navigator.userAgent)) return;
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem('mika_line_banner_x') === '1'; } catch {}
+    if (dismissed) return;
+    $('lineBanner').classList.remove('hidden');
+    $('btnOpenExternal').onclick = () => {
+      const u = new URL(location.href);
+      u.searchParams.set('openExternalBrowser', '1'); // LINE 看到這個參數會改用手機瀏覽器開
+      location.href = u.toString();
+    };
+    $('btnLineBannerX').onclick = () => {
+      $('lineBanner').classList.add('hidden');
+      try { sessionStorage.setItem('mika_line_banner_x', '1'); } catch {}
+    };
+  }
+
+  async function initFromUrl() {
+    const code = new URLSearchParams(location.search).get('code');
+    if (!code) return false;
+    try {
+      UI.progress(0, '正在開啟分享的行程…');
+      UI.progressCreep(90);
+      const r = await Api.cloudGetTrip(code);
+      Store.load(r.trip, r.role);
+      await UI.progressDone('行程開啟完成！');
+      UI.toast(r.role === 'view' ? '已用唯讀模式開啟' : '行程已開啟，可以編輯');
+      enterMain();
+      return true;
+    } catch (e) {
+      UI.loading(false);
+      UI.alert('開啟失敗', UI.friendlyError(e) + '\n\n將回到開始畫面。');
+      return false;
+    }
+  }
+
+  async function init() {
+    if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; // 重新整理後從頁首開始
+    UI.initModalDismiss();
+    // 破圖自動隱藏：Google Places 照片網址會過期。兩種情況都藏起來（不留破圖）：
+    // 1) 載入失敗（error）；2) 載入成功但只是 Google 的「無照片」小佔位圖（naturalWidth 很小）
+    const isThumb = el => el && el.tagName === 'IMG' &&
+      (el.classList.contains('thumb') || el.classList.contains('thumb-sm') || el.classList.contains('spot-thumb'));
+    document.addEventListener('error', e => { if (isThumb(e.target)) e.target.style.display = 'none'; }, true);
+    document.addEventListener('load', e => {
+      const el = e.target;
+      if (isThumb(el) && el.naturalWidth && el.naturalWidth <= 120) el.style.display = 'none';
+    }, true);
+    initHeader();
+    initTabs();
+    Wizard.init();
+    Itin.init();
+    Feat.initExpense();
+    initLineBanner();
+    const opened = await initFromUrl();
+    if (!opened) Wizard.show('w-start');
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  return { enterMain, switchPage, showSyncLog, showChangeLog };
+})();
