@@ -683,10 +683,10 @@ const Feat = (() => {
       <input id="qeItem" type="text" maxlength="30" value="${UI.esc(preset.item || '')}">
       <div class="row-2">
         <div><label>日期</label><input id="qeDate" type="date" value="${preset.date || t.startDate}"></div>
-        <div><label>金額</label><input id="qeAmt" type="number" min="1" inputmode="numeric" placeholder="金額"></div>
+        <div><label>金額</label><input id="qeAmt" type="number" min="1" inputmode="numeric" placeholder="金額" value="${Number(preset.amount) > 0 ? Number(preset.amount) : ''}"></div>
       </div>
       <label>誰先付的？</label>
-      <select id="qePayer">${t.members.map(m => `<option>${UI.esc(m)}</option>`).join('')}</select>
+      <select id="qePayer">${t.members.map(m => `<option ${m === preset.payer ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
       <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="qeTreat"> 🎁 這筆是請客，不用分帳</label>
       <div id="qePartsWrap">
         <label>誰參與（預設全員）</label>
@@ -705,12 +705,14 @@ const Feat = (() => {
         if (!item) { UI.toast('請輸入項目名稱'); return; }
         if (!amount || amount <= 0) { UI.toast('請輸入大於 0 的金額'); return; }
         if (!treat && !participants.length) { UI.toast('請至少選一位參與人，或勾「請客」'); return; }
+        const id = Logic.uid();
         t.expenses.push({
-          id: Logic.uid(), date: body.querySelector('#qeDate').value || t.startDate,
+          id, date: body.querySelector('#qeDate').value || t.startDate,
           item, amount, payer: body.querySelector('#qePayer').value, participants, treat
         });
         Store.touch();
         UI.closeModal();
+        if (preset.onSaved) preset.onSaved(id); // v2.1.32 行前準備：記下分帳 id，避免重複記
         UI.toast(`已記到分帳：「${item}」$${amount.toLocaleString()}`);
       }
     }]);
@@ -941,7 +943,7 @@ const Feat = (() => {
     ];
     const itinerary = [['天數', '日期', '類型', '名稱', '地址', '備註']];
     for (let d = 1; d <= days; d++) {
-      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
+      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天${themeTxt(d, true)}`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
     }
     const hotels = [['晚別', '名稱', '地址', '付款狀態', '備註', '平日價', '假日價']];
     (t.hotels || []).sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
@@ -985,7 +987,7 @@ ${sheetXml('攜帶清單', packing)}
     ];
     const itinerary = [['天數', '日期', '類型', '名稱', '地址', '備註']];
     for (let d = 1; d <= days; d++) {
-      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
+      dayRows(d).forEach(r => itinerary.push([`第 ${d} 天${themeTxt(d, true)}`, Store.dateOfDay(d), r.type, r.name, r.address, r.note]));
     }
     const hotels = [['夜晚', '名稱', '地址', '付款狀態', '備註', '平日價格', '假日價格']];
     (t.hotels || []).slice().sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
@@ -1154,20 +1156,20 @@ ${sheetXml('攜帶清單', packing)}
   // v2.1.28：PDF 裡航班資訊很重要 → 深藍底白字；機場列淺藍底。列印時也保留底色（print-color-adjust）
   const printRowClass = type => (type === '航班' ? 'flight' : type === '機場' ? 'airport' : '');
   const PRINT_FLIGHT_CSS = `body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-tr.flight td{background:#1F3A5F;color:#fff;border-top:2px solid #1F3A5F}
+tr.flight td{background:#003F60;color:#fff;border-top:2px solid #003F60}
 tr.flight td b{color:#fff;font-size:1.05em}
 tr.flight .type{color:#FFD27A}
 tr.flight .addr,tr.flight .note{color:#DCE6F2}
 tr.airport td{background:#EAF1FA}
-tr.airport .type{color:#3E5F8A}`;
+tr.airport .type{color:#004D73}`;
   // v2.1.29：每一天用不同深淺的主色底區分；「第 N 天」標題列放大、深色底白字、左右置中；
   // 表格內容上下置中；只用主色（奶茶棕）的深淺，不加其他顏色
   const PRINT_DAY_CSS = `.day{border:none!important;border-radius:10px;overflow:hidden;padding:0!important;box-shadow:none!important}
-.day:nth-of-type(odd){background:#FBF6EF}
-.day:nth-of-type(even){background:#EFE3D3}
-.day h2{margin:0!important;padding:12px;text-align:center;font-size:24px!important;font-weight:800;letter-spacing:2px;color:#fff!important;background:#A9805B}
-.day:nth-of-type(even) h2{background:#7A5A3E}
-.day h2 span{color:#F6ECDF!important;font-size:15px!important;letter-spacing:0}
+.day:nth-of-type(odd){background:#F7FAFD}
+.day:nth-of-type(even){background:#E6F0F7}
+.day h2{margin:0!important;padding:12px;text-align:center;font-size:24px!important;font-weight:800;letter-spacing:2px;color:#fff!important;background:#006599}
+.day:nth-of-type(even) h2{background:#004D73}
+.day h2 span{color:#DCEBF5!important;font-size:15px!important;letter-spacing:0}
 .day table{margin:0}
 .day td{vertical-align:middle!important;border-top:1px solid rgba(122,90,62,.22)}
 .day tr:first-child td{border-top:none}
@@ -1181,13 +1183,13 @@ tr.airport .type{color:#3E5F8A}`;
           <td class="type">${r.type === '航班' ? '✈️ 航班' : textEsc(r.type)}</td>
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
         </tr>`).join('');
-      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}</h2><table>${rows || '<tr><td colspan="2">尚無安排</td></tr>'}</table></section>`;
+      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}${themeTxt(d)}</h2><table>${rows || '<tr><td colspan="2">尚無安排</td></tr>'}</table></section>`;
     }).join('');
     return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><title>${textEsc(t.name)} 每日行程</title>
 <style>
-body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#FAF6F0;margin:0;padding:24px}
-h1{margin:0 0 8px;color:#8f6a49}.meta{color:#8C7B6B;margin-bottom:18px}.day{page-break-inside:avoid;background:#fff;border-radius:12px;padding:16px;margin:0 0 16px;box-shadow:0 2px 10px #e1d4c4}
-h2{margin:0 0 10px;color:#A9805B}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:10px;vertical-align:top}.type{width:90px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:14px;margin-top:3px}
+body{font-family:"Microsoft JhengHei",sans-serif;color:#14293A;background:#F4F7FA;margin:0;padding:24px}
+h1{margin:0 0 8px;color:#004D73}.meta{color:#617587;margin-bottom:18px}.day{page-break-inside:avoid;background:#fff;border-radius:12px;padding:16px;margin:0 0 16px;box-shadow:0 2px 10px #DDE7EF}
+h2{margin:0 0 10px;color:#006599}table{width:100%;border-collapse:collapse}td{border-top:1px solid #DDE7EF;padding:10px;vertical-align:top}.type{width:90px;color:#006599;font-weight:700}.addr,.note{color:#617587;font-size:14px;margin-top:3px}
 @media print{body{background:#fff;padding:0}.day{box-shadow:none;border:1px solid #ddd}}
 ${PRINT_FLIGHT_CSS}
 ${PRINT_DAY_CSS}
@@ -1203,28 +1205,33 @@ ${PRINT_DAY_CSS}
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
           <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="">` : ''}</td>
         </tr>`).join('');
-      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))} <span style="font-weight:400;color:#8C7B6B;font-size:15px">・${textEsc(dayTransportText(d))}</span></h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
+      return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}${themeTxt(d)} <span style="font-weight:400;color:#617587;font-size:15px">・${textEsc(dayTransportText(d))}</span></h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
     }).join('');
     return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 每日行程 PDF</title>
 <style>
-@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
+@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#14293A;background:#EEF3F7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
 @media screen and (max-width:820px){.sheet{width:100%;min-height:0;padding:14px}}
-h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.day{page-break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:12px;margin:0 0 12px}
-h2{margin:0 0 8px;color:#A9805B;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #eadccd;padding:8px;vertical-align:top}.type{width:86px;color:#A9805B;font-weight:700}.addr,.note{color:#8C7B6B;font-size:13px;margin-top:3px}.pic{width:64px;text-align:right}.pic img{width:60px;height:60px;object-fit:cover;border-radius:6px}
+h1{margin:0 0 8px;color:#004D73;font-size:24px}.meta{color:#617587;margin-bottom:14px}.day{page-break-inside:avoid;border:1px solid #DDE7EF;border-radius:8px;padding:12px;margin:0 0 12px}
+h2{margin:0 0 8px;color:#006599;font-size:18px}table{width:100%;border-collapse:collapse}td{border-top:1px solid #DDE7EF;padding:8px;vertical-align:top}.type{width:86px;color:#006599;font-weight:700}.addr,.note{color:#617587;font-size:13px;margin-top:3px}.pic{width:64px;text-align:right}.pic img{width:60px;height:60px;object-fit:cover;border-radius:6px}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.day{break-inside:avoid}}
 ${PRINT_FLIGHT_CSS}
 ${PRINT_DAY_CSS}
 </style></head><body><main class="sheet"><h1>${textEsc(t.name)}</h1><div class="meta">${t.startDate} ~ ${t.endDate}｜${transportLabel(t.transport)}</div>${daySections}</main></body></html>`;
+  }
+  // v2.1.33 每天主題（只用自訂的；沒設就不加）
+  function themeTxt(d, raw) {
+    const v = String(((trip() || {}).dayTitles || {})[d] || '').trim();
+    return v ? `｜${raw ? v : textEsc(v)}` : '';
   }
   function packingHtml() {
     const t = trip();
     const groups = packingTemplate.map(g => `<section class="group"><h2>${textEsc(g.cat)}</h2><ul>${g.items.map(i => `<li><span>□</span>${textEsc(i)}</li>`).join('')}</ul></section>`).join('');
     return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 攜帶物品清單</title>
 <style>
-@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#4A3B2E;background:#F4EFE7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
+@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#14293A;background:#EEF3F7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
 @media screen and (max-width:820px){.sheet{width:100%;min-height:0;padding:14px}}
-h1{margin:0 0 8px;color:#8f6a49;font-size:24px}.meta{color:#8C7B6B;margin-bottom:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.group{break-inside:avoid;border:1px solid #eadccd;border-radius:8px;padding:10px}
-h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}li{display:flex;gap:7px;align-items:flex-start;font-size:14px}li span{color:#A9805B;font-weight:700}
+h1{margin:0 0 8px;color:#004D73;font-size:24px}.meta{color:#617587;margin-bottom:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.group{break-inside:avoid;border:1px solid #DDE7EF;border-radius:8px;padding:10px}
+h2{margin:0 0 6px;color:#006599;font-size:16px}ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}li{display:flex;gap:7px;align-items:flex-start;font-size:14px}li span{color:#006599;font-weight:700}
 @media print{body{background:#fff}.sheet{width:auto;min-height:0;margin:0;padding:0}.group{break-inside:avoid}}
 </style></head><body><main class="sheet"><h1>${textEsc(t.name)} 攜帶物品清單</h1><div class="meta">${t.startDate} ~ ${t.endDate}</div><div class="grid">${groups}</div></main></body></html>`;
   }
@@ -1258,6 +1265,7 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
     $('btnExportExcel').onclick = () => downloadBlob(`${trip().name || '旅遊行程'}-資料匯出.xlsx`, xlsxBlob());
     $('btnPreviewPrint').onclick = () => openPreview(printableDailyHtml(), '每日行程 PDF', false);
     $('btnPackingPreview').onclick = () => openPreview(packingHtml(), '攜帶物品清單', false);
+    $('btnPrepPreview').onclick = () => openPreview(Prep.printHtml(), '行前準備清單', false);
     $('btnExportCalendar').onclick = () => downloadBlob(icsFilename(), icsBlob());
     renderPackingList();
   }
@@ -1357,27 +1365,27 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
       const list = t.spots.filter(s => Number(s.day) === d).sort((a, b) => a.order - b.order);
       const { start, end } = dayAnchors(t, d, days.length);
       const items = [];
-      if (start) items.push(`<li style="color:#8C7B6B">🏁 出發：${UI.esc(start.name)}</li>`);
+      if (start) items.push(`<li style="color:#617587">🏁 出發：${UI.esc(start.name)}</li>`);
       list.forEach((s, idx) => items.push(
         `<li style="margin:2px 0"><b>${idx + 1}. ${UI.esc(s.name)}</b>` +
-        (s.address ? `<br><span style="color:#8C7B6B;font-size:13px">${UI.esc(s.address)}</span>` : '') + `</li>`));
-      if (end) items.push(`<li style="color:#8C7B6B">🏨 住宿：${UI.esc(end.name)}</li>`);
+        (s.address ? `<br><span style="color:#617587;font-size:13px">${UI.esc(s.address)}</span>` : '') + `</li>`));
+      if (end) items.push(`<li style="color:#617587">🏨 住宿：${UI.esc(end.name)}</li>`);
       const dTxt = `${Number(dateISO.slice(5, 7))}/${Number(dateISO.slice(8, 10))}`;
-      return `<div style="margin:14px 0"><h3 style="color:#A9805B;margin:0 0 6px;font-size:17px">第 ${d} 天 <span style="font-weight:400;color:#8C7B6B;font-size:14px">${dTxt}</span></h3>` +
-        `<ul style="margin:0;padding-left:18px;line-height:1.7">${items.join('') || '<li style="color:#8C7B6B">尚未安排景點</li>'}</ul></div>`;
+      return `<div style="margin:14px 0"><h3 style="color:#006599;margin:0 0 6px;font-size:17px">第 ${d} 天 <span style="font-weight:400;color:#617587;font-size:14px">${dTxt}</span></h3>` +
+        `<ul style="margin:0;padding-left:18px;line-height:1.7">${items.join('') || '<li style="color:#617587">尚未安排景點</li>'}</ul></div>`;
     }).join('');
   }
 
   function fullItineraryEmailHtml(t, viewUrl, siteUrl) {
     const dTxt = t.startDate.slice(5).replace('-', '/') + '–' + t.endDate.slice(5).replace('-', '/');
-    return '<div style="font-family:sans-serif;color:#4A3B2E;max-width:640px">' +
-      `<h2 style="color:#A9805B;margin:0 0 4px">🧋 ${UI.esc(t.name)}</h2>` +
-      `<p style="color:#8C7B6B;margin:0 0 12px">${dTxt}</p>` +
-      `<p><a href="${viewUrl}" style="display:inline-block;background:#A9805B;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:700">👀 打開完整行程（可看地圖、天氣）</a></p>` +
-      `<hr style="border:none;border-top:1px solid #E8DDCD;margin:14px 0">` +
-      `<h3 style="color:#4A3B2E">📅 每日行程</h3>` + itineraryRowsHtml(t) +
-      `<p style="margin:14px 0 4px">🏠 網站入口：<a href="${siteUrl}" style="color:#A9805B">${siteUrl}</a></p>` +
-      `<p style="color:#8C7B6B;font-size:13px;margin-top:16px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
+    return '<div style="font-family:sans-serif;color:#14293A;max-width:640px">' +
+      `<h2 style="color:#006599;margin:0 0 4px">🧳 ${UI.esc(t.name)}</h2>` +
+      `<p style="color:#617587;margin:0 0 12px">${dTxt}</p>` +
+      `<p><a href="${viewUrl}" style="display:inline-block;background:#006599;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:700">👀 打開完整行程（可看地圖、天氣）</a></p>` +
+      `<hr style="border:none;border-top:1px solid #DDE7EF;margin:14px 0">` +
+      `<h3 style="color:#14293A">📅 每日行程</h3>` + itineraryRowsHtml(t) +
+      `<p style="margin:14px 0 4px">🏠 網站入口：<a href="${siteUrl}" style="color:#006599">${siteUrl}</a></p>` +
+      `<p style="color:#617587;font-size:13px;margin-top:16px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
       '</div>';
   }
 
@@ -1413,17 +1421,17 @@ h2{margin:0 0 6px;color:#A9805B;font-size:16px}ul{list-style:none;margin:0;paddi
   // 複製行程寄出的信：含編輯連結、網站入口連結、唯讀連結與代碼備份
   function copyEmailHtml(t, editUrl, viewUrl, siteUrl) {
     const dTxt = t.startDate.slice(5).replace('-', '/') + '–' + t.endDate.slice(5).replace('-', '/');
-    return '<div style="font-family:sans-serif;color:#4A3B2E;max-width:640px">' +
-      `<h2 style="color:#A9805B;margin:0 0 4px">🧋 ${UI.esc(t.name)}</h2>` +
-      `<p style="color:#8C7B6B;margin:0 0 12px">${dTxt}</p>` +
+    return '<div style="font-family:sans-serif;color:#14293A;max-width:640px">' +
+      `<h2 style="color:#006599;margin:0 0 4px">🧳 ${UI.esc(t.name)}</h2>` +
+      `<p style="color:#617587;margin:0 0 12px">${dTxt}</p>` +
       `<p>這是你複製的專屬行程，可以自由編輯、儲存。點下面的連結就能直接開啟：</p>` +
-      `<p><a href="${editUrl}" style="display:inline-block;background:#A9805B;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:700">✏️ 開啟並編輯我的行程</a></p>` +
-      `<p><a href="${viewUrl}" style="display:inline-block;background:#D98E4A;color:#fff;text-decoration:none;padding:9px 18px;border-radius:8px;font-weight:700">👀 唯讀連結（分享給親友看）</a></p>` +
-      `<p style="margin:14px 0 4px">🏠 網站入口：<a href="${siteUrl}" style="color:#A9805B">${siteUrl}</a></p>` +
-      `<hr style="border:none;border-top:1px solid #E8DDCD;margin:14px 0">` +
-      `<p style="color:#8C7B6B;font-size:14px;margin:0">代碼備份（在網站首頁「輸入代碼」也能開啟）：<br>` +
-      `✏️ 編輯代碼 <b style="color:#A9805B;letter-spacing:1px">${t.editCode}</b>　｜　👀 唯讀代碼 <b style="color:#D98E4A;letter-spacing:1px">${t.viewCode}</b></p>` +
-      `<p style="color:#8C7B6B;font-size:13px;margin-top:14px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
+      `<p><a href="${editUrl}" style="display:inline-block;background:#006599;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:700">✏️ 開啟並編輯我的行程</a></p>` +
+      `<p><a href="${viewUrl}" style="display:inline-block;background:#FF8C00;color:#fff;text-decoration:none;padding:9px 18px;border-radius:8px;font-weight:700">👀 唯讀連結（分享給親友看）</a></p>` +
+      `<p style="margin:14px 0 4px">🏠 網站入口：<a href="${siteUrl}" style="color:#006599">${siteUrl}</a></p>` +
+      `<hr style="border:none;border-top:1px solid #DDE7EF;margin:14px 0">` +
+      `<p style="color:#617587;font-size:14px;margin:0">代碼備份（在網站首頁「輸入代碼」也能開啟）：<br>` +
+      `✏️ 編輯代碼 <b style="color:#006599;letter-spacing:1px">${t.editCode}</b>　｜　👀 唯讀代碼 <b style="color:#FF8C00;letter-spacing:1px">${t.viewCode}</b></p>` +
+      `<p style="color:#617587;font-size:13px;margin-top:14px">⏱️ 預估時間僅供參考，實際可能因路線、路況或營業時間而有所不同。</p>` +
       '</div>';
   }
 

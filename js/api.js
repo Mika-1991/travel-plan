@@ -123,6 +123,24 @@ const Api = (() => {
       .sort((a, b) => a.distKm - b.distKm);
   }
 
+  // ---------- 飯店官網＋多張照片（投票候選用） ----------
+  // 回傳 { website, photos:[url…最多 8 張] }；照片網址會過期，所以畫面載入失敗時會再呼叫一次換新
+  async function placeExtras(placeId) {
+    if (isMock() || !placeId) { await delay(30); return { website: '', photos: [] }; }
+    try {
+      await loadGoogleMaps();
+      return await new Promise(resolve => {
+        placesSvc().getDetails({ placeId, fields: ['website', 'photos'] }, (res, status) => {
+          if (!okStatus(status) || !res) { resolve({ website: '', photos: [] }); return; }
+          resolve({
+            website: res.website || '',
+            photos: (res.photos || []).slice(0, 8).map(ph => ph.getUrl({ maxWidth: 640 }))
+          });
+        });
+      });
+    } catch (e) { console.warn('飯店資料查詢失敗', e); return { website: '', photos: [] }; }
+  }
+
   // ---------- 營業時間／公休日（加入景點時抓一次） ----------
   // 回傳 { weekdayText:[...], closedDays:[0..6] }（0=週日）或 null
   async function placeHours(placeId) {
@@ -433,7 +451,7 @@ const Api = (() => {
   // 逾時上限（v2.1.23 依動作分開）：Apps Script 執行紀錄顯示後端實際只跑 0.5～3 秒，
   // 等很久多半是手機剛恢復網路時回應卡在路上 → 早點放棄、下一輪重試反而恢復得快。
   // 存檔帶 _saveSession，就算逾時但其實已存好，下次也認得出是自己存的，不會誤判衝突。
-  const GAS_TIMEOUT_MS = { presencePing: 10000, getTrip: 30000, saveTrip: 20000 };
+  const GAS_TIMEOUT_MS = { presencePing: 10000, getTrip: 15000, saveTrip: 20000 };
   const GAS_TIMEOUT_DEFAULT_MS = 45000;
   async function gasCall(action, payload) {
     const ms = GAS_TIMEOUT_MS[action] || GAS_TIMEOUT_DEFAULT_MS;
@@ -470,7 +488,15 @@ const Api = (() => {
       }
       throw new Error('找不到這個行程代碼，請確認輸入是否正確');
     }
-    return gasCall('getTrip', { code });
+    // 偶爾雲端冷啟動或手機網路卡住會逾時 → 自動再試，最多 3 次（找不到代碼這類錯誤不重試）
+    for (let i = 0; ; i++) {
+      try { return await gasCall('getTrip', { code }); }
+      catch (e) {
+        const retryable = /太久|Failed to fetch|Load failed|NetworkError|network|雲端連線失敗|JSON|Unexpected token/i.test(String(e && e.message));
+        if (!retryable || i >= 2) throw e;
+        await delay(1500 * (i + 1));
+      }
+    }
   }
 
   // 整筆覆蓋 + 時間戳比對；code 必須是編輯代碼
@@ -566,6 +592,16 @@ const Api = (() => {
   }
 
   // 寄送完整行程（唯讀連結＋每日行程明細）。html 由前端組好，GAS 直接寄出
+  // v2.1.33 💬 意見回饋：交給後台寄到 Mika 信箱（網頁看不到收件 Email）
+  async function sendFeedback(payload) {
+    if (isMock()) { await delay(300); return { sent: true, simulated: true }; }
+    try { return await gasCall('sendFeedback', payload); }
+    catch (e) {
+      if (/未知的動作/.test(String(e && e.message))) throw new Error('回饋功能即將開放（後台還在更新），請稍後再試，謝謝！');
+      throw e;
+    }
+  }
+
   async function cloudSendItinerary(email, subject, html, code) {
     if (isMock()) { await delay(400); return { simulated: true }; }
     return gasCall('sendItinerary', { email, subject, html, code });
@@ -653,10 +689,10 @@ const Api = (() => {
 
   return {
     isMock, loadGoogleMaps, geocodeAddress,
-    searchPlaces, searchFood, nearbySearch, placeHours, placeWeekHours,
+    searchPlaces, searchFood, nearbySearch, placeHours, placeWeekHours, placeExtras,
     optimizeRoute, routeLegs, routePath, routeLegPath, travelTime,
     weatherOn,
-    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail,
+    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail, sendFeedback,
     cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail, cloudPresencePing
   };
 })();

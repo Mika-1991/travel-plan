@@ -20,15 +20,19 @@ const Store = (() => {
   let pendingSince = 0; // 最早一筆「還沒存上雲端」的修改發生時間（決定要不要跳「還沒存到雲端」提醒）
   // v2.1.25：編輯者身分（每台裝置、每份行程記住一次）＋修改紀錄的比對基準
   let editorName = '';
+  let pendingBy = ''; // 有未存修改時切換身分 → 這批修改仍記在切換前的人名下
   let syncedBase = null;        // 上次存上雲端的版本（ChangeLog.strip 過）；'NEW'＝新行程；null＝未知
   let lastRemoteSaveBy = '';    // 心跳看到的「雲端最新版是誰存的」
   let pendingVoteOps = [];      // v2.1.30 飯店投票：還沒存上雲端的投票操作（撞版本時自動重放用）
   const EDITOR_KEY = id => 'mika_editor:' + id;
   function loadEditorFor(t) {
+    pendingBy = '';
     try { editorName = (t && localStorage.getItem(EDITOR_KEY(t.tripId))) || ''; } catch { editorName = ''; }
   }
   function setEditor(name) {
-    editorName = String(name || '').trim();
+    const next = String(name || '').trim();
+    if (next !== editorName && changeSeq !== savedSeq && !pendingBy) pendingBy = editorName;
+    editorName = next;
     try { if (trip) localStorage.setItem(EDITOR_KEY(trip.tripId), editorName); } catch {}
   }
   const getEditor = () => editorName;
@@ -86,6 +90,8 @@ const Store = (() => {
     t.legsByDay = t.legsByDay || {};
     t.flights = Array.isArray(t.flights) ? t.flights : []; // v2.1.27 航班
     if (!t.hotelPoll || !Array.isArray(t.hotelPoll.candidates)) t.hotelPoll = { owner: (t.hotelPoll && t.hotelPoll.owner) || '', candidates: [] }; // v2.1.30 飯店投票
+    if (!t.prep || !Array.isArray(t.prep.tasks)) t.prep = { templateAsked: !!(t.prep && t.prep.templateAsked), tasks: [], autoOwners: (t.prep && t.prep.autoOwners) || {} }; // v2.1.32 行前準備
+    t.dayTitles = t.dayTitles || {}; t.dayIcons = t.dayIcons || {}; // v2.1.33 每天主題
     t.dayTransportOv = t.dayTransportOv || {};
     t.rainPlans = t.rainPlans || {};
     t.rainActive = t.rainActive || {};
@@ -149,6 +155,8 @@ const Store = (() => {
     copy.createdAt = Date.now();
     copy.updatedAt = Date.now();
     copy.baseUpdatedAt = 0;
+    // 行前準備：項目留著，但狀態重來、記帳連結清掉（新行程的分帳是另一份）
+    if (copy.prep && Array.isArray(copy.prep.tasks)) copy.prep.tasks.forEach(x => { x.status = 'todo'; x.doneBy = ''; x.doneAt = 0; x.expenseId = ''; });
     return normalizeTrip(copy);
   }
 
@@ -315,9 +323,11 @@ const Store = (() => {
   // 組出這次要送的資料：標記是誰、哪個分頁存的，並把「這次改了什麼」附進修改紀錄
   function buildPayload(extraLog) {
     trip._saveSession = sessionId; // 標記「這一版是這個分頁存的」：回應掉了也認得出是自己，不會誤判衝突
-    trip._saveBy = editorName || '';
+    const by = pendingBy || editorName;
+    pendingBy = '';
+    trip._saveBy = by || '';
     const payload = JSON.parse(JSON.stringify(trip));
-    const entries = ChangeLog.makeEntries(ChangeLog.describe(syncedBase, payload), editorName);
+    const entries = ChangeLog.makeEntries(ChangeLog.describe(syncedBase, payload), by);
     payload.changeLog = ChangeLog.merge(extraLog, trip.changeLog, entries);
     return payload;
   }
