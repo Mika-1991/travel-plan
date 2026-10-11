@@ -206,7 +206,7 @@ const UI = (() => {
   }
 
   // 飯店付款狀態標籤（全站共用）
-  const PAY_LABELS = { full: '已刷全額', part: '已刷部分', onsite: '當天現刷' };
+  const PAY_LABELS = { unpaid: '未付款', part: '已刷部分', full: '已刷全額', onsite: '當天現刷' }; // v2.1.35 多「未付款」
 
   // 照片點擊放大
   function photoZoom(url, title) {
@@ -303,6 +303,7 @@ const App = (() => {
     if (Store.isReadonly()) $('presenceBadge').classList.add('hidden');
     updateEditorChip();
     // v2.1.25：用編輯代碼進來、這台裝置還沒選過身分 → 一定要先選「你是誰」才能編輯
+    PaySync.autoLink(); // v2.1.35 舊的「OO 房費」自動連到對應飯店
     if (!Store.isReadonly() && !Store.getEditor()) askIdentity(true);
     else { Prep.remindMine(); setTimeout(() => Tour.start(), 900); } // v2.1.32 待辦提醒；v2.1.33 第一次進來跑新手導覽
     Store.startPresencePoll(); // 唯讀者也要：才能在別人更新時自動刷新

@@ -70,7 +70,13 @@ const ChangeLog = (() => {
     B.forEach((e, id) => {
       const o = A.get(id);
       if (!o) out.push(`💰 新增記帳「${e.item}」$${e.amount}（${e.payer} 付）`);
-      else if (!same(o, e)) out.push(`💰 修改記帳「${e.item}」${Number(o.amount) !== Number(e.amount) ? `$${o.amount} → $${e.amount}` : ''}`.trim());
+      else if (!same(o, e)) {
+        const L = { unpaid: '未付款', part: '已刷部分', full: '已刷全額', onsite: '當天現刷' };
+        const ps = x => x.payStatus || 'full';
+        if (ps(o) !== ps(e) || Number(o.paidAmount || 0) !== Number(e.paidAmount || 0)) out.push(`💳 「${e.item}」付款狀態：${L[ps(o)]} → ${L[ps(e)]}${ps(e) === 'part' ? `（已付 ${e.paidAmount || 0}）` : ''}`);
+        const rest = x => { const c = Object.assign({}, x); delete c.payStatus; delete c.paidAmount; delete c.hotelLink; return c; };
+        if (!same(rest(o), rest(e))) out.push(`💰 修改記帳「${e.item}」${Number(o.amount) !== Number(e.amount) ? `$${o.amount} → $${e.amount}` : ''}`.trim());
+      }
     });
     A.forEach((e, id) => { if (!B.has(id)) out.push(`💰 刪除記帳「${e.item}」$${e.amount}`); });
   }
@@ -154,6 +160,16 @@ const ChangeLog = (() => {
     if (pt(a.endPoint) !== pt(b.endPoint)) out.push(`🏁 解散地改為 ${pt(b.endPoint)}`);
     if (a.dayStart !== b.dayStart || a.dayEnd !== b.dayEnd || !same(a.dayStartOv, b.dayStartOv) || !same(a.dayEndOv, b.dayEndOv)) out.push('🕘 調整每日出發／結束時間');
     if (!same(a.dayTransportOv, b.dayTransportOv)) out.push('調整某幾天的交通方式');
+    // v2.1.35 選路線／冬季封閉道路
+    const LA = a.legRoutes || {}, LB = b.legRoutes || {};
+    Object.keys(LB).forEach(k => {
+      const o = LA[k], n = LB[k];
+      if (!o || o.summary !== n.summary || o.min !== n.min) out.push(`🛣 ${n.from || '起點'} → ${n.to || '終點'} 改走「${n.summary || '自訂路線'}」（約 ${n.min} 分）`);
+    });
+    Object.keys(LA).forEach(k => { if (!LB[k]) out.push(`↩ ${LA[k].from || '起點'} → ${LA[k].to || '終點'} 恢復 Google 預設路線`); });
+    const CA = a.closedRoads || [], CB = b.closedRoads || [];
+    CB.filter(r => !CA.includes(r)).forEach(r => out.push(`⛔ 標記冬季封閉：${r}`));
+    CA.filter(r => !CB.includes(r)).forEach(r => out.push(`取消冬季封閉標記：${r}`));
     const dt = (o, k) => (o[k] || {});
     [...new Set([...Object.keys(dt(a, 'dayTitles')), ...Object.keys(dt(b, 'dayTitles')), ...Object.keys(dt(a, 'dayIcons')), ...Object.keys(dt(b, 'dayIcons'))])].sort((x, y) => x - y).forEach(d => {
       if ((dt(a, 'dayTitles')[d] || '') !== (dt(b, 'dayTitles')[d] || '') || (dt(a, 'dayIcons')[d] || '') !== (dt(b, 'dayIcons')[d] || ''))

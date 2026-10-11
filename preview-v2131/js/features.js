@@ -134,7 +134,7 @@ const Feat = (() => {
       if (!q) return;
       try {
         UI.loading(true, '搜尋中…');
-        const rs = await Api.searchPlaces(q, 'spot');
+        const rs = await Api.searchPlaces(q, 'spot', Itin.tripArea());
         UI.loading(false);
         if (!rs.length) { UI.toast('找不到這個地點'); return; }
         const p = rs[0];
@@ -257,7 +257,7 @@ const Feat = (() => {
         if (!q) { UI.toast('請先輸入飯店名稱'); return; }
         try {
           UI.loading(true, '搜尋飯店中…');
-          const rs = await Api.searchPlaces(q, 'hotel');
+          const rs = await Api.searchPlaces(q, 'hotel', Itin.tripArea());
           UI.loading(false);
           const res = body.querySelector('#recHotelSearchRes');
           res.innerHTML = rs.length ? rs.slice(0, 6).map((h, i) => `
@@ -632,6 +632,8 @@ const Feat = (() => {
   function renderExpensePage() {
     const t = trip();
     if (!t) return;
+    PaySync.autoLink();
+    if ($('expPayWrap') && !$('expPay')) { $('expPayWrap').innerHTML = PaySync.fieldsHtml('exp', 'full'); PaySync.bindFields($('expPayWrap'), 'exp'); }
     if (!$('expDate').value) $('expDate').value = t.startDate;
     $('expPayer').innerHTML = t.members.map(m => `<option>${UI.esc(m)}</option>`).join('');
     const parts = $('expParts');
@@ -663,8 +665,10 @@ const Feat = (() => {
     if (!treat && !participants.length) { UI.alert('沒有參與人', '請至少勾選一位參與這筆支出的成員。\n（如果是請客，勾選上面的「請客」就不用選人。）'); return; }
     t.expenses.push({
       id: Logic.uid(), date: $('expDate').value || t.startDate,
-      item, amount, payer, participants, treat, note: ($('expNote') ? $('expNote').value.trim() : '')
+      item, amount, payer, participants, treat, note: ($('expNote') ? $('expNote').value.trim() : ''),
+      ...payFields(PaySync.readFields(document, 'exp'))
     });
+    if ($('expPay')) { $('expPay').value = 'full'; $('expPaid').value = ''; $('expPaid').classList.add('hidden'); }
     $('expItem').value = ''; $('expAmount').value = '';
     if ($('expNote')) $('expNote').value = '';
     $('expTreat').checked = false;
@@ -690,12 +694,15 @@ const Feat = (() => {
       <select id="qePayer">${t.members.map(m => `<option ${m === preset.payer ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
       <label>備註（選填）</label>
       <input id="qeNote" type="text" maxlength="80" placeholder="例如：含小費、用信用卡刷" value="${UI.esc(preset.note || '')}">
+      ${PaySync.fieldsHtml('qe', preset.payStatus || 'full', preset.paidAmount)}
+      ${preset.hotelLink ? `<p class="hint">🏨 這筆會連到行程裡的飯店，付款狀態兩邊會同步。</p>` : ''}
       <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="qeTreat"> 🎁 這筆是請客，不用分帳</label>
       <div id="qePartsWrap">
         <label>誰參與（預設全員）</label>
         <div class="chips" id="qeParts">${t.members.map(m => `<span class="chip on" data-m="${UI.esc(m)}">${UI.esc(m)}</span>`).join('')}</div>
       </div>`;
     body.querySelectorAll('#qeParts .chip').forEach(c => c.onclick = () => c.classList.toggle('on'));
+    PaySync.bindFields(body, 'qe');
     body.querySelector('#qeTreat').onchange = e =>
       body.querySelector('#qePartsWrap').style.opacity = e.target.checked ? '.35' : '1';
     UI.modal('💰 記一筆帳', body, [{
@@ -712,8 +719,11 @@ const Feat = (() => {
         t.expenses.push({
           id, date: body.querySelector('#qeDate').value || t.startDate,
           item, amount, payer: body.querySelector('#qePayer').value, participants, treat,
-          note: body.querySelector('#qeNote').value.trim()
+          note: body.querySelector('#qeNote').value.trim(),
+          ...payFields(PaySync.readFields(body, 'qe')),
+          ...(preset.hotelLink ? { hotelLink: preset.hotelLink } : {})
         });
+        if (preset.hotelLink) PaySync.setExpensePay(t.expenses[t.expenses.length - 1], PaySync.readFields(body, 'qe').status);
         Store.touch();
         UI.closeModal();
         if (preset.onSaved) preset.onSaved(id); // v2.1.32 行前準備：記下分帳 id，避免重複記
@@ -739,6 +749,8 @@ const Feat = (() => {
       <select id="editExpPayer">${t.members.map(m => `<option ${e.payer === m ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
       <label>備註（選填）</label>
       <input id="editExpNote" type="text" maxlength="80" placeholder="例如：含小費、用信用卡刷" value="${UI.esc(e.note || '')}">
+      ${PaySync.fieldsHtml('editExp', e.payStatus || 'full', e.paidAmount)}
+      ${PaySync.groupOfExpense(e) ? `<div class="pay-link">🏨 連到：${UI.esc(PaySync.labelOf(PaySync.groupOfExpense(e)))}（付款狀態會同步）<button type="button" id="editExpUnlink" class="btn-ghost">解除連結</button></div>` : ''}
       <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="editExpTreat" ${e.treat ? 'checked' : ''}> 🎁 這筆是請客，不用分帳</label>
       <div id="editExpPartsWrap">
         <label>誰參與</label>
@@ -748,6 +760,10 @@ const Feat = (() => {
         }).join('')}</div>
       </div>`;
     body.querySelectorAll('#editExpParts .chip').forEach(c => c.onclick = () => c.classList.toggle('on'));
+    PaySync.bindFields(body, 'editExp');
+    let unlink = false;
+    const ul = body.querySelector('#editExpUnlink');
+    if (ul) ul.onclick = () => { unlink = true; ul.closest('.pay-link').innerHTML = '🏨 儲存後會解除跟飯店的連結'; };
     const treat = body.querySelector('#editExpTreat');
     const partsWrap = body.querySelector('#editExpPartsWrap');
     const syncTreat = () => { partsWrap.style.opacity = treat.checked ? '.35' : '1'; };
@@ -770,6 +786,10 @@ const Feat = (() => {
         e.treat = isTreat;
         e.participants = participants;
         e.note = body.querySelector('#editExpNote').value.trim();
+        const pf = PaySync.readFields(body, 'editExp');
+        if (unlink) delete e.hotelLink;
+        PaySync.setExpensePay(e, pf.status);
+        if (pf.status === 'part') e.paidAmount = pf.paid;
         Store.touch();
         UI.closeModal();
         renderExpenseList();
@@ -794,6 +814,7 @@ const Feat = (() => {
           <div>${UI.esc(e.item)}</div>
           <div class="e-sub">${e.date.slice(5).replace('-', '/')}｜${UI.esc(e.payer)} ${e.treat ? '請客 <span class="treat-badge">🎁 不分帳</span>' : `先付｜${e.participants.length} 人分`}</div>
           ${e.note ? `<div class="e-sub e-note">📝 ${UI.esc(e.note)}</div>` : ''}
+          ${PaySync.badgeHtml(e) || PaySync.groupOfExpense(e) ? `<div class="e-sub">${PaySync.badgeHtml(e)}${PaySync.groupOfExpense(e) ? ` <span class="pay-linked">🏨 ${UI.esc(PaySync.nightsText(PaySync.groupOfExpense(e).nights))}</span>` : ''}</div>` : ''}
         </div>
         <span class="exp-amt">$${e.amount.toLocaleString()}</span>
         ${ro ? '' : `<button class="btn-outline mini-action" data-edit="${e.id}">✎</button><button class="btn-danger-ghost mini-action" data-del="${e.id}">✕</button>`}
@@ -815,7 +836,7 @@ const Feat = (() => {
       <table class="settle-table">
         <tr><th>成員</th><th>已付</th><th>應分攤</th><th>結餘</th></tr>
         ${t.members.map(m => {
-          const net = Math.round(r.paid[m] - r.owed[m]);
+          const net = Math.round(r.paid[m]) - Math.round(r.owed[m]); // 跟畫面上兩欄一致（避免差 1 塊）
           return `<tr><td>${UI.esc(m)}</td><td>$${Math.round(r.paid[m]).toLocaleString()}</td>
             <td>$${Math.round(r.owed[m]).toLocaleString()}</td>
             <td style="color:${net >= 0 ? 'var(--ok)' : 'var(--danger)'};font-weight:700">${net >= 0 ? '+' : ''}$${net.toLocaleString()}</td></tr>`;
@@ -827,9 +848,26 @@ const Feat = (() => {
     } else {
       html += `<p class="hint" style="margin-top:8px">目前大家剛好扯平，不需要轉帳 🎉</p>`;
     }
+    html += unpaidHtml();
     $('expSettle').innerHTML = html;
     $('btnCopySettle').classList.remove('hidden');
   }
+
+  // v2.1.35 還沒付清的支出（已刷部分的尾款、未付款、當天現刷）
+  function unpaidList() {
+    const VERB = { unpaid: '還沒付', part: '尾款', onsite: '當天要付' };
+    return (trip().expenses || []).map(e => ({ e, rem: PaySync.remainingOf(e) })).filter(x => x.rem > 0)
+      .map(({ e, rem }) => ({ label: e.item, rem, payer: e.payer, verb: VERB[PaySync.statusOf(e)] || '還沒付', date: e.date }))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+  function unpaidHtml() {
+    const un = unpaidList();
+    if (!un.length) return '';
+    return `<div class="unpaid-box"><p class="unpaid-title">⏳ 還沒付清（共 $${un.reduce((s, x) => s + x.rem, 0).toLocaleString()}）</p>` +
+      un.map(x => `<div class="unpaid-line"><span>${UI.esc(x.label)}</span><span class="hint">${UI.esc(x.payer)}・${x.verb}</span><b>$${x.rem.toLocaleString()}</b></div>`).join('') +
+      '<p class="hint">結算是照每筆的總金額均分；這裡提醒還有哪些錢要付。</p></div>';
+  }
+  const payFields = pf => (pf.status === 'full' ? {} : { payStatus: pf.status, ...(pf.status === 'part' ? { paidAmount: pf.paid } : {}) });
 
   function copySettle() {
     const t = trip();
@@ -837,12 +875,14 @@ const Feat = (() => {
     const total = t.expenses.reduce((s, e) => s + e.amount, 0);
     let txt = `【${t.name}】分帳結算\n總支出：$${total.toLocaleString()}\n\n`;
     t.members.forEach(m => {
-      const net = Math.round(r.paid[m] - r.owed[m]);
+      const net = Math.round(r.paid[m]) - Math.round(r.owed[m]);
       txt += `${m}：已付 $${Math.round(r.paid[m]).toLocaleString()}／應分攤 $${Math.round(r.owed[m]).toLocaleString()}（${net >= 0 ? '應收' : '應付'} $${Math.abs(net).toLocaleString()}）\n`;
     });
     if (r.transfers.length) {
       txt += '\n轉帳方式：\n' + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}`).join('\n');
     }
+    const un = unpaidList();
+    if (un.length) txt += `\n\n⏳ 還沒付清（共 $${un.reduce((s, x) => s + x.rem, 0).toLocaleString()}）：\n` + un.map(x => `${x.label}：${x.verb} $${x.rem.toLocaleString()}（${x.payer}）`).join('\n');
     UI.copy(txt, '結算結果已複製，可以貼到群組裡');
   }
 
@@ -959,8 +999,8 @@ const Feat = (() => {
     const spots = [['天數', '順序', '名稱', '地址', '停留分鐘', '必去', '備註']];
     (t.spots || []).sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
       spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, s.address || '', s.stayMin || '', s.must ? '是' : '', s.note || '']));
-    const expenses = [['日期', '項目', '金額', '付款人', '請客', '參與人', '備註']];
-    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '']));
+    const expenses = [['日期', '項目', '金額', '付款人', '請客', '參與人', '備註', '付款狀態', '已付金額']];
+    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
     const settle = [['成員', '已付', '應分攤', '結餘']];
     const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
     (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
@@ -1003,8 +1043,8 @@ ${sheetXml('攜帶清單', packing)}
     const spots = [['天數', '順序', '名稱', '餐別', '地址', '停留分鐘', '必去', '備註']];
     (t.spots || []).slice().sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
       spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, MEAL_LABELS[s.meal] || '', s.address || '', Number(s.stayMin) || '', s.must ? '是' : '', s.note || '']));
-    const expenses = [['日期', '項目', '金額', '付款人', '不分帳', '分帳成員', '備註']];
-    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '']));
+    const expenses = [['日期', '項目', '金額', '付款人', '不分帳', '分帳成員', '備註', '付款狀態', '已付金額']];
+    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
     const settle = [['成員', '已付', '應付', '餘額']];
     const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
     (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
@@ -1510,7 +1550,7 @@ h2{margin:0 0 6px;color:#006599;font-size:16px}ul{list-style:none;margin:0;paddi
 
   return {
     fillWeather, openRainPlan, recommendHotel, openRoutePoints, editTripDates,
-    openFood, renderExpensePage, quickExpense, renderResourcePage,
+    openFood, renderExpensePage, quickExpense, editExpense, renderResourcePage,
     initExpense, showTripCreated, showShare, copyTrip
   };
 })();

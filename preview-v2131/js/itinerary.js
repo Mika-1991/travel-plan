@@ -98,7 +98,18 @@ const Itin = (() => {
   }
 
   // 各路段時間：優先用排路線時存下的，否則即時估算
+  // v2.1.35 使用者在「選路線」選定的路段 → 用那條路線的時間
   function legsForDay(day) {
+    const legs = baseLegsForDay(day);
+    if (!trip().legRoutes || typeof RoutePick === 'undefined') return legs;
+    const mode = dayTransportOf(day);
+    const seq = [startHotel(day), ...spotsOfDay(day), endHotel(day)];
+    return legs.map((min, i) => {
+      const r = RoutePick.chosenOf(seq[i], seq[i + 1], mode);
+      return r && r.mode === mode ? r.min : min;
+    });
+  }
+  function baseLegsForDay(day) {
     const list = spotsOfDay(day);
     const mode = dayTransportOf(day);
     const cached = trip().legsByDay[day];
@@ -156,6 +167,23 @@ const Itin = (() => {
 
   // ================= 景點搜尋與加入 =================
   let suggestTimer = null;
+  // v2.1.35 行程區域：已加入的景點／住宿／集合地／航班機場的中心與範圍（新行程什麼都沒有時回 null）
+  function tripArea() {
+    const t = trip();
+    const pts = [...(t.spots || []), ...(t.hotels || []), t.meetPoint, t.endPoint,
+      ...(t.flights || []).flatMap(f => f.type === 'arrive' ? [f.arrAirport] : [f.depAirport])]
+      .filter(p => p && Logic.hasCoords(p));
+    // 出發地（台灣的集合地、出發機場）不算目的地：有國外點時只用國外點
+    const inTW = p => p.lat > 21.7 && p.lat < 26.5 && p.lng > 118 && p.lng < 122.2;
+    const abroad = pts.filter(p => !inTW(p));
+    const use = abroad.length ? abroad : pts;
+    if (!use.length) return null;
+    const center = { lat: use.reduce((s, p) => s + p.lat, 0) / use.length, lng: use.reduce((s, p) => s + p.lng, 0) / use.length };
+    const far = Math.max(...use.map(p => Logic.haversineKm(center, p)));
+    return { center, radiusKm: Math.max(30, Math.min(120, far + 20)) };
+  }
+  const distTxt = km => km < 1 ? '1 公里內' : `約 ${Math.round(km)} 公里`;
+
   function initSpotInput() {
     const inp = $('inpSpot'), box = $('spotSuggest');
     inp.addEventListener('input', () => {
@@ -164,13 +192,19 @@ const Itin = (() => {
       if (!q) { box.classList.add('hidden'); return; }
       suggestTimer = setTimeout(async () => {
         try {
-          const results = await Api.searchPlaces(q, 'spot');
+          const area = tripArea();
+          let results = await Api.searchPlaces(q, 'spot', area);
+          // 以行程區域為主：範圍內的排前面（保留 Google 的相關度順序），太遠的排後面並標示
+          if (area) {
+            results.forEach(r => { r._km = Logic.hasCoords(r) ? Logic.haversineKm(area.center, r) : null; r._far = r._km !== null && r._km > area.radiusKm + 30; });
+            results = [...results.filter(r => !r._far), ...results.filter(r => r._far)];
+          }
           if (!results.length) {
             box.innerHTML = '<div class="s-item"><span class="s-sub">找不到符合的地點，請換個關鍵字</span></div>';
           } else {
             box.innerHTML = results.map((r, i) => `
               <div class="s-item" data-i="${i}">
-                <div>${UI.esc(r.name)} <span class="star">★ ${r.rating}</span></div>
+                <div>${UI.esc(r.name)} <span class="star">★ ${r.rating}</span>${r._km !== undefined && r._km !== null ? ` <span class="s-dist${r._far ? ' far' : ''}">${r._far ? '⚠️ 離行程區域 ' : '📍 離行程中心 '}${distTxt(r._km)}</span>` : ''}</div>
                 <div class="s-sub">${UI.esc(r.address)}</div>
                 <div class="s-sub r-hours" data-hours-i="${i}">🕒 查營業時間…</div>
               </div>`).join('');
@@ -264,7 +298,7 @@ const Itin = (() => {
       if (!q) { res.innerHTML = ''; return; }
       timer = setTimeout(async () => {
         try {
-          const rs = await Api.searchPlaces(q, 'spot');
+          const rs = await Api.searchPlaces(q, 'spot', tripArea());
           res.innerHTML = rs.length ? rs.map((r, i) => `
             <div class="result-item ${r.photo ? 'with-photo' : ''}">
               ${r.photo ? `<img class="thumb" src="${r.photo}" alt="">` : ''}
@@ -639,6 +673,8 @@ const Itin = (() => {
   async function routeMinute(a, b, mode) {
     if (!a || !b) return 0;
     mode = mode || trip().transport;
+    const chosen = typeof RoutePick !== 'undefined' ? RoutePick.chosenOf(a, b, mode) : null;
+    if (chosen && chosen.mode === mode) return chosen.min;
     const live = Logic.hasCoords(a) && Logic.hasCoords(b)
       ? await Api.travelTime(a, b, mode)
       : null;
@@ -1017,6 +1053,7 @@ const Itin = (() => {
       </button>
       ${stay ? `<div class="dh-stay">🏨 住 ${UI.esc(stay.name)}${HotelPoll.isConfirmedHotel(stay) ? ' <span class="hp-tag ok">✅ 已確定</span>' : ''}</div>` : ''}
       <div class="day-outfit" data-day-outfit="${d}"></div>
+      ${RoutePick.winterTip(d) ? `<div class="dh-winter">❄️ 冬季部分山路會封閉，出發前請查當地官方道路公告；點交通段（🚗 開車 ›）可以改路線。</div>` : ''}
       ${estimateHint}
       <div data-rain-slot="${d}"></div>
       ${list.length ? `<p class="dh-sum">🚗 車程 ${Logic.fmtDur(tl.totalTravel)}｜⏱ 停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ` <span style="color:var(--danger);font-weight:700">${overTxt}</span>` : ''}</p>` : ''}
@@ -1042,18 +1079,18 @@ const Itin = (() => {
     // 景點列 + 路段
     const dMode = dayTransportOf(d);
     tl.rows.forEach((row, i) => {
-      if (row.legMin > 0) tlw.appendChild(legRow(row.legMin, dMode));
+      if (row.legMin > 0) tlw.appendChild(legRow(row.legMin, dMode, i === 0 ? (sp && sp.p) : tl.rows[i - 1].spot, row.spot));
       tlw.appendChild(spotRow(row.spot, row, i + 1, d));
     });
     if (list.length && ep) {
-      if (tl.backLeg > 0) tlw.appendChild(legRow(tl.backLeg, dMode));
+      if (tl.backLeg > 0) tlw.appendChild(legRow(tl.backLeg, dMode, tl.rows.length ? tl.rows[tl.rows.length - 1].spot : (sp && sp.p), ep.p));
       const endLabel = ep.kind === 'end' ? '抵達解散地' : ep.kind === 'airport' ? `抵達機場（${dayEndOf(d)} 前報到）` : '回到飯店';
       tlw.appendChild(pointRow(ep, `${tl.endTime} ${endLabel}`, d, 'end'));
     }
     if (!list.length) {
       if (sp) tlw.appendChild(pointRow(sp, pointEmptyDayText(sp), d, 'start'));
       const shouldShowEmptyLeg = sp && ep && !sameRoutePoint(sp, ep) && legs[0] > 0 && !(sp.kind === 'hotel' && ep.kind === 'hotel');
-      if (shouldShowEmptyLeg) tlw.appendChild(legRow(legs[0], dMode));
+      if (shouldShowEmptyLeg) tlw.appendChild(legRow(legs[0], dMode, sp.p, ep.p));
       if (ep && !sameRoutePoint(sp, ep)) tlw.appendChild(pointRow(ep, pointEmptyDayText(ep), d, 'end'));
       const p = document.createElement('p');
       p.className = 'hint'; p.style.padding = '0 14px 12px';
@@ -1194,12 +1231,21 @@ const Itin = (() => {
     });
   }
 
-  function legRow(min, mode) {
-    const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[mode || trip().transport];
+  function legRow(min, mode, from, to) {
+    mode = mode || trip().transport;
+    const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[mode];
     const div = document.createElement('div');
     div.className = 'leg-row';
-    const name = { driving: '開車', transit: '大眾運輸', walking: '走路' }[mode || trip().transport];
-    div.innerHTML = `<span class="tl-pill">${icon} ${name}</span><span>約 ${Logic.fmtDur(min)}</span>`;
+    const name = { driving: '開車', transit: '大眾運輸', walking: '走路' }[mode];
+    // v2.1.35 點藥丸選路線（開車／走路）；選過的顯示道路名稱，選到標記封閉的道路會警告
+    const pickable = mode !== 'transit' && from && to && Logic.hasCoords(from) && Logic.hasCoords(to);
+    const chosen = pickable ? RoutePick.chosenOf(from, to, mode) : null;
+    const bad = chosen && RoutePick.isClosed(chosen.summary);
+    div.innerHTML = pickable
+      ? `<button type="button" class="tl-pill pick${chosen ? ' chosen' : ''}${bad ? ' bad' : ''}" title="${Store.isReadonly() ? '看這段的路線' : '選這段要走的路線'}">${bad ? '⛔' : icon} ${name}${chosen ? `・${UI.esc(chosen.summary || '自訂路線')}` : ''} ›</button><span>約 ${Logic.fmtDur(min)}${bad ? '　<b class="tl-bad">經過你標記冬季封閉的道路，請改路線</b>' : ''}</span>`
+      : `<span class="tl-pill">${icon} ${name}</span><span>約 ${Logic.fmtDur(min)}</span>`;
+    const b = div.querySelector('.pick');
+    if (b) b.onclick = () => RoutePick.open(from, to, mode, () => render());
     return div;
   }
 
@@ -1213,6 +1259,8 @@ const Itin = (() => {
     div.className = 'spot-row';
     const payTag = (kind === 'hotel' && p.pay ? `<span class="pay-badge pay-${p.pay}">${UI.PAY_LABELS[p.pay] || ''}</span>` : '') +
       (kind === 'hotel' && HotelPoll.isConfirmedHotel(p) ? '<span class="hp-tag ok" title="大家投票、主揪確定的住宿">✅ 已確定</span>' : '');
+    const pg = kind === 'hotel' ? PaySync.groupOfHotel(p) : null, pe = pg && PaySync.expenseOf(pg);
+    const expTxt = pe ? `<div class="spot-times">💰 NT$${Number(pe.amount).toLocaleString()}（${UI.esc(pe.payer)} 先付）${PaySync.statusOf(pe) === 'part' ? `・已付 ${Number(pe.paidAmount || 0).toLocaleString()}／剩 ${PaySync.remainingOf(pe).toLocaleString()}` : ''}</div>` : '';
     const priceTxt = kind === 'hotel' && (p.priceWeekday || p.priceWeekend)
       ? `<div class="spot-times">💲 ${p.priceWeekday ? `平日 $${Number(p.priceWeekday).toLocaleString()}` : ''}${p.priceWeekday && p.priceWeekend ? '｜' : ''}${p.priceWeekend ? `假日 $${Number(p.priceWeekend).toLocaleString()}` : ''}</div>` : '';
     const coordWarning = Logic.hasCoords(p) ? '' : `<div class="spot-times" style="color:var(--danger)">⚠️ 沒有座標，路程無法精準估算</div>`;
@@ -1229,6 +1277,7 @@ const Itin = (() => {
           ${p.address ? `<div class="spot-times addr-line">📍 ${UI.esc(p.address)}</div>` : ''}
           ${kind === 'hotel' && p.note ? `<div class="spot-times">📝 ${UI.esc(p.note)}</div>` : ''}
           ${priceTxt}
+          ${expTxt}
           ${mealTags}
           ${coordWarning}
         </div>
@@ -1362,6 +1411,20 @@ const Itin = (() => {
   }
 
   // 住宿備註（訂房編號）與付款狀態；同一間飯店的多晚一起更新
+  // v2.1.35 飯店房費記帳：一間飯店連住多晚＝一筆，金額用房價紀錄估（平日／週五六假日）
+  function openHotelExpense(g, pay) {
+    if (!g) { UI.toast('找不到這間住宿'); return; }
+    Feat.quickExpense({
+      item: `${g.name} 房費（${PaySync.nightsText(g.nights)}）`,
+      date: Store.dateOfDay(g.nights[0] + 1) || trip().startDate,
+      amount: PaySync.estimatePrice(g),
+      payer: Store.getEditor() || '',
+      payStatus: pay || 'full',
+      hotelLink: PaySync.linkFor(g),
+      onSaved: () => render()
+    });
+  }
+
   function editHotelInfo(h) {
     const isCustom = h.source === 'custom' || String(h.placeId || '').startsWith('custom');
     const body = document.createElement('div');
@@ -1383,6 +1446,7 @@ const Itin = (() => {
         ${Object.entries(UI.PAY_LABELS).map(([v, lb]) =>
           `<option value="${v}" ${h.pay === v ? 'selected' : ''}>${lb}</option>`).join('')}
       </select>
+      ${(() => { const g0 = PaySync.groupOfHotel(h), e0 = g0 && PaySync.expenseOf(g0); return e0 ? `<p class="hint">💰 已連到分帳「${UI.esc(e0.item)}」NT$${Number(e0.amount).toLocaleString()}，付款狀態會同步。</p>` : `<p class="hint">選好付款狀態後，可以同時記到分帳（${UI.esc(PaySync.labelOf(g0 || { name: h.name, nights: [Number(h.night)] }))}算一筆）。</p>`; })()}
       <label>住宿夜晚（第 1 晚 = 第 1 天晚上）</label>
       <select id="hEditNight">
         ${Array.from({ length: Math.max(Store.days() - 1, 1) }, (_, i) =>
@@ -1400,7 +1464,10 @@ const Itin = (() => {
       {
         label: '記帳', onClick: () => {
           UI.closeModal();
-          Feat.quickExpense({ item: `${h.name} 房費`, date: trip().startDate });
+          const g = PaySync.groupOfHotel(h);
+          const linked = g && PaySync.expenseOf(g);
+          if (linked) { UI.toast('這間飯店已經記過帳了，打開那筆讓你修改'); Feat.editExpense(linked.id); return; }
+          openHotelExpense(g, h.pay);
         }
       },
       {
@@ -1463,13 +1530,20 @@ const Itin = (() => {
             if (isCustom) {
               h.lat = nextLat; h.lng = nextLng; h.hasCoords = nextHasCoords; h.estimateWarning = nextEstimateWarning;
             }
-            h.note = note; h.pay = pay; h.priceWeekday = pw; h.priceWeekend = pe;
+            const payChanged = (h.pay || '') !== pay;
+            h.note = note; h.priceWeekday = pw; h.priceWeekend = pe;
             if (night !== h.night) applyHotelNightMove(h, night);
             else { trip().legsByDay = {}; sortHotels(); }
+            // v2.1.35 付款狀態：同一間連住的每一晚＋分帳那筆一起改
+            const g = PaySync.groupOfHotel(h);
+            if (payChanged && g) PaySync.setHotelPay(g, pay); else h.pay = pay;
             Store.touch({ manual: true });
             UI.closeModal();
             render();
             UI.toast(locatedByAddress ? '已從地址定位，住宿資訊已更新' : '住宿資訊已更新');
+            if (payChanged && pay && g && !PaySync.expenseOf(g)) {
+              setTimeout(() => UI.confirm('要同時記到分帳嗎？', `「${PaySync.labelOf(g)}」還沒有記帳。要記一筆房費嗎？（付款狀態會跟這裡同步）`, () => openHotelExpense(g, pay)), 300);
+            }
           };
           const occupied = night !== h.night ? hotelAtNightExcept(h, night) : null;
           if (occupied) {
@@ -1847,9 +1921,39 @@ const Itin = (() => {
             }
             if (full.length > 1) poly.setPath(full);
           })();
+        } else if (seq.some((p, i) => i < seq.length - 1 && RoutePick.chosenOf(p, seq[i + 1], gMode))) {
+          // v2.1.35 有使用者選定的路段 → 逐段串：選定的用存下來的路線，其他段抓 Google 單段路線
+          (async () => {
+            const full = [{ lat: seq[0].lat, lng: seq[0].lng }];
+            for (let i = 0; i < seq.length - 1; i++) {
+              const ch = RoutePick.chosenOf(seq[i], seq[i + 1], gMode);
+              const legPath = ch && ch.path && ch.path.length > 1 ? ch.path : await Api.routeLegPath(seq[i], seq[i + 1], gMode);
+              if (legPath && legPath.length > 1) full.push(...legPath.slice(1));
+              else full.push({ lat: seq[i + 1].lat, lng: seq[i + 1].lng });
+            }
+            if (full.length > 1) poly.setPath(full);
+          })();
         } else {
           Api.routePath(seq, gMode).then(path => {
             if (path && path.length > 1) poly.setPath(path);
+          });
+        }
+        // v2.1.35 看單一天時：點路線 → 找最近的那一段 → 選路線
+        if (selDay && gMode !== 'transit' && !Store.isReadonly()) {
+          poly.addListener('click', ev => {
+            const c = { lat: ev.latLng.lat(), lng: ev.latLng.lng() };
+            const distSeg = (p, a, b) => { // 點到線段的近似距離（經緯度平面）
+              const dx = b.lng - a.lng, dy = b.lat - a.lat, L = dx * dx + dy * dy || 1e-12;
+              const tt = Math.max(0, Math.min(1, ((p.lng - a.lng) * dx + (p.lat - a.lat) * dy) / L));
+              return Math.hypot(p.lng - (a.lng + tt * dx), p.lat - (a.lat + tt * dy));
+            };
+            let best = 0, bd = Infinity;
+            for (let i = 0; i < seq.length - 1; i++) {
+              const ch = RoutePick.chosenOf(seq[i], seq[i + 1], gMode);
+              const pts = ch && ch.path ? ch.path : [seq[i], seq[i + 1]];
+              for (let k = 0; k < pts.length - 1; k++) { const dd = distSeg(c, pts[k], pts[k + 1]); if (dd < bd) { bd = dd; best = i; } }
+            }
+            RoutePick.open(seq[best], seq[best + 1], gMode, () => { render(); renderFullMap(selDay); });
           });
         }
       }
@@ -1997,6 +2101,6 @@ const Itin = (() => {
   return {
     init, render, renderFullMap, addSpot, openAddSpot,
     spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf, stayMealsOf,
-    saveCurrentArrangement, baseStartPoint, baseEndPoint, dayStartOf, dayEndOf, showDay, dayTheme
+    saveCurrentArrangement, baseStartPoint, baseEndPoint, dayStartOf, dayEndOf, showDay, dayTheme, tripArea
   };
 })();

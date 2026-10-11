@@ -49,7 +49,7 @@ const Api = (() => {
   }
 
   // ---------- 地點搜尋 ----------
-  async function searchPlaces(query, kind) { // kind: 'spot' | 'hotel' | 'restaurant'
+  async function searchPlaces(query, kind, area) { // kind: 'spot' | 'hotel' | 'restaurant'；area：{center,radiusKm} 行程區域（v2.1.35）
     if (isMock()) {
       await delay(200);
       const pool = kind === 'hotel' ? MOCK.hotels : kind === 'restaurant' ? MOCK.restaurants : MOCK.spots;
@@ -64,7 +64,8 @@ const Api = (() => {
     await loadGoogleMaps();
     return new Promise((resolve, reject) => {
       placesSvc().textSearch(
-        { query: query, type: kind === 'hotel' ? 'lodging' : kind === 'restaurant' ? 'restaurant' : undefined },
+        Object.assign({ query: query, type: kind === 'hotel' ? 'lodging' : kind === 'restaurant' ? 'restaurant' : undefined },
+          area && area.center ? { location: area.center, radius: Math.min(50000, Math.round((area.radiusKm || 40) * 1000)) } : {}),
         (results, status) => okStatus(status) ? resolve((results || []).map(mapPlace))
           : reject(new Error('地點搜尋暫時無法使用，請稍後再試'))
       );
@@ -676,6 +677,31 @@ const Api = (() => {
     }
   }
 
+  // ---------- v2.1.35 選路線：替代路線（最多 3 條），或指定途經點（拖曳後） ----------
+  function summarizeRoute(r) {
+    const legs = r.legs || [];
+    const sec = legs.reduce((s, l) => s + ((l.duration && l.duration.value) || 0), 0);
+    const m = legs.reduce((s, l) => s + ((l.distance && l.distance.value) || 0), 0);
+    return {
+      min: Math.max(1, Math.round(sec / 60)), km: Math.round(m / 100) / 10,
+      summary: r.summary || '', warnings: r.warnings || [],
+      path: (r.overview_path || []).map(ll => ({ lat: ll.lat(), lng: ll.lng() }))
+    };
+  }
+  async function routeAlternatives(a, b, mode, via) {
+    if (isMock()) throw new Error('模擬模式沒有真實路線');
+    await loadGoogleMaps();
+    const svc = new google.maps.DirectionsService();
+    const travelMode = mode === 'walking' ? 'WALKING' : 'DRIVING';
+    const req = {
+      origin: { lat: a.lat, lng: a.lng }, destination: { lat: b.lat, lng: b.lng },
+      travelMode, avoidFerries: true, provideRouteAlternatives: !(via && via.length)
+    };
+    if (via && via.length) req.waypoints = via.map(v => ({ location: { lat: v.lat, lng: v.lng }, stopover: false }));
+    const result = await svc.route(req);
+    return { result, routes: (result.routes || []).slice(0, 3).map(summarizeRoute) };
+  }
+
   // 線上共同編輯心跳：回傳 {editorCount, updatedAt}；mock 模式沒有真實多人，回傳穩定假資料
   // name：編輯者身分（v2.1.25），後端存在在線名單裡，回傳 names 讓大家看到誰在線上
   async function cloudPresencePing(code, sessionId, name) {
@@ -690,7 +716,7 @@ const Api = (() => {
   return {
     isMock, loadGoogleMaps, geocodeAddress,
     searchPlaces, searchFood, nearbySearch, placeHours, placeWeekHours, placeExtras,
-    optimizeRoute, routeLegs, routePath, routeLegPath, travelTime,
+    optimizeRoute, routeLegs, routePath, routeLegPath, travelTime, routeAlternatives, summarizeRoute,
     weatherOn,
     cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail, sendFeedback,
     cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail, cloudPresencePing
