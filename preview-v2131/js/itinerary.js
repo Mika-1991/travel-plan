@@ -1239,7 +1239,7 @@ const Itin = (() => {
         <div class="spot-actions">
           ${kind === 'hotel' ? `<button class="edit-only" data-act="hmeal" title="在這裡用餐：早／午／晚／點心">🍽</button>
           <button class="edit-only" data-act="hexp" title="記一筆帳">💰</button>
-          <button class="edit-only" data-act="hedit" title="編輯住宿備註">✎</button>` : ''}
+          <button class="edit-only pt-text-btn" data-act="hedit" title="付款狀態（已刷全額／已刷部分／當天現刷）、房價、備註">💳 付款／備註</button>` : ''}
           ${(kind === 'meet' || kind === 'end') ? `<button class="edit-only" data-act="ptmenu" title="更多：更改地點／移除／導航／記帳">⋯</button>` : ''}
           ${kind === 'airport' ? `<button class="edit-only" data-act="apflight" title="編輯航班">✎</button>` : ''}
           ${mapLink}

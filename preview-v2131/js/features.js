@@ -663,9 +663,10 @@ const Feat = (() => {
     if (!treat && !participants.length) { UI.alert('沒有參與人', '請至少勾選一位參與這筆支出的成員。\n（如果是請客，勾選上面的「請客」就不用選人。）'); return; }
     t.expenses.push({
       id: Logic.uid(), date: $('expDate').value || t.startDate,
-      item, amount, payer, participants, treat
+      item, amount, payer, participants, treat, note: ($('expNote') ? $('expNote').value.trim() : '')
     });
     $('expItem').value = ''; $('expAmount').value = '';
+    if ($('expNote')) $('expNote').value = '';
     $('expTreat').checked = false;
     $('expPartsWrap').style.opacity = '1';
     Store.touch();
@@ -687,6 +688,8 @@ const Feat = (() => {
       </div>
       <label>誰先付的？</label>
       <select id="qePayer">${t.members.map(m => `<option ${m === preset.payer ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
+      <label>備註（選填）</label>
+      <input id="qeNote" type="text" maxlength="80" placeholder="例如：含小費、用信用卡刷" value="${UI.esc(preset.note || '')}">
       <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="qeTreat"> 🎁 這筆是請客，不用分帳</label>
       <div id="qePartsWrap">
         <label>誰參與（預設全員）</label>
@@ -708,7 +711,8 @@ const Feat = (() => {
         const id = Logic.uid();
         t.expenses.push({
           id, date: body.querySelector('#qeDate').value || t.startDate,
-          item, amount, payer: body.querySelector('#qePayer').value, participants, treat
+          item, amount, payer: body.querySelector('#qePayer').value, participants, treat,
+          note: body.querySelector('#qeNote').value.trim()
         });
         Store.touch();
         UI.closeModal();
@@ -733,6 +737,8 @@ const Feat = (() => {
       </div>
       <label>誰先付的？</label>
       <select id="editExpPayer">${t.members.map(m => `<option ${e.payer === m ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
+      <label>備註（選填）</label>
+      <input id="editExpNote" type="text" maxlength="80" placeholder="例如：含小費、用信用卡刷" value="${UI.esc(e.note || '')}">
       <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="editExpTreat" ${e.treat ? 'checked' : ''}> 🎁 這筆是請客，不用分帳</label>
       <div id="editExpPartsWrap">
         <label>誰參與</label>
@@ -763,6 +769,7 @@ const Feat = (() => {
         e.payer = body.querySelector('#editExpPayer').value;
         e.treat = isTreat;
         e.participants = participants;
+        e.note = body.querySelector('#editExpNote').value.trim();
         Store.touch();
         UI.closeModal();
         renderExpenseList();
@@ -786,6 +793,7 @@ const Feat = (() => {
         <div class="e-main">
           <div>${UI.esc(e.item)}</div>
           <div class="e-sub">${e.date.slice(5).replace('-', '/')}｜${UI.esc(e.payer)} ${e.treat ? '請客 <span class="treat-badge">🎁 不分帳</span>' : `先付｜${e.participants.length} 人分`}</div>
+          ${e.note ? `<div class="e-sub e-note">📝 ${UI.esc(e.note)}</div>` : ''}
         </div>
         <span class="exp-amt">$${e.amount.toLocaleString()}</span>
         ${ro ? '' : `<button class="btn-outline mini-action" data-edit="${e.id}">✎</button><button class="btn-danger-ghost mini-action" data-del="${e.id}">✕</button>`}
@@ -951,8 +959,8 @@ const Feat = (() => {
     const spots = [['天數', '順序', '名稱', '地址', '停留分鐘', '必去', '備註']];
     (t.spots || []).sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
       spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, s.address || '', s.stayMin || '', s.must ? '是' : '', s.note || '']));
-    const expenses = [['日期', '項目', '金額', '付款人', '請客', '參與人']];
-    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、')]));
+    const expenses = [['日期', '項目', '金額', '付款人', '請客', '參與人', '備註']];
+    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '']));
     const settle = [['成員', '已付', '應分攤', '結餘']];
     const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
     (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
@@ -995,8 +1003,8 @@ ${sheetXml('攜帶清單', packing)}
     const spots = [['天數', '順序', '名稱', '餐別', '地址', '停留分鐘', '必去', '備註']];
     (t.spots || []).slice().sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
       spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, MEAL_LABELS[s.meal] || '', s.address || '', Number(s.stayMin) || '', s.must ? '是' : '', s.note || '']));
-    const expenses = [['日期', '項目', '金額', '付款人', '不分帳', '分帳成員']];
-    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、')]));
+    const expenses = [['日期', '項目', '金額', '付款人', '不分帳', '分帳成員', '備註']];
+    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '']));
     const settle = [['成員', '已付', '應付', '餘額']];
     const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
     (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
