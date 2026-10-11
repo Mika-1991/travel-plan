@@ -273,7 +273,7 @@ const HotelPoll = (() => {
       if (!q) { UI.toast('請輸入飯店名稱'); return; }
       results.innerHTML = '<p class="hint">搜尋中…</p>';
       try {
-        const list = await Api.searchPlaces(q, 'hotel');
+        const list = await Api.searchPlaces(q, 'hotel', Itin.tripArea());
         results.innerHTML = list.length ? '' : '<p class="hint">找不到，換個關鍵字試試</p>';
         list.slice(0, 5).forEach(p => {
           const b = document.createElement('button');
