@@ -796,7 +796,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--m
 .hp-body { padding: 12px 14px 14px; }
 .hp-name { font-size: 1.1rem; font-weight: 700; color: var(--text); }
 .hp-price { font-weight: 700; color: var(--text); }
-.hp-price.out { color: #94A3B8; text-decoration: line-through; }
+.hp-price.out { color: #B45309; }
 .hp-vrow { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .hp-bar { flex: 1; height: 9px; margin: 0; background: var(--line); }
 .hp-bar i { background: var(--main); transition: width 1s var(--ease); }
@@ -1005,6 +1005,9 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .tour-prev:disabled { opacity: .4; }
 .tour-next { background: linear-gradient(135deg, var(--main), var(--main-dark)); color: var(--white); font-weight: 700; font-size: .92rem; padding: 8px 14px; border-radius: 10px; }
 .tour-layer.no-anim .tour-hole, .tour-layer.no-anim .tour-tip { transition: none; }
+
+.exp-item .e-note { color: var(--text); margin-top: 2px; }
+.spot-expand .pt-text-btn { font-size: .88rem !important; font-weight: 700; color: var(--main-dark) !important; border: 1.5px solid var(--line) !important; border-radius: 999px !important; padding: 4px 10px !important; }
 
 /* 手機設定「減少動態效果」→ 動畫全部關掉 */
 @media (prefers-reduced-motion: reduce) {

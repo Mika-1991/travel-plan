@@ -323,6 +323,7 @@ const HotelPoll = (() => {
 
   // ---------- 照片過期 → 自動換新 ----------
   const refreshing = new Set();
+  const freshPhotos = {}; // 候選 id → 這次重抓到的網址（只放記憶體，不寫進行程）
   async function refreshPhotos(c) {
     if (!c.place || !c.place.placeId || refreshing.has(c.id)) return;
     refreshing.add(c.id);
@@ -331,15 +332,14 @@ const HotelPoll = (() => {
     const idx = (c.photoIdx && c.photoIdx.length ? c.photoIdx : [0, 1]).filter(i => i < pool.length);
     const fresh = idx.map(i => pool[i]);
     if (fresh.length && JSON.stringify(fresh) !== JSON.stringify(c.photos || [])) {
-      c.photos = fresh;
-      if (Store.saveDerived) Store.saveDerived(); // 換新網址不算「誰改了什麼」
+      freshPhotos[c.id] = fresh;
       render({ keepScroll: true });
     }
   }
 
   // ---------- 畫面 ----------
   function photosOf(c) {
-    const list = (c.photos && c.photos.length ? c.photos : (c.place.photo ? [c.place.photo] : [])).slice(0, 2);
+    const list = (freshPhotos[c.id] || (c.photos && c.photos.length ? c.photos : (c.place.photo ? [c.place.photo] : []))).slice(0, 2);
     return list;
   }
   function cardHtml(c, n, maxVotes, i) {
