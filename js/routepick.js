@@ -14,6 +14,7 @@ const RoutePick = (() => {
   const keyOf = (a, b, mode) => `${mode === 'walking' ? 'W' : 'D'}:${pk(a)}>${pk(b)}`;
   const chosenOf = (a, b, mode) => (a && b && Logic.hasCoords(a) && Logic.hasCoords(b)) ? ((trip().legRoutes || {})[keyOf(a, b, mode)] || null) : null;
   const closed = () => (trip().closedRoads || []);
+  const pathOf = r => (r && r.pathEnc ? Logic.decodePath(r.pathEnc) : ((r && r.path) || []));
   const isClosed = summary => !!summary && closed().some(r => summary.includes(r) || r.includes(summary));
   const sample = (path, max) => {
     if (path.length <= max) return path.map(p => ({ lat: +p.lat.toFixed(5), lng: +p.lng.toFixed(5) }));
@@ -120,7 +121,7 @@ const RoutePick = (() => {
       t.legRoutes = Object.assign({}, t.legRoutes || {});
       t.legRoutes[key] = {
         mode, via: dragged ? dragged.via : (sel === 0 ? [] : [r.path[Math.floor(r.path.length / 2)]].map(p => ({ lat: +p.lat.toFixed(5), lng: +p.lng.toFixed(5) }))),
-        min: r.min, km: r.km, summary: r.summary || '', path: sample(r.path, 150), by: Store.getEditor() || '', at: Date.now(),
+        min: r.min, km: r.km, summary: r.summary || '', pathEnc: Logic.encodePath(sample(r.path, 80)), by: Store.getEditor() || '', at: Date.now(),
         from: from.name || '', to: to.name || ''
       };
       Store.touch({ manual: true });
@@ -167,7 +168,7 @@ const RoutePick = (() => {
           // 找跟目前選定最像的那條（摘要相同）；找不到就把選定的那條加在最前面
           const idx = routes.findIndex(r => r.summary && r.summary === cur.summary);
           if (idx >= 0) sel = idx;
-          else { routes.unshift({ min: cur.min, km: cur.km, summary: cur.summary, path: cur.path, warnings: [] }); sel = 0; }
+          else { routes.unshift({ min: cur.min, km: cur.km, summary: cur.summary, path: pathOf(cur), warnings: [] }); sel = 0; }
         } else if (isClosed((routes[0] || {}).summary)) {
           const ok = routes.findIndex(r => !isClosed(r.summary)); if (ok >= 0) sel = ok;
         }
@@ -180,5 +181,5 @@ const RoutePick = (() => {
     const rb = body.querySelector('.rp-reset'); if (rb) rb.onclick = reset;
   }
 
-  return { open, chosenOf, keyOf, isClosed, winterTip };
+  return { open, chosenOf, keyOf, isClosed, winterTip, pathOf };
 })();
