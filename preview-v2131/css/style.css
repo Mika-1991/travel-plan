@@ -1052,6 +1052,38 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .rp-tools .btn-outline { padding: 8px 12px; }
 .rp-note { margin-top: 8px; font-size: .82rem; }
 
+/* v2.1.36 ⭐ 備選景點 */
+.ds-bk { flex: none; padding: 6px 12px; border-radius: 999px; font-size: .85rem; font-weight: 700; border: 1.5px solid #E2D3FB; background: var(--white); color: #6D28D9; }
+.ds-bk.on { background: #7C3AED; border-color: #7C3AED; color: var(--white); }
+.backup-card { border-left-color: #A78BFA !important; background: #FBF9FF; }
+.bk-list { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.bk-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; background: var(--white); border: 1.5px dashed #D8C8F8; border-radius: 14px; }
+.bk-main { flex: 1 1 200px; min-width: 0; }
+.bk-main b { margin-right: 6px; }
+.bk-acts { display: flex; gap: 6px; align-items: center; }
+.bk-acts button { padding: 6px 10px; font-size: .88rem; border-radius: 10px; }
+.s-item { position: relative; padding-right: 74px !important; }
+.s-bk { position: absolute; right: 10px; top: 10px; font-size: .8rem; font-weight: 700; color: #6D28D9; background: #F3EEFF; border: 1px solid #E2D3FB; border-radius: 999px; padding: 3px 9px; }
+.map-bk { font-size: 13px; line-height: 1.6; color: var(--text); }
+.map-bk button { margin-top: 4px; background: var(--main); color: #fff; border-radius: 8px; padding: 4px 10px; font-weight: 700; font-size: 12px; }
+/* v2.1.36 每日車程面板：兩層、縮排 */
+.map-day-summary { max-height: 45vh; overflow-y: auto; max-width: min(380px, 86vw); padding: 0; }
+.map-day-summary .mds-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; margin: 0; position: sticky; top: 0; background: rgba(255,255,255,.97); border-bottom: 1px solid var(--line); }
+.map-day-summary .mds-head b { margin-left: auto; color: var(--main); }
+.mds-car { color: var(--text-2); font-size: .85rem; }
+.mds-body { padding: 6px 12px 10px; }
+.mds-day + .mds-day { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 4px; }
+.map-day-summary .mds-row { font-weight: 700; color: var(--text); }
+.mds-row.tap { cursor: pointer; }
+.mds-row .mds-car { margin-left: 6px; }
+.mds-segs { margin: 2px 0 4px 18px; border-left: 2px solid var(--line); padding-left: 10px; }
+.mds-seg { display: flex; align-items: flex-start; gap: 8px; font-size: .84rem; color: var(--text-2); padding: 3px 0; line-height: 1.45; }
+.mds-path { flex: 1; min-width: 0; }
+.mds-path small { display: block; font-size: .76rem; color: #6D28D9; }
+.mds-min { flex: none; color: var(--text); font-weight: 700; white-space: nowrap; }
+.mds-seg.bad .mds-path, .mds-seg.bad .mds-min { color: var(--danger); }
+.mds-hint { font-size: .76rem; color: var(--text-2); margin-top: 6px; }
+
 /* 手機設定「減少動態效果」→ 動畫全部關掉 */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

@@ -997,8 +997,9 @@ const Feat = (() => {
     (t.hotels || []).sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
       hotels.push([`第 ${Number(h.night) + 1} 晚`, h.name, h.address || '', UI.PAY_LABELS[h.pay] || '', h.note || '', h.priceWeekday || '', h.priceWeekend || '']));
     const spots = [['天數', '順序', '名稱', '地址', '停留分鐘', '必去', '備註']];
+
     (t.spots || []).sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
-      spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, s.address || '', s.stayMin || '', s.must ? '是' : '', s.note || '']));
+      spots.push([s.backup ? '⭐ 備選' : s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, s.address || '', s.stayMin || '', s.must ? '是' : '', s.note || '']));
     const expenses = [['日期', '項目', '金額', '付款人', '請客', '參與人', '備註', '付款狀態', '已付金額']];
     (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
     const settle = [['成員', '已付', '應分攤', '結餘']];
@@ -1041,8 +1042,9 @@ ${sheetXml('攜帶清單', packing)}
     (t.hotels || []).slice().sort((a, b) => Number(a.night) - Number(b.night)).forEach(h =>
       hotels.push([`第 ${Number(h.night) + 1} 晚`, h.name, h.address || '', UI.PAY_LABELS[h.pay] || '', h.note || '', Number(h.priceWeekday) || '', Number(h.priceWeekend) || '']));
     const spots = [['天數', '順序', '名稱', '餐別', '地址', '停留分鐘', '必去', '備註']];
+
     (t.spots || []).slice().sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
-      spots.push([s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, MEAL_LABELS[s.meal] || '', s.address || '', Number(s.stayMin) || '', s.must ? '是' : '', s.note || '']));
+      spots.push([s.backup ? '⭐ 備選' : s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, MEAL_LABELS[s.meal] || '', s.address || '', Number(s.stayMin) || '', s.must ? '是' : '', s.note || '']));
     const expenses = [['日期', '項目', '金額', '付款人', '不分帳', '分帳成員', '備註', '付款狀態', '已付金額']];
     (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
     const settle = [['成員', '已付', '應付', '餘額']];
@@ -1254,7 +1256,10 @@ ${PRINT_DAY_CSS}
           <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="">` : ''}</td>
         </tr>`).join('');
       return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}${themeTxt(d)} <span style="font-weight:400;color:#617587;font-size:15px">・${textEsc(dayTransportText(d))}</span></h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
-    }).join('');
+    }).join('') + (() => { // v2.1.36 ⭐ 備選景點（沒排進行程，有空再去）
+      const bk = (t.spots || []).filter(s => s.backup);
+      return bk.length ? `<section class="day"><h2>⭐ 備選景點</h2><table>${bk.map(s => `<tr><td class="type">備選</td><td>${textEsc(s.name)}${s.address ? `<div class="addr">${textEsc(s.address)}</div>` : ''}${s.note ? `<div class="note">${textEsc(s.note)}</div>` : ''}</td><td></td></tr>`).join('')}</table></section>` : '';
+    })();
     return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="UTF-8"><meta name="viewport" content="width=800, initial-scale=1, minimum-scale=0.2, maximum-scale=5, user-scalable=yes"><title>${textEsc(t.name)} 每日行程 PDF</title>
 <style>
 @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:"Microsoft JhengHei",sans-serif;color:#14293A;background:#EEF3F7;margin:0}.sheet{width:210mm;min-height:297mm;margin:0 auto;background:#fff;padding:12mm}
