@@ -2065,7 +2065,8 @@ const Itin = (() => {
             const full = [{ lat: seq[0].lat, lng: seq[0].lng }];
             for (let i = 0; i < seq.length - 1; i++) {
               const ch = RoutePick.chosenOf(seq[i], seq[i + 1], gMode);
-              const legPath = ch && ch.path && ch.path.length > 1 ? ch.path : await Api.routeLegPath(seq[i], seq[i + 1], gMode);
+              const cp = ch ? RoutePick.pathOf(ch) : null;
+              const legPath = cp && cp.length > 1 ? cp : await Api.routeLegPath(seq[i], seq[i + 1], gMode);
               if (legPath && legPath.length > 1) full.push(...legPath.slice(1));
               else full.push({ lat: seq[i + 1].lat, lng: seq[i + 1].lng });
             }
@@ -2088,7 +2089,8 @@ const Itin = (() => {
             let best = 0, bd = Infinity;
             for (let i = 0; i < seq.length - 1; i++) {
               const ch = RoutePick.chosenOf(seq[i], seq[i + 1], gMode);
-              const pts = ch && ch.path ? ch.path : [seq[i], seq[i + 1]];
+              const cpp = ch ? RoutePick.pathOf(ch) : [];
+              const pts = cpp.length > 1 ? cpp : [seq[i], seq[i + 1]];
               for (let k = 0; k < pts.length - 1; k++) { const dd = distSeg(c, pts[k], pts[k + 1]); if (dd < bd) { bd = dd; best = i; } }
             }
             RoutePick.open(seq[best], seq[best + 1], gMode, () => { render(); renderFullMap(selDay); });

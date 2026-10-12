@@ -238,6 +238,20 @@ const Logic = (() => {
 
   // ---------- 分帳（均分 + 最少轉帳筆數）----------
   // expenses: [{amount, payer, participants:[名字]}]
+  // v2.1.37 路線座標壓縮／解壓（Google Encoded Polyline 格式）
+  function encodePath(pts) {
+    let out = '', pl = 0, pg = 0;
+    const enc = v => { v = v < 0 ? ~(v << 1) : (v << 1); let s = ''; while (v >= 0x20) { s += String.fromCharCode((0x20 | (v & 0x1f)) + 63); v >>= 5; } return s + String.fromCharCode(v + 63); };
+    (pts || []).forEach(p => { const la = Math.round(p.lat * 1e5), lg = Math.round(p.lng * 1e5); out += enc(la - pl) + enc(lg - pg); pl = la; pg = lg; });
+    return out;
+  }
+  function decodePath(str) {
+    const pts = []; let i = 0, la = 0, lg = 0;
+    const next = () => { let r = 0, sh = 0, b; do { b = str.charCodeAt(i++) - 63; r |= (b & 0x1f) << sh; sh += 5; } while (b >= 0x20); return (r & 1) ? ~(r >> 1) : (r >> 1); };
+    while (str && i < str.length) { la += next(); lg += next(); pts.push({ lat: la / 1e5, lng: lg / 1e5 }); }
+    return pts;
+  }
+
   function settleExpenses(expenses, members) {
     const paid = {}, owed = {};
     members.forEach(m => { paid[m] = 0; owed[m] = 0; });
@@ -307,7 +321,7 @@ const Logic = (() => {
 
   return {
     haversineKm, travelMinutes, optimizeOrder, splitIntoDays, assignDaysByAnchors, distToSeg, hasCoords, fmtDur,
-    toMin, toHHMM, buildTimeline, settleExpenses, outfitAdvice,
+    toMin, toHHMM, buildTimeline, settleExpenses, encodePath, decodePath, outfitAdvice,
     genEditCode, genViewCode, normalizeCode, isEditCodeFormat, isViewCodeFormat,
     uid, datesBetween
   };

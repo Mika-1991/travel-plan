@@ -167,6 +167,7 @@ const UI = (() => {
       return '雲端目前比較忙，請等幾秒再試一次。';
     if (/JSON|Unexpected token|expected pattern/i.test(msg))
       return '雲端暫時回應異常（可能正忙），請等幾秒再試一次。';
+    if (/50000|50,000|字元的上限|characters/i.test(msg)) return '這份行程的資料量超過雲端單格的上限，存不進去。已經改成自動精簡，請重新整理後再試；還是不行請告訴 Mika。';
     if (/[一-鿿]/.test(msg)) return msg;
     return '發生未預期的錯誤，請重新整理頁面後再試一次。\n\n（技術訊息，可截圖給 Mika：' + msg + '）';
   }
@@ -597,7 +598,15 @@ const App = (() => {
       UI.progress(0, '正在開啟分享的行程…');
       UI.progressCreep(90);
       const r = await Api.cloudGetTrip(code);
-      Store.load(r.trip, r.role);
+      // v2.1.37 這台裝置有同一份行程「還沒存上雲端」的修改（例如之前存檔失敗）→ 用本機版本開啟並自動補存，不要被雲端蓋掉
+      const local = Store.loadLocal();
+      const lt = local && local.trip;
+      const pendingLocal = r.role === 'edit' && lt && lt.tripId === r.trip.tripId && local.role === 'edit' &&
+        (Number(lt.updatedAt) || 0) > (Number(lt.baseUpdatedAt) || 0) && (Number(lt.updatedAt) || 0) > (Number(r.trip.updatedAt) || 0);
+      if (pendingLocal) {
+        Store.load(lt, 'edit', { fromLocal: true });
+        setTimeout(() => UI.toast('📱 找回這台裝置上次還沒存上雲端的修改，正在自動補存'), 1200);
+      } else Store.load(r.trip, r.role);
       await UI.progressDone('行程開啟完成！');
       UI.toast(r.role === 'view' ? '已用唯讀模式開啟' : '行程已開啟，可以編輯');
       enterMain();

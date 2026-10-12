@@ -3,7 +3,7 @@
 // （誰、什麼時候、改了什麼）。存檔時附在行程資料的 changeLog（保留最近 100 筆）。
 // ============================================================
 const ChangeLog = (() => {
-  const MAX_ENTRIES = 100;     // 最多保留幾筆
+  const MAX_ENTRIES = 60;      // 最多保留幾筆（v2.1.37 由 100 降為 60：雲端單格有 50,000 字上限）
   const MAX_LINES_PER_SAVE = 8; // 一次存檔最多列幾行，其餘合併成「…等 N 項」
   // 不算「使用者修改」的欄位：同步用的時間戳、自動算的車程、紀錄本身
   const IGNORE = ['updatedAt', 'baseUpdatedAt', '_saveSession', '_saveBy', 'changeLog', 'legsByDay', 'createdAt', 'codesAutoSent', 'optimizedAt'];

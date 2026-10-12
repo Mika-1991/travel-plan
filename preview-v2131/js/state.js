@@ -92,6 +92,14 @@ const Store = (() => {
     if (!t.hotelPoll || !Array.isArray(t.hotelPoll.candidates)) t.hotelPoll = { owner: (t.hotelPoll && t.hotelPoll.owner) || '', candidates: [] }; // v2.1.30 飯店投票
     if (!t.prep || !Array.isArray(t.prep.tasks)) t.prep = { templateAsked: !!(t.prep && t.prep.templateAsked), tasks: [], autoOwners: (t.prep && t.prep.autoOwners) || {} }; // v2.1.32 行前準備
     t.dayTitles = t.dayTitles || {}; t.dayIcons = t.dayIcons || {}; // v2.1.33 每天主題
+    // v2.1.37 選定路線的座標改存壓縮字串（舊資料的 path 陣列一次轉掉，省很多字數）
+    Object.values(t.legRoutes || {}).forEach(r => {
+      if (r && Array.isArray(r.path)) {
+        const pts = r.path, max = 80, step = Math.max(1, (pts.length - 1) / (max - 1));
+        const sm = pts.length <= max ? pts : Array.from({ length: max }, (_, i) => pts[Math.round(i * step)]);
+        r.pathEnc = Logic.encodePath(sm); delete r.path;
+      }
+    });
     t.dayTransportOv = t.dayTransportOv || {};
     t.rainPlans = t.rainPlans || {};
     t.rainActive = t.rainActive || {};
@@ -329,7 +337,26 @@ const Store = (() => {
     const payload = JSON.parse(JSON.stringify(trip));
     const entries = ChangeLog.makeEntries(ChangeLog.describe(syncedBase, payload), by);
     payload.changeLog = ChangeLog.merge(extraLog, trip.changeLog, entries);
-    return payload;
+    return fitPayload(payload);
+  }
+  // v2.1.37 雲端試算表每一格最多 50,000 字：太大就自動精簡（修改紀錄只留最近的、拿掉可以重抓的照片網址）
+  const CELL_SAFE = 46000;
+  function fitPayload(p) {
+    const size = () => JSON.stringify(p).length;
+    if (size() <= CELL_SAFE) return p;
+    p.changeLog = (p.changeLog || []).slice(-30);
+    if (size() > CELL_SAFE) { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { if (c.photos && c.photos.length > 1) c.photos = c.photos.slice(0, 1); }); }
+    if (size() > CELL_SAFE) p.changeLog = (p.changeLog || []).slice(-10);
+    if (size() > CELL_SAFE) { (p.spots || []).forEach(s => { delete s.hoursText; }); }
+    if (size() > CELL_SAFE) { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { c.photos = []; }); }
+    if (size() > CELL_SAFE) { (p.spots || []).forEach(s => { if (s.photo) s.photo = ''; }); (p.hotels || []).forEach(h => { if (h.photo) h.photo = ''; }); }
+    trip.changeLog = p.changeLog; // 本機也同步精簡，下次不用再算
+    if (size() > 49500) {
+      const e = new Error(`這份行程的資料太多了（約 ${Math.round(size() / 1000)}k 字），超過雲端單格的上限，請告訴 Mika。`);
+      e.tooBig = true; throw e;
+    }
+    syncLog('🗜️ 行程資料接近雲端上限，已自動精簡（舊的修改紀錄、可重抓的照片）');
+    return p;
   }
   function afterSaved(r, seqAtSend, tripAtSend, sendAt, payload, opsSent) {
     if (trip !== tripAtSend) return; // 存檔期間已切換成別的行程 → 結果不套用到新行程
