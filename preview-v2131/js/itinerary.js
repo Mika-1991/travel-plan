@@ -177,6 +177,7 @@ const Itin = (() => {
   const photoFor = s => (s && (freshSpotPhoto[s.id] !== undefined ? freshSpotPhoto[s.id] : s.photo)) || '';
   async function refreshSpotPhoto(s, imgs) {
     imgs.forEach(img => { img.style.display = 'none'; });
+    if (s && freshSpotPhoto[s.id]) { imgs.forEach(img => { if (img.src !== freshSpotPhoto[s.id]) { img.src = freshSpotPhoto[s.id]; img.style.display = ''; } }); return; }
     if (!s || !s.placeId || photoTried.has(s.id) || String(s.placeId).startsWith('custom')) return;
     photoTried.add(s.id);
     try {
@@ -1669,7 +1670,7 @@ const Itin = (() => {
           ${coordWarning}
           ${closedWarn}
         </div>
-        ${photoFor(s) ? `<img class="spot-thumb" src="${UI.esc(photoFor(s))}" alt="" title="${UI.esc(s.name)}">` : ''}
+        ${photoFor(s) ? `<img class="spot-thumb" src="${UI.esc(photoFor(s))}" data-spot="${UI.esc(s.id)}" alt="" title="${UI.esc(s.name)}">` : ''}
         <button class="drag-grip edit-only" title="按住拖曳排序（可拖到其他天）">☰</button>
       </div>
       <div class="spot-expand">
@@ -1703,7 +1704,6 @@ const Itin = (() => {
     const thumb = div.querySelector('.spot-thumb');
     if (thumb) {
       thumb.onclick = () => UI.photoZoom(photoFor(s), s.name);
-      thumb.addEventListener('error', () => refreshSpotPhoto(s, [thumb]), { once: true });
     }
     return div;
   }
@@ -2131,7 +2131,7 @@ const Itin = (() => {
         };
         g.list.forEach((s, i) => {
           openIw({ lat: s.lat, lng: s.lng },
-            `<div class="map-poi">${photoFor(s) ? `<img src="${UI.esc(photoFor(s))}" alt="" onerror="window.__mikaPhotoFail(this,'${UI.esc(s.id)}')">` : ''}<span>${i + 1}. ${UI.esc(s.name)}</span></div>`, -16);
+            `<div class="map-poi">${photoFor(s) ? `<img src="${UI.esc(photoFor(s))}" data-spot="${UI.esc(s.id)}" alt="">` : ''}<span>${i + 1}. ${UI.esc(s.name)}</span></div>`, -16);
         });
         const legs = legsForDay(g.d);
         const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[dayTransportOf(g.d)] || '🚗';

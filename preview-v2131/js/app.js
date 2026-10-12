@@ -615,11 +615,13 @@ const App = (() => {
     // 破圖自動隱藏：Google Places 照片網址會過期。兩種情況都藏起來（不留破圖）：
     // 1) 載入失敗（error）；2) 載入成功但只是 Google 的「無照片」小佔位圖（naturalWidth 很小）
     const isThumb = el => el && el.tagName === 'IMG' &&
-      (el.classList.contains('thumb') || el.classList.contains('thumb-sm') || el.classList.contains('spot-thumb'));
-    document.addEventListener('error', e => { if (isThumb(e.target)) e.target.style.display = 'none'; }, true);
+      (el.classList.contains('thumb') || el.classList.contains('thumb-sm') || el.classList.contains('spot-thumb') || !!el.closest('.map-poi'));
+    // v2.1.36 景點照片（data-spot）壞掉 → 藏起來，並在這台裝置重新抓一張新的
+    const dead = el => { el.style.display = 'none'; if (el.dataset.spot && window.__mikaPhotoFail) window.__mikaPhotoFail(el, el.dataset.spot); };
+    document.addEventListener('error', e => { if (isThumb(e.target)) dead(e.target); }, true);
     document.addEventListener('load', e => {
       const el = e.target;
-      if (isThumb(el) && el.naturalWidth && el.naturalWidth <= 120) el.style.display = 'none';
+      if (isThumb(el) && el.naturalWidth && el.naturalWidth <= 120) dead(el);
     }, true);
     initHeader();
     initTabs();
