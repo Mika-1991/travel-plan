@@ -25,10 +25,11 @@ const Itin = (() => {
       if (viewDay === null) {
         let saved = null;
         try { saved = localStorage.getItem(VIEW_KEY(t.tripId)); } catch {}
-        viewDay = saved === 'un' ? 'un' : saved !== null ? Number(saved) : 1;
+        viewDay = saved === 'un' || saved === 'bk' ? saved : saved !== null ? Number(saved) : 1;
       }
     }
     if (viewDay === 'un' && !unassigned().length) viewDay = 1;
+    if (viewDay === 'bk' && !backupSpots().length) viewDay = 1;
     if (typeof viewDay === 'number' && (viewDay < 0 || viewDay > days || isNaN(viewDay))) viewDay = 1;
     return viewDay;
   }
@@ -79,7 +80,11 @@ const Itin = (() => {
     return trip().spots.filter(s => s.day === day).sort((a, b) => a.order - b.order);
   }
   function unassigned() {
-    return trip().spots.filter(s => !s.day || s.day === 0);
+    return trip().spots.filter(s => (!s.day || s.day === 0) && !s.backup);
+  }
+  // v2.1.36 ⭐ 備選景點：想去但先不排（自動安排不會動到）
+  function backupSpots() {
+    return trip().spots.filter(s => s.backup);
   }
 
   function sameRoutePoint(a, b) {
@@ -167,10 +172,30 @@ const Itin = (() => {
 
   // ================= 景點搜尋與加入 =================
   let suggestTimer = null;
+  // v2.1.36 景點照片網址過期 → 只在這台裝置的記憶體換新（不存回雲端，避免兩台裝置互相觸發存檔）
+  const freshSpotPhoto = {}, photoTried = new Set();
+  const photoFor = s => (s && (freshSpotPhoto[s.id] !== undefined ? freshSpotPhoto[s.id] : s.photo)) || '';
+  async function refreshSpotPhoto(s, imgs) {
+    imgs.forEach(img => { img.style.display = 'none'; });
+    if (s && freshSpotPhoto[s.id]) { imgs.forEach(img => { if (img.src !== freshSpotPhoto[s.id]) { img.src = freshSpotPhoto[s.id]; img.style.display = ''; } }); return; }
+    if (!s || !s.placeId || photoTried.has(s.id) || String(s.placeId).startsWith('custom')) return;
+    photoTried.add(s.id);
+    try {
+      const ex = await Api.placeExtras(s.placeId);
+      const url = (ex.photos || [])[0] || '';
+      freshSpotPhoto[s.id] = url;
+      if (url) imgs.forEach(img => { img.src = url; img.style.display = ''; });
+    } catch { freshSpotPhoto[s.id] = ''; }
+  }
+  window.__mikaPhotoFail = (img, id) => { // 地圖標籤（InfoWindow 的 HTML 字串）用
+    const s = trip().spots.find(x => x.id === id);
+    refreshSpotPhoto(s, [img]);
+  };
+
   // v2.1.35 行程區域：已加入的景點／住宿／集合地／航班機場的中心與範圍（新行程什麼都沒有時回 null）
   function tripArea() {
     const t = trip();
-    const pts = [...(t.spots || []), ...(t.hotels || []), t.meetPoint, t.endPoint,
+    const pts = [...(t.spots || []).filter(s => !s.backup), ...(t.hotels || []), t.meetPoint, t.endPoint,
       ...(t.flights || []).flatMap(f => f.type === 'arrive' ? [f.arrAirport] : [f.depAirport])]
       .filter(p => p && Logic.hasCoords(p));
     // 出發地（台灣的集合地、出發機場）不算目的地：有國外點時只用國外點
@@ -207,9 +232,16 @@ const Itin = (() => {
                 <div>${UI.esc(r.name)} <span class="star">★ ${r.rating}</span>${r._km !== undefined && r._km !== null ? ` <span class="s-dist${r._far ? ' far' : ''}">${r._far ? '⚠️ 離行程區域 ' : '📍 離行程中心 '}${distTxt(r._km)}</span>` : ''}</div>
                 <div class="s-sub">${UI.esc(r.address)}</div>
                 <div class="s-sub r-hours" data-hours-i="${i}">🕒 查營業時間…</div>
+                <button type="button" class="s-bk" data-bki="${i}" title="先收著，不排進行程">⭐ 備選</button>
               </div>`).join('');
             box.querySelectorAll('[data-i]').forEach(el =>
-              el.onclick = () => { addSpot(results[Number(el.dataset.i)]); inp.value = ''; box.classList.add('hidden'); });
+              el.onclick = e => {
+                if (e.target.closest('[data-bki]')) return;
+                addSpot(results[Number(el.dataset.i)]); inp.value = ''; box.classList.add('hidden');
+              });
+            box.querySelectorAll('[data-bki]').forEach(b => b.onclick = () => {
+              if (addSpot(results[Number(b.dataset.bki)], { backup: true })) { inp.value = ''; box.classList.add('hidden'); }
+            });
             // 待排：不知道放哪天 → 顯示每一天（Day1(週幾)…）的營業時間
             UI.fillResultHours(box, results,
               Array.from({ length: Store.days() }, (_, i) => ({ n: i + 1, wd: new Date(Store.dateOfDay(i + 1) + 'T00:00:00').getDay() })));
@@ -228,6 +260,7 @@ const Itin = (() => {
     const placeId = place.placeId || ('custom-' + Logic.uid());
     if (t.spots.some(s => s.placeId === placeId)) { UI.toast('這個景點已經在清單裡囉'); return false; }
     const day = (opt && opt.day) || 0;
+    const isBackup = !!(opt && opt.backup);
     const hasCoords = Logic.hasCoords(place);
     const spot = {
       id: Logic.uid(), placeId, source: place.source || (String(placeId).startsWith('custom-') ? 'custom' : 'google'),
@@ -235,12 +268,13 @@ const Itin = (() => {
       lat: place.lat, lng: place.lng, rating: place.rating || 0, photo: place.photo || '',
       hasCoords, estimateWarning: hasCoords ? '' : '沒有座標，路程無法精準估算',
       stayMin: CONFIG.defaults.stayMin, must: false, meal: place.meal || '', note: place.note || '',
-      day, order: day ? spotsOfDay(day).length : t.spots.length
+      day, order: day ? spotsOfDay(day).length : t.spots.length,
+      ...(isBackup ? { backup: true } : {})
     };
     t.spots.push(spot);
     if (day) delete t.legsByDay[day];
     Store.touch(day ? { manual: true } : undefined);
-    UI.toast(hasCoords ? `已加入「${place.name}」${day ? `到第 ${day} 天` : '到待排（按「自動安排」會分到各天）'}` : `已加入「${place.name}」，但沒有座標，路程會略過估算`);
+    UI.toast(isBackup ? `⭐ 已加入備選景點「${place.name}」（不會被自動安排）` : hasCoords ? `已加入「${place.name}」${day ? `到第 ${day} 天` : '到待排（按「自動安排」會分到各天）'}` : `已加入「${place.name}」，但沒有座標，路程會略過估算`);
     if (day && viewDay !== 0) viewDay = day;
     render();
     // 加入時抓一次營業時間（真實地點），存起來給行程顯示＋公休日提醒
@@ -406,7 +440,7 @@ const Itin = (() => {
     try {
       UI.progress(0, '正在計算最佳路線…');
       const estDays = []; let unreachable = false; // 車開不到／查詢失敗而改用估算的天
-      const all = [...t.spots].sort((a, b) => (a.day || 99) - (b.day || 99) || a.order - b.order);
+      const all = t.spots.filter(s => !s.backup).sort((a, b) => (a.day || 99) - (b.day || 99) || a.order - b.order); // 備選景點不排
       const routableAll = all.filter(Logic.hasCoords);
       const skipped = all.filter(s => !Logic.hasCoords(s));
       if (routableAll.length < 2) {
@@ -557,6 +591,8 @@ const Itin = (() => {
       if (view !== 0 && view !== d) continue; // 一次看一天
       wrap.appendChild(renderDayCard(d, spotsOfDay(d)));
     }
+    const bk = backupSpots();
+    if (bk.length && showDays && (view === 0 || view === 'bk')) wrap.appendChild(renderBackupCard(bk));
     if (daySwap) { wrap.classList.remove('swap-l', 'swap-r'); void wrap.offsetWidth; wrap.classList.add(daySwap === 'next' ? 'swap-l' : 'swap-r'); daySwap = ''; }
     renderMiniMap();
     Feat.fillWeather();
@@ -767,6 +803,8 @@ const Itin = (() => {
     const days = Store.days(), view = currentView();
     let html = `<button class="ds-all${view === 0 ? ' on' : ''}" data-v="0">全部</button>`;
     if (unCount) html += `<button class="ds-un${view === 'un' ? ' on' : ''}" data-v="un">待排 ${unCount}</button>`;
+    const bkCount = backupSpots().length;
+    if (bkCount) html += `<button class="ds-bk${view === 'bk' ? ' on' : ''}" data-v="bk">⭐ 備選 ${bkCount}</button>`;
     html += '<div class="ds-days">';
     for (let d = 1; d <= days; d++) {
       const iso = Store.dateOfDay(d);
@@ -778,7 +816,7 @@ const Itin = (() => {
     html += '</div>';
     box.innerHTML = html;
     box.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
-      const v = b.dataset.v === 'un' ? 'un' : Number(b.dataset.v);
+      const v = b.dataset.v === 'un' || b.dataset.v === 'bk' ? b.dataset.v : Number(b.dataset.v);
       const cur = currentView();
       showDay(v, typeof v === 'number' && typeof cur === 'number' && v > 0 && cur > 0 ? (v > cur ? 'next' : 'prev') : '');
     });
@@ -892,7 +930,7 @@ const Itin = (() => {
     let travel = 0;
     for (let d = 1; d <= days; d++) travel += legsForDay(d).reduce((x, y) => x + (y || 0), 0);
     const dateTxt = iso => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
-    const facts = [`${days} 天${nights ? ` ${nights} 夜` : ''}`, `${t.spots.length} 個景點${visitedCount ? `（已去 ${visitedCount}）` : ''}`, travel ? `總車程 ${Logic.fmtDur(travel)}` : ''].filter(Boolean);
+    const facts = [`${days} 天${nights ? ` ${nights} 夜` : ''}`, `${t.spots.filter(s => !s.backup).length} 個景點${visitedCount ? `（已去 ${visitedCount}）` : ''}${backupSpots().length ? `｜⭐ 備選 ${backupSpots().length}` : ''}`, travel ? `總車程 ${Logic.fmtDur(travel)}` : ''].filter(Boolean);
     $('tripSummaryBar').innerHTML = `
       <div class="sb-top">
         <div><div class="sb-name">${UI.esc(t.name)}</div><div class="sb-count">${UI.esc(Prep.countdown())}</div></div>
@@ -939,6 +977,59 @@ const Itin = (() => {
       </div>`;
     list.forEach(s => card.appendChild(spotRow(s, null, 0)));
     return card;
+  }
+
+  // v2.1.36 ⭐ 備選景點卡片：不會被自動安排排進去；可放回待排、排到某天、刪除
+  function renderBackupCard(list) {
+    const card = document.createElement('div');
+    card.className = 'day-card backup-card';
+    card.dataset.day = 'bk';
+    const area = tripArea();
+    card.innerHTML = `
+      <div class="day-head">
+        <div class="day-head-top"><span class="day-title">⭐ 備選景點（${list.length}）</span></div>
+        <p class="hint">這裡的景點不會被「自動安排」排進去。想去的時候再放回待排，或直接指定某一天。</p>
+      </div>
+      <div class="bk-list">${list.map(s => {
+        const km = area && Logic.hasCoords(s) ? Logic.haversineKm(area.center, s) : null;
+        const far = km !== null && km > area.radiusKm + 30;
+        return `<div class="bk-row" data-id="${UI.esc(s.id)}">
+          <div class="bk-main"><b>${UI.esc(s.name)}</b>
+            ${km !== null ? `<span class="s-dist${far ? ' far' : ''}">${far ? '⚠️ ' : '📍 '}離行程中心 ${distTxt(km)}</span>` : ''}
+            ${s.address ? `<div class="hint addr-line">${UI.esc(s.address)}</div>` : ''}
+            ${s.note ? `<div class="hint">📝 ${UI.esc(s.note)}</div>` : ''}</div>
+          <div class="bk-acts edit-only">
+            <button type="button" class="btn-soft" data-bk="back">放回待排</button>
+            <button type="button" class="btn-outline" data-bk="day">排到…</button>
+            <button type="button" class="btn-danger-ghost" data-bk="del" aria-label="刪除">✕</button>
+          </div>
+        </div>`;
+      }).join('')}</div>`;
+    card.querySelectorAll('.bk-row').forEach(r => {
+      const s = trip().spots.find(x => x.id === r.dataset.id);
+      r.querySelector('[data-bk="back"]').onclick = () => fromBackup(s, 0);
+      r.querySelector('[data-bk="day"]').onclick = () => UI.choose(`「${s.name}」排到哪一天？`,
+        Array.from({ length: Store.days() }, (_, i) => ({ label: `📅 第 ${i + 1} 天`, value: i + 1 })), d => fromBackup(s, d));
+      r.querySelector('[data-bk="del"]').onclick = () => deleteSpot(s);
+    });
+    return card;
+  }
+  function toBackup(s) {
+    const t = trip();
+    if (s.day) delete t.legsByDay[s.day];
+    s.day = 0; s.backup = true; s.locked = false;
+    Store.touch({ manual: true }); render();
+    UI.toast(`⭐ 「${s.name}」移到備選景點，自動安排不會排它`);
+  }
+  function fromBackup(s, d) {
+    const t = trip();
+    s.backup = false; s.day = d || 0;
+    s.order = d ? spotsOfDay(d).length : t.spots.length;
+    if (d) delete t.legsByDay[d];
+    Store.touch({ manual: true });
+    if (d && viewDay !== 0) viewDay = d;
+    render();
+    UI.toast(d ? `已把「${s.name}」排到第 ${d} 天` : `已把「${s.name}」放回待排`);
   }
 
   function missingCoordNames(list, extraPoints) {
@@ -1579,7 +1670,7 @@ const Itin = (() => {
           ${coordWarning}
           ${closedWarn}
         </div>
-        ${s.photo ? `<img class="spot-thumb" src="${UI.esc(s.photo)}" alt="" title="${UI.esc(s.name)}">` : ''}
+        ${photoFor(s) ? `<img class="spot-thumb" src="${UI.esc(photoFor(s))}" data-spot="${UI.esc(s.id)}" alt="" title="${UI.esc(s.name)}">` : ''}
         <button class="drag-grip edit-only" title="按住拖曳排序（可拖到其他天）">☰</button>
       </div>
       <div class="spot-expand">
@@ -1611,7 +1702,9 @@ const Itin = (() => {
     const grip = div.querySelector('.drag-grip');
     grip.addEventListener('pointerdown', e => startDrag(e, s, div));
     const thumb = div.querySelector('.spot-thumb');
-    if (thumb) thumb.onclick = () => UI.photoZoom(s.photo, s.name);
+    if (thumb) {
+      thumb.onclick = () => UI.photoZoom(photoFor(s), s.name);
+    }
     return div;
   }
 
@@ -1723,10 +1816,13 @@ const Itin = (() => {
     for (let d = 1; d <= days; d++) {
       if (d !== s.day) opts.push({ label: `📅 移到第 ${d} 天`, value: 'day' + d });
     }
+    opts.push(s.backup ? { label: '↩ 放回待排', value: 'unbackup' } : { label: '⭐ 移到備選景點（先收著，不排進行程）', value: 'backup' });
     opts.push({ label: '📋 複製到其他行程', value: 'copyto' });
     opts.push({ label: '🗑 刪除景點', value: 'del', danger: true });
     UI.choose(s.name, opts, v => {
       if (v === 'copyto') { CopyTo.open(s.id); return; }
+      if (v === 'backup') { toBackup(s); return; }
+      if (v === 'unbackup') { fromBackup(s, 0); return; }
       if (v === 'visited') {
         s.visited = !s.visited; Store.touch(); render();
         if (s.visited) UI.toast(`✅ 「${s.name}」打卡完成！`);
@@ -1738,7 +1834,7 @@ const Itin = (() => {
         const d = Number(v.slice(3));
         const t = trip();
         delete t.legsByDay[s.day]; delete t.legsByDay[d];
-        s.day = d;
+        s.day = d; s.backup = false;
         s.order = spotsOfDay(d).length;
         Store.touch({ manual: true }); render();
         UI.toast(`已把「${s.name}」移到第 ${d} 天`);
@@ -1849,21 +1945,63 @@ const Itin = (() => {
   }
 
   // 路線頁：每日預估總車程
+  // v2.1.36 每日車程：第一層＝每天總計；第二層（縮排）＝每一段（含機場前後的地面交通）
+  let mdsOpen = null;            // 面板展開／收合（手機預設收合）
+  const mdsDays = new Set();     // 「全部」時展開了哪幾天
+  function daySegments(d) {
+    const t = trip(), mode = dayTransportOf(d), icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[mode];
+    const segs = [];
+    const arr = Flights.of(d, 'arrive'), dep = Flights.of(d, 'depart');
+    if (Flights.isComplete(arr)) {
+      const o = baseStartPoint(d);
+      if (o) segs.push({ a: o.p.name, b: arr.depAirport.name, min: Flights.groundMin(arr, o.p, arr.depAirport, mode), icon, note: '搭機前' });
+    }
+    const list = spotsOfDay(d), legs = legsForDay(d);
+    const seq = [startHotel(d), ...list, endHotel(d)];
+    for (let i = 0; i < seq.length - 1; i++) {
+      if (!seq[i] || !seq[i + 1] || !(legs[i] > 0)) continue;
+      if (!list.length && i > 0) break;
+      const ch = typeof RoutePick !== 'undefined' ? RoutePick.chosenOf(seq[i], seq[i + 1], mode) : null;
+      segs.push({ a: seq[i].name, b: seq[i + 1].name, min: legs[i], icon, route: ch ? (ch.summary || '自訂路線') : '', bad: ch && RoutePick.isClosed(ch.summary) });
+    }
+    if (Flights.isComplete(dep)) {
+      const dest = baseEndPoint(d);
+      if (dest) segs.push({ a: dep.arrAirport.name, b: dest.p.name, min: Flights.groundMin(dep, dep.arrAirport, dest.p, mode), icon, note: '下機後' });
+    }
+    return segs;
+  }
   function renderMapDaySummary(selDay) {
     const box = $('mapDaySummary');
     if (!box) return;
+    if (mdsOpen === null) { try { const v = localStorage.getItem('mika_mds_open'); mdsOpen = v === null ? !window.matchMedia('(max-width: 560px)').matches : v === '1'; } catch { mdsOpen = true; } }
     const days = Store.days();
-    const dayTotal = d => legsForDay(d).reduce((a, b) => a + (b || 0), 0);
     let total = 0;
-    const rows = [];
+    const blocks = [];
     for (let d = 1; d <= days; d++) {
       if (selDay && d !== selDay) continue;
-      const mins = dayTotal(d);
+      const segs = daySegments(d);
+      const mins = segs.reduce((s, x) => s + (x.min || 0), 0);
       total += mins;
-      rows.push(`<div class="mds-row"><span class="mds-dot" style="background:${dayColor(d)}"></span>第 ${d} 天<b>${Logic.fmtDur(mins)}</b></div>`);
+      const open = !!selDay || mdsDays.has(d);
+      blocks.push(`<div class="mds-day">
+        <div class="mds-row${selDay ? '' : ' tap'}" data-d="${d}"><span class="mds-dot" style="background:${dayColor(d)}"></span>第 ${d} 天<b>${Logic.fmtDur(mins)}</b>${selDay ? '' : `<span class="mds-car">${open ? '▾' : '▸'}</span>`}</div>
+        ${open ? `<div class="mds-segs">${segs.length ? segs.map(x => `<div class="mds-seg${x.bad ? ' bad' : ''}">
+            <span class="mds-path">${UI.esc(x.a)} → ${UI.esc(x.b)}${x.note ? `<small>（${x.note}）</small>` : ''}${x.route ? `<small>🛣 ${UI.esc(x.route)}${x.bad ? '（⛔ 封閉）' : ''}</small>` : ''}</span>
+            <span class="mds-min">${x.icon} ${Logic.fmtDur(x.min)}</span></div>`).join('') : '<div class="mds-seg"><span class="mds-path">這天沒有移動</span></div>'}</div>` : ''}
+      </div>`);
     }
-    const head = `<div class="mds-head">🚗 預估每日總車程${!selDay ? `（全程 ${Logic.fmtDur(total)}）` : ''}</div>`;
-    box.innerHTML = head + rows.join('');
+    box.innerHTML = `<div class="mds-head" role="button">🚗 ${selDay ? `第 ${selDay} 天車程` : '每日車程'}<b>${Logic.fmtDur(total)}</b><span class="mds-car">${mdsOpen ? '▴' : '▾'}</span></div>
+      ${mdsOpen ? `<div class="mds-body">${blocks.join('')}${!selDay ? '<p class="mds-hint">點某一天可以看每一段；選上面的「第 N 天」可以在地圖上點路線改路</p>' : (Store.isReadonly() ? '' : '<p class="mds-hint">👆 點地圖上的路線可以改走別條路</p>')}</div>` : ''}`;
+    box.querySelector('.mds-head').onclick = () => {
+      mdsOpen = !mdsOpen;
+      try { localStorage.setItem('mika_mds_open', mdsOpen ? '1' : '0'); } catch {}
+      renderMapDaySummary(selDay);
+    };
+    box.querySelectorAll('.mds-row.tap').forEach(r => r.onclick = () => {
+      const d = Number(r.dataset.d);
+      if (mdsDays.has(d)) mdsDays.delete(d); else mdsDays.add(d);
+      renderMapDaySummary(selDay);
+    });
   }
 
   async function drawMap(el, selDay) {
@@ -1993,7 +2131,7 @@ const Itin = (() => {
         };
         g.list.forEach((s, i) => {
           openIw({ lat: s.lat, lng: s.lng },
-            `<div class="map-poi">${s.photo ? `<img src="${s.photo}" alt="">` : ''}<span>${i + 1}. ${UI.esc(s.name)}</span></div>`, -16);
+            `<div class="map-poi">${photoFor(s) ? `<img src="${UI.esc(photoFor(s))}" data-spot="${UI.esc(s.id)}" alt="">` : ''}<span>${i + 1}. ${UI.esc(s.name)}</span></div>`, -16);
         });
         const legs = legsForDay(g.d);
         const icon = { driving: '🚗', transit: '🚇', walking: '🚶' }[dayTransportOf(g.d)] || '🚗';
@@ -2006,6 +2144,28 @@ const Itin = (() => {
             `<div class="map-leg">${icon} ${Logic.fmtDur(min)}</div>`);
         });
       }
+    }
+    // v2.1.36 「全部」時用灰色小點標出備選景點（不連線），點了可以放回待排
+    if (!selDay) {
+      const area = tripArea();
+      backupSpots().filter(Logic.hasCoords).forEach(s => {
+        const mk = new google.maps.Marker({
+          map: el._gmap, position: { lat: s.lat, lng: s.lng }, title: '⭐ 備選：' + s.name, zIndex: 1,
+          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#94A3B8', fillOpacity: .9, strokeColor: '#FFFFFF', strokeWeight: 2 }
+        });
+        mk.addListener('click', () => {
+          const km = area ? Logic.haversineKm(area.center, s) : null;
+          const box = document.createElement('div');
+          box.className = 'map-bk';
+          box.innerHTML = `<b>⭐ ${UI.esc(s.name)}</b>${km !== null ? `<div>離行程中心 ${distTxt(km)}</div>` : ''}${Store.isReadonly() ? '' : '<button type="button">放回待排</button>'}`;
+          const iw = new google.maps.InfoWindow({ content: box });
+          const b = box.querySelector('button');
+          if (b) b.onclick = () => { iw.close(); fromBackup(s, 0); renderFullMap(0); };
+          iw.open({ map: el._gmap, anchor: mk });
+          add(iw);
+        });
+        add(mk);
+      });
     }
     el._gmap.fitBounds(bounds, 46);
   }

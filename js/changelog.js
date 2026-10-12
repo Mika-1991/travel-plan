@@ -23,6 +23,12 @@ const ChangeLog = (() => {
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
   function diffSpots(a, b, out) {
+    // v2.1.36 ⭐ 備選景點進出
+    const BA = new Map((a.spots || []).map(s => [s.id, s]));
+    (b.spots || []).forEach(s => {
+      const o = BA.get(s.id);
+      if (o && !!o.backup !== !!s.backup) out.push(s.backup ? `⭐ 移到備選：${s.name}` : `${s.day ? `📅 從備選排到第 ${s.day} 天` : '↩ 放回待排'}：${s.name}`);
+    });
     const A = new Map((a.spots || []).map(s => [s.id, s]));
     const B = new Map((b.spots || []).map(s => [s.id, s]));
     B.forEach((s, id) => {
