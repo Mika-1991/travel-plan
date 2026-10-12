@@ -167,7 +167,7 @@ const UI = (() => {
       return '雲端目前比較忙，請等幾秒再試一次。';
     if (/JSON|Unexpected token|expected pattern/i.test(msg))
       return '雲端暫時回應異常（可能正忙），請等幾秒再試一次。';
-    if (/50000|50,000|字元的上限|characters/i.test(msg)) return '這份行程的資料量超過雲端單格的上限，存不進去。已經改成自動精簡，請重新整理後再試；還是不行請告訴 Mika。';
+    if (/50000|50,000|字元的上限|characters/i.test(msg)) return '這份行程的資料量超過雲端的上限，存不進去。請重新整理後再試；還是不行請告訴 Mika。';
     if (/[一-鿿]/.test(msg)) return msg;
     return '發生未預期的錯誤，請重新整理頁面後再試一次。\n\n（技術訊息，可截圖給 Mika：' + msg + '）';
   }

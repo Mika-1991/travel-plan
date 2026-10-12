@@ -123,6 +123,7 @@ const Store = (() => {
     loadSavedSnap();
     reminderBaselineSig = arrangementSig(trip);
     persistLocal();
+    if (role === 'edit') askCapacity();
     return trip;
   }
 
@@ -141,6 +142,7 @@ const Store = (() => {
     loadSavedSnap();
     reminderBaselineSig = arrangementSig(trip);
     persistLocal();
+    if (role === 'edit') askCapacity();
     // 快取的最後修改時間晚於上次成功存檔 → 有離線修改，標記為未存並排入自動存檔
     if (opts && opts.fromLocal && role === 'edit' && (Number(trip.updatedAt) || 0) > (Number(trip.baseUpdatedAt) || 0)) {
       syncedBase = null; // 不知道雲端長怎樣 → 修改紀錄記成「包含離線時的修改」
@@ -340,19 +342,47 @@ const Store = (() => {
     return fitPayload(payload);
   }
   // v2.1.37 雲端試算表每一格最多 50,000 字：太大就自動精簡（修改紀錄只留最近的、拿掉可以重抓的照片網址）
-  const CELL_SAFE = 46000;
+  // v2.1.38 雲端容量：GAS 17 版起分格存（約 27 萬字），存檔回傳 maxChars；還不知道時用舊的單格上限（保守）
+  const MAX_KEY = 'mika_cloud_max';
+  let cloudMax = (() => { try { return Number(localStorage.getItem(MAX_KEY)) || 50000; } catch { return 50000; } })();
+  ChangeLog.setMax(cloudMax >= 200000 ? 100 : 60);
+  let warnedFull = false, capKnown = false;
+  let capAsked = false;
+  function askCapacity() { // 開行程時問一次後台容量（不等它，失敗就沿用舊值）
+    if (capAsked) return; capAsked = true;
+    Api.cloudCapacity().then(m => { capKnown = true; noteCloudMax(m); }).catch(() => { capAsked = false; });
+  }
+  function noteCloudMax(m) {
+    m = Number(m) || 0;
+    if (!m || m === cloudMax) return;
+    cloudMax = m;
+    try { localStorage.setItem(MAX_KEY, String(m)); } catch {}
+    ChangeLog.setMax(m >= 200000 ? 100 : 60);
+  }
+  // 平常完全不精簡；80% 提醒一次；95% 才自動精簡（保險）；超過上限就清楚說明、不送出
   function fitPayload(p) {
     const size = () => JSON.stringify(p).length;
-    if (size() <= CELL_SAFE) return p;
-    p.changeLog = (p.changeLog || []).slice(-30);
-    if (size() > CELL_SAFE) { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { if (c.photos && c.photos.length > 1) c.photos = c.photos.slice(0, 1); }); }
-    if (size() > CELL_SAFE) p.changeLog = (p.changeLog || []).slice(-10);
-    if (size() > CELL_SAFE) { (p.spots || []).forEach(s => { delete s.hoursText; }); }
-    if (size() > CELL_SAFE) { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { c.photos = []; }); }
-    if (size() > CELL_SAFE) { (p.spots || []).forEach(s => { if (s.photo) s.photo = ''; }); (p.hotels || []).forEach(h => { if (h.photo) h.photo = ''; }); }
+    const max = cloudMax - 500, trimAt = Math.round(cloudMax * 0.95);
+    let n = size();
+    if (capKnown && n >= cloudMax * 0.8 && !warnedFull) {
+      warnedFull = true;
+      syncLog(`📦 行程資料已用 ${Math.round(n / cloudMax * 100)}%（${Math.round(n / 1000)}k／${Math.round(cloudMax / 1000)}k 字）`);
+      setTimeout(() => { try { UI.toast(`📦 這份行程的資料快滿了（已用 ${Math.round(n / cloudMax * 100)}%），請告訴 Mika`); } catch {} }, 500);
+    }
+    if (n <= trimAt) return p;
+    const steps = [
+      () => { p.changeLog = (p.changeLog || []).slice(-30); },
+      () => { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { if (c.photos && c.photos.length > 1) c.photos = c.photos.slice(0, 1); }); },
+      () => { p.changeLog = (p.changeLog || []).slice(-10); },
+      () => { (p.spots || []).forEach(s => { delete s.hoursText; }); },
+      () => { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { c.photos = []; }); },
+      () => { (p.spots || []).forEach(s => { if (s.photo) s.photo = ''; }); (p.hotels || []).forEach(h => { if (h.photo) h.photo = ''; }); }
+    ];
+    for (const st of steps) { if (size() <= trimAt) break; st(); }
     trip.changeLog = p.changeLog; // 本機也同步精簡，下次不用再算
-    if (size() > 49500) {
-      const e = new Error(`這份行程的資料太多了（約 ${Math.round(size() / 1000)}k 字），超過雲端單格的上限，請告訴 Mika。`);
+    n = size();
+    if (n > max) {
+      const e = new Error(`這份行程的資料太多了（約 ${Math.round(n / 1000)}k 字），超過雲端容量上限，請告訴 Mika。`);
       e.tooBig = true; throw e;
     }
     syncLog('🗜️ 行程資料接近雲端上限，已自動精簡（舊的修改紀錄、可重抓的照片）');
@@ -361,6 +391,7 @@ const Store = (() => {
   function afterSaved(r, seqAtSend, tripAtSend, sendAt, payload, opsSent) {
     if (trip !== tripAtSend) return; // 存檔期間已切換成別的行程 → 結果不套用到新行程
     trip.baseUpdatedAt = r.updatedAt;
+    if (r && r.maxChars) { capKnown = true; noteCloudMax(r.maxChars); } // v2.1.38 後台告訴我們容量
     if (opsSent) pendingVoteOps.splice(0, opsSent); // 已存上雲端的投票操作不用再重放
     if (payload) { trip.changeLog = payload.changeLog; syncedBase = ChangeLog.strip(payload); }
     saveRetryStep = 0; clearTimeout(saveRetryTimer);

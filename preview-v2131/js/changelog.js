@@ -3,7 +3,7 @@
 // （誰、什麼時候、改了什麼）。存檔時附在行程資料的 changeLog（保留最近 100 筆）。
 // ============================================================
 const ChangeLog = (() => {
-  const MAX_ENTRIES = 60;      // 最多保留幾筆（v2.1.37 由 100 降為 60：雲端單格有 50,000 字上限）
+  let MAX_ENTRIES = 60;        // 最多保留幾筆：後台是大容量（GAS 17 版分格存）時 100 筆，否則 60 筆（v2.1.38）
   const MAX_LINES_PER_SAVE = 8; // 一次存檔最多列幾行，其餘合併成「…等 N 項」
   // 不算「使用者修改」的欄位：同步用的時間戳、自動算的車程、紀錄本身
   const IGNORE = ['updatedAt', 'baseUpdatedAt', '_saveSession', '_saveBy', 'changeLog', 'legsByDay', 'createdAt', 'codesAutoSent', 'optimizedAt'];
@@ -219,8 +219,9 @@ const ChangeLog = (() => {
 
   function makeEntries(lines, by) {
     const now = Date.now();
-    return lines.map((text, i) => ({ id: `${now.toString(36)}-${i}-${Math.random().toString(36).slice(2, 6)}`, t: now, by: by || '（未具名）', text }));
+    const cut = s => (s.length > 120 ? s.slice(0, 118) + '…' : s); // v2.1.38 一行最多 120 字（長備註不要整段複製進紀錄）
+    return lines.map((text, i) => ({ id: `${now.toString(36)}-${i}-${Math.random().toString(36).slice(2, 6)}`, t: now, by: by || '（未具名）', text: cut(String(text)) }));
   }
 
-  return { strip, describe, merge, makeEntries, MAX_ENTRIES };
+  return { strip, describe, merge, makeEntries, setMax: n => { MAX_ENTRIES = n; }, get MAX_ENTRIES() { return MAX_ENTRIES; } };
 })();
