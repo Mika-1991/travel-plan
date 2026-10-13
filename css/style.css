@@ -1106,3 +1106,7 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .rp-remind { margin: 0 0 4px; padding: 8px 10px; border-radius: 10px; background: #FFF4E5; color: #8A4B00; font-weight: 700; font-size: .9rem; }
 .modal-actions .btn-primary.rp-save-hot { background: var(--accent); border-color: var(--accent); animation: rpPulse 1.6s var(--ease) 2; }
 @keyframes rpPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,140,0,.45); } 50% { box-shadow: 0 0 0 8px rgba(255,140,0,0); } }
+
+/* ===== v2.1.40 總車程面板：出現捲軸時預留位置，右側的時間和 ▾ 不會被擠掉 ===== */
+.map-day-summary { scrollbar-gutter: stable; overflow-x: hidden; }
+.map-day-summary .mds-head b, .map-day-summary .mds-row b, .mds-min { white-space: nowrap; }
