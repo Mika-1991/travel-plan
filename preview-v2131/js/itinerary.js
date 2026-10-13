@@ -1990,7 +1990,7 @@ const Itin = (() => {
             <span class="mds-min">${x.icon} ${Logic.fmtDur(x.min)}</span></div>`).join('') : '<div class="mds-seg"><span class="mds-path">這天沒有移動</span></div>'}</div>` : ''}
       </div>`);
     }
-    box.innerHTML = `<div class="mds-head" role="button">🚗 ${selDay ? `第 ${selDay} 天車程` : '每日車程'}<b>${Logic.fmtDur(total)}</b><span class="mds-car">${mdsOpen ? '▴' : '▾'}</span></div>
+    box.innerHTML = `<div class="mds-head" role="button">🚗 ${selDay ? `第 ${selDay} 天總車程` : '總車程'}<b>${Logic.fmtDur(total)}</b><span class="mds-car">${mdsOpen ? '▴' : '▾'}</span></div>
       ${mdsOpen ? `<div class="mds-body">${blocks.join('')}${!selDay ? '<p class="mds-hint">點某一天可以看每一段；選上面的「第 N 天」可以在地圖上點路線改路</p>' : (Store.isReadonly() ? '' : '<p class="mds-hint">👆 點地圖上的路線可以改走別條路</p>')}</div>` : ''}`;
     box.querySelector('.mds-head').onclick = () => {
       mdsOpen = !mdsOpen;
