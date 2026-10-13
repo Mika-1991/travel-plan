@@ -123,6 +123,7 @@ const Store = (() => {
     loadSavedSnap();
     reminderBaselineSig = arrangementSig(trip);
     persistLocal();
+    if (role === 'edit') askCapacity();
     return trip;
   }
 
@@ -141,6 +142,7 @@ const Store = (() => {
     loadSavedSnap();
     reminderBaselineSig = arrangementSig(trip);
     persistLocal();
+    if (role === 'edit') askCapacity();
     // 快取的最後修改時間晚於上次成功存檔 → 有離線修改，標記為未存並排入自動存檔
     if (opts && opts.fromLocal && role === 'edit' && (Number(trip.updatedAt) || 0) > (Number(trip.baseUpdatedAt) || 0)) {
       syncedBase = null; // 不知道雲端長怎樣 → 修改紀錄記成「包含離線時的修改」
@@ -340,19 +342,47 @@ const Store = (() => {
     return fitPayload(payload);
   }
   // v2.1.37 雲端試算表每一格最多 50,000 字：太大就自動精簡（修改紀錄只留最近的、拿掉可以重抓的照片網址）
-  const CELL_SAFE = 46000;
+  // v2.1.38 雲端容量：GAS 17 版起分格存（約 27 萬字），存檔回傳 maxChars；還不知道時用舊的單格上限（保守）
+  const MAX_KEY = 'mika_cloud_max';
+  let cloudMax = (() => { try { return Number(localStorage.getItem(MAX_KEY)) || 50000; } catch { return 50000; } })();
+  ChangeLog.setMax(cloudMax >= 200000 ? 100 : 60);
+  let warnedFull = false, capKnown = false;
+  let capAsked = false;
+  function askCapacity() { // 開行程時問一次後台容量（不等它，失敗就沿用舊值）
+    if (capAsked) return; capAsked = true;
+    Api.cloudCapacity().then(m => { capKnown = true; noteCloudMax(m); }).catch(() => { capAsked = false; });
+  }
+  function noteCloudMax(m) {
+    m = Number(m) || 0;
+    if (!m || m === cloudMax) return;
+    cloudMax = m;
+    try { localStorage.setItem(MAX_KEY, String(m)); } catch {}
+    ChangeLog.setMax(m >= 200000 ? 100 : 60);
+  }
+  // 平常完全不精簡；80% 提醒一次；95% 才自動精簡（保險）；超過上限就清楚說明、不送出
   function fitPayload(p) {
     const size = () => JSON.stringify(p).length;
-    if (size() <= CELL_SAFE) return p;
-    p.changeLog = (p.changeLog || []).slice(-30);
-    if (size() > CELL_SAFE) { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { if (c.photos && c.photos.length > 1) c.photos = c.photos.slice(0, 1); }); }
-    if (size() > CELL_SAFE) p.changeLog = (p.changeLog || []).slice(-10);
-    if (size() > CELL_SAFE) { (p.spots || []).forEach(s => { delete s.hoursText; }); }
-    if (size() > CELL_SAFE) { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { c.photos = []; }); }
-    if (size() > CELL_SAFE) { (p.spots || []).forEach(s => { if (s.photo) s.photo = ''; }); (p.hotels || []).forEach(h => { if (h.photo) h.photo = ''; }); }
+    const max = cloudMax - 500, trimAt = Math.round(cloudMax * 0.95);
+    let n = size();
+    if (capKnown && n >= cloudMax * 0.8 && !warnedFull) {
+      warnedFull = true;
+      syncLog(`📦 行程資料已用 ${Math.round(n / cloudMax * 100)}%（${Math.round(n / 1000)}k／${Math.round(cloudMax / 1000)}k 字）`);
+      setTimeout(() => { try { UI.toast(`📦 這份行程的資料快滿了（已用 ${Math.round(n / cloudMax * 100)}%），請告訴 Mika`); } catch {} }, 500);
+    }
+    if (n <= trimAt) return p;
+    const steps = [
+      () => { p.changeLog = (p.changeLog || []).slice(-30); },
+      () => { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { if (c.photos && c.photos.length > 1) c.photos = c.photos.slice(0, 1); }); },
+      () => { p.changeLog = (p.changeLog || []).slice(-10); },
+      () => { (p.spots || []).forEach(s => { delete s.hoursText; }); },
+      () => { (p.hotelPoll && p.hotelPoll.candidates || []).forEach(c => { c.photos = []; }); },
+      () => { (p.spots || []).forEach(s => { if (s.photo) s.photo = ''; }); (p.hotels || []).forEach(h => { if (h.photo) h.photo = ''; }); }
+    ];
+    for (const st of steps) { if (size() <= trimAt) break; st(); }
     trip.changeLog = p.changeLog; // 本機也同步精簡，下次不用再算
-    if (size() > 49500) {
-      const e = new Error(`這份行程的資料太多了（約 ${Math.round(size() / 1000)}k 字），超過雲端單格的上限，請告訴 Mika。`);
+    n = size();
+    if (n > max) {
+      const e = new Error(`這份行程的資料太多了（約 ${Math.round(n / 1000)}k 字），超過雲端容量上限，請告訴 Mika。`);
       e.tooBig = true; throw e;
     }
     syncLog('🗜️ 行程資料接近雲端上限，已自動精簡（舊的修改紀錄、可重抓的照片）');
@@ -361,6 +391,7 @@ const Store = (() => {
   function afterSaved(r, seqAtSend, tripAtSend, sendAt, payload, opsSent) {
     if (trip !== tripAtSend) return; // 存檔期間已切換成別的行程 → 結果不套用到新行程
     trip.baseUpdatedAt = r.updatedAt;
+    if (r && r.maxChars) { capKnown = true; noteCloudMax(r.maxChars); } // v2.1.38 後台告訴我們容量
     if (opsSent) pendingVoteOps.splice(0, opsSent); // 已存上雲端的投票操作不用再重放
     if (payload) { trip.changeLog = payload.changeLog; syncedBase = ChangeLog.strip(payload); }
     saveRetryStep = 0; clearTimeout(saveRetryTimer);
@@ -370,6 +401,7 @@ const Store = (() => {
     pendingSince = pendingLocalChange ? sendAt : 0;
     notifiedUpdatedAt = 0;
     syncState = 'idle'; notifySync();
+    persistLocal(); // v2.1.39 存成功也要寫回本機快取：不然快取裡的「上次存檔時間」停在舊的，下次開啟會誤以為有沒存的修改
   }
   function cloudSaveNow(opts) {
     return enqueueSave(async () => {
@@ -488,6 +520,38 @@ const Store = (() => {
     } catch (e) { pingFailCount++; syncLog('📡 心跳失敗：' + ((e && e.message) || e)); }
   }
   let pingFailCount = 0; // 累計心跳失敗次數（runPing 用來判斷這次有沒有失敗、決定退避）
+  // v2.1.39 雲端有新版本、手上也有未存修改時，先自己判斷再決定要不要問：
+  // 1. 兩邊內容其實一樣（例如之前其實存成功了，只是這台不知道）→ 直接對齊雲端，不用問
+  // 2. 手上跟「上次存上雲端的版本」比沒有真正的修改 → 直接載入雲端最新版，不用問
+  // 3. 真的兩邊都有改 → 回傳兩邊各改了什麼，讓視窗列出來給使用者判斷
+  const stableStr = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x))
+    ? Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x);
+  let conflictCheck = null;
+  function checkConflict() {
+    if (conflictCheck) return conflictCheck;
+    conflictCheck = (async () => {
+      if (!trip || isReadonly()) return { resolved: true };
+      const r = await Api.cloudGetTrip(trip.editCode);
+      const cloudTrip = normalizeTrip(r.trip);
+      const cloud = ChangeLog.strip(cloudTrip), mine = ChangeLog.strip(trip);
+      const base = syncedBase && syncedBase !== 'NEW' ? syncedBase : null;
+      const myChanges = base ? ChangeLog.describe(base, trip) : null;
+      if (stableStr(cloud) === stableStr(mine) || (myChanges && !myChanges.length)) {
+        const same = stableStr(cloud) === stableStr(mine);
+        load(cloudTrip, 'edit');
+        syncLog(same ? '🤝 雲端內容跟手上一樣 → 自動對齊，不用選' : '☁️ 手上沒有真正的修改 → 自動載入雲端最新版');
+        document.dispatchEvent(new CustomEvent('cloud-auto-refreshed'));
+        return { resolved: true };
+      }
+      return {
+        resolved: false,
+        mine: myChanges || ChangeLog.describe(cloud, trip),    // 不知道上次存檔版本時：列出「手上跟雲端不同的地方」
+        theirs: base ? ChangeLog.describe(base, cloudTrip) : null,
+        by: cloudTrip._saveBy || ''
+      };
+    })().finally(() => { conflictCheck = null; });
+    return conflictCheck;
+  }
   // 跳出「其他人剛更新了行程」三選一（同一時間只跳一個，由 app.js 的 cloud-update-available 處理）
   function askConflictChoice() {
     syncLog('⚠️ 存檔時發現別人已更新 → 請使用者選擇');
@@ -580,7 +644,7 @@ const Store = (() => {
     getEditor, setEditor, getLastRemoteSaveBy, getSessionId: () => sessionId,
     undo, redo, canUndo, canRedo,
     markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved, needsSaveReminder,
-    cloudSaveNow, forceCloudSave, reloadFromCloud,
+    cloudSaveNow, forceCloudSave, reloadFromCloud, checkConflict,
     startPresencePoll, stopPresencePoll, getLastEditorCount, saveDerived,
     getSyncLog: () => syncLogArr.slice()
   };

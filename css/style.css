@@ -1095,3 +1095,14 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .hp-actions { flex-wrap: nowrap; }
 .hp-actions > * { white-space: nowrap; padding: 9px 10px; }
 .hp-actions .hp-vote { flex: 1 1 auto; min-width: 0; }
+
+/* ===== v2.1.39 衝突視窗列出兩邊修改、拖曳路線提醒 ===== */
+.cf-body p { margin: 0 0 10px; line-height: 1.6; }
+.cf-box { border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: var(--soft-2); }
+.cf-box.mine { border-color: var(--main); }
+.cf-box.theirs { border-color: var(--accent); }
+.cf-box b { display: block; margin-bottom: 4px; }
+.cf-box ul { margin: 0; padding-left: 20px; max-height: 140px; overflow-y: auto; font-size: .92rem; line-height: 1.55; }
+.rp-remind { margin: 0 0 4px; padding: 8px 10px; border-radius: 10px; background: #FFF4E5; color: #8A4B00; font-weight: 700; font-size: .9rem; }
+.modal-actions .btn-primary.rp-save-hot { background: var(--accent); border-color: var(--accent); animation: rpPulse 1.6s var(--ease) 2; }
+@keyframes rpPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,140,0,.45); } 50% { box-shadow: 0 0 0 8px rgba(255,140,0,0); } }

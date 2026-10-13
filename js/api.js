@@ -594,6 +594,14 @@ const Api = (() => {
 
   // 寄送完整行程（唯讀連結＋每日行程明細）。html 由前端組好，GAS 直接寄出
   // v2.1.33 💬 意見回饋：交給後台寄到 Mika 信箱（網頁看不到收件 Email）
+  // v2.1.38 後台容量（GAS 17 版起分格存，回傳 maxChars；舊後台沒有這個欄位＝單格 50,000 字）
+  async function cloudCapacity() {
+    if (isMock()) return 270000;
+    const r = await fetch(CONFIG.gasUrl);
+    const j = await r.json();
+    return Number(j && j.maxChars) || 50000;
+  }
+
   async function sendFeedback(payload) {
     if (isMock()) { await delay(300); return { sent: true, simulated: true }; }
     try { return await gasCall('sendFeedback', payload); }
@@ -718,7 +726,7 @@ const Api = (() => {
     searchPlaces, searchFood, nearbySearch, placeHours, placeWeekHours, placeExtras,
     optimizeRoute, routeLegs, routePath, routeLegPath, travelTime, routeAlternatives, summarizeRoute,
     weatherOn,
-    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail, sendFeedback,
+    cloudGetTrip, cloudSaveTrip, cloudSendCodes, cloudSendItinerary, cloudFindByEmail, sendFeedback, cloudCapacity,
     cloudRequestOtp, cloudVerifyOtp, cloudDeleteTripByEmail, cloudPresencePing
   };
 })();
