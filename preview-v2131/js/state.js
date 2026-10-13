@@ -401,6 +401,7 @@ const Store = (() => {
     pendingSince = pendingLocalChange ? sendAt : 0;
     notifiedUpdatedAt = 0;
     syncState = 'idle'; notifySync();
+    persistLocal(); // v2.1.39 存成功也要寫回本機快取：不然快取裡的「上次存檔時間」停在舊的，下次開啟會誤以為有沒存的修改
   }
   function cloudSaveNow(opts) {
     return enqueueSave(async () => {
@@ -519,6 +520,38 @@ const Store = (() => {
     } catch (e) { pingFailCount++; syncLog('📡 心跳失敗：' + ((e && e.message) || e)); }
   }
   let pingFailCount = 0; // 累計心跳失敗次數（runPing 用來判斷這次有沒有失敗、決定退避）
+  // v2.1.39 雲端有新版本、手上也有未存修改時，先自己判斷再決定要不要問：
+  // 1. 兩邊內容其實一樣（例如之前其實存成功了，只是這台不知道）→ 直接對齊雲端，不用問
+  // 2. 手上跟「上次存上雲端的版本」比沒有真正的修改 → 直接載入雲端最新版，不用問
+  // 3. 真的兩邊都有改 → 回傳兩邊各改了什麼，讓視窗列出來給使用者判斷
+  const stableStr = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x))
+    ? Object.keys(x).sort().reduce((o, kk) => { o[kk] = x[kk]; return o; }, {}) : x);
+  let conflictCheck = null;
+  function checkConflict() {
+    if (conflictCheck) return conflictCheck;
+    conflictCheck = (async () => {
+      if (!trip || isReadonly()) return { resolved: true };
+      const r = await Api.cloudGetTrip(trip.editCode);
+      const cloudTrip = normalizeTrip(r.trip);
+      const cloud = ChangeLog.strip(cloudTrip), mine = ChangeLog.strip(trip);
+      const base = syncedBase && syncedBase !== 'NEW' ? syncedBase : null;
+      const myChanges = base ? ChangeLog.describe(base, trip) : null;
+      if (stableStr(cloud) === stableStr(mine) || (myChanges && !myChanges.length)) {
+        const same = stableStr(cloud) === stableStr(mine);
+        load(cloudTrip, 'edit');
+        syncLog(same ? '🤝 雲端內容跟手上一樣 → 自動對齊，不用選' : '☁️ 手上沒有真正的修改 → 自動載入雲端最新版');
+        document.dispatchEvent(new CustomEvent('cloud-auto-refreshed'));
+        return { resolved: true };
+      }
+      return {
+        resolved: false,
+        mine: myChanges || ChangeLog.describe(cloud, trip),    // 不知道上次存檔版本時：列出「手上跟雲端不同的地方」
+        theirs: base ? ChangeLog.describe(base, cloudTrip) : null,
+        by: cloudTrip._saveBy || ''
+      };
+    })().finally(() => { conflictCheck = null; });
+    return conflictCheck;
+  }
   // 跳出「其他人剛更新了行程」三選一（同一時間只跳一個，由 app.js 的 cloud-update-available 處理）
   function askConflictChoice() {
     syncLog('⚠️ 存檔時發現別人已更新 → 請使用者選擇');
@@ -611,7 +644,7 @@ const Store = (() => {
     getEditor, setEditor, getLastRemoteSaveBy, getSessionId: () => sessionId,
     undo, redo, canUndo, canRedo,
     markSaved, hasSavedSnap, savedSnapAt, canRestoreSaved, restoreSaved, needsSaveReminder,
-    cloudSaveNow, forceCloudSave, reloadFromCloud,
+    cloudSaveNow, forceCloudSave, reloadFromCloud, checkConflict,
     startPresencePoll, stopPresencePoll, getLastEditorCount, saveDerived,
     getSyncLog: () => syncLogArr.slice()
   };

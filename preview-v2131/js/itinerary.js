@@ -2048,6 +2048,14 @@ const Itin = (() => {
         });
         add(poly);
         const gMode = dayTransportOf(g.d);
+        // v2.1.39 線只有 4 像素、手機很難點：看單一天時疊一條看不見的粗線當感應區（跟著實際路線一起更新）
+        let hitLine = null;
+        if (selDay && gMode !== 'transit' && !Store.isReadonly()) {
+          hitLine = new google.maps.Polyline({ map: el._gmap, path: poly.getPath(), strokeColor: '#000000', strokeOpacity: 0.01, strokeWeight: 26, zIndex: 5 });
+          add(hitLine);
+          const rawSet = poly.setPath.bind(poly);
+          poly.setPath = p => { rawSet(p); hitLine.setPath(p); };
+        }
         if (gMode === 'transit') {
           // 大眾運輸不支援途經點 → 逐段抓真實路線再串起來（某段抓不到就那段用直線）
           (async () => {
@@ -2078,8 +2086,8 @@ const Itin = (() => {
           });
         }
         // v2.1.35 看單一天時：點路線 → 找最近的那一段 → 選路線
-        if (selDay && gMode !== 'transit' && !Store.isReadonly()) {
-          poly.addListener('click', ev => {
+        if (hitLine) {
+          const onPick = ev => {
             const c = { lat: ev.latLng.lat(), lng: ev.latLng.lng() };
             const distSeg = (p, a, b) => { // 點到線段的近似距離（經緯度平面）
               const dx = b.lng - a.lng, dy = b.lat - a.lat, L = dx * dx + dy * dy || 1e-12;
@@ -2094,7 +2102,9 @@ const Itin = (() => {
               for (let k = 0; k < pts.length - 1; k++) { const dd = distSeg(c, pts[k], pts[k + 1]); if (dd < bd) { bd = dd; best = i; } }
             }
             RoutePick.open(seq[best], seq[best + 1], gMode, () => { render(); renderFullMap(selDay); });
-          });
+          };
+          poly.addListener('click', onPick);
+          hitLine.addListener('click', onPick);
         }
       }
       const boundaryMarker = (p, label) => add(new google.maps.Marker({

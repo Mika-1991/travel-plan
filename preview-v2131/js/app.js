@@ -79,7 +79,7 @@ const UI = (() => {
     const box = document.createElement('div');
     box.className = 'modal-box' + (opts.fullscreen ? ' fullscreen' : '');
     box.innerHTML = `<button class="modal-x" type="button" aria-label="關閉視窗" title="關閉">×</button><h3>${esc(title)}</h3>`;
-    box.querySelector('.modal-x').onclick = () => closeModal();
+    box.querySelector('.modal-x').onclick = () => requestClose();
     if (opts.locked) box.querySelector('.modal-x').remove(); // locked：一定要做選擇，不能關掉
     if (typeof body === 'string') {
       const p = document.createElement('div');
@@ -101,7 +101,7 @@ const UI = (() => {
       const c = document.createElement('button');
       c.className = 'btn-outline';
       c.textContent = '關閉';
-      c.onclick = () => closeModal();
+      c.onclick = () => requestClose();
       act.appendChild(c);
     }
     box.appendChild(act);
@@ -112,6 +112,12 @@ const UI = (() => {
     if (!guardPushed) { guardPushed = true; try { history.pushState({ mikaModal: 1 }, ''); } catch {} }
   }
 
+  // v2.1.39 使用者按 ×／關閉／點背景：彈窗可以用 opts.beforeClose 攔下來（例如還沒存的拖曳路線），回傳 false 就不關
+  function requestClose() {
+    const top = modalStack[modalStack.length - 1];
+    if (top && top.opts.beforeClose && top.opts.beforeClose() === false) return;
+    closeModal();
+  }
   // 關閉最上層彈窗
   function closeModal() {
     const top = modalStack.pop();
@@ -146,13 +152,15 @@ const UI = (() => {
     overlay.addEventListener('click', e => {
       if (e.target !== overlay || !modalStack.length) return;
       const top = modalStack[modalStack.length - 1];
-      if (!top.opts.noClose) closeModal();
+      if (!top.opts.noClose) requestClose();
     });
     window.addEventListener('popstate', () => {
       if (suppressPop) { suppressPop = false; return; }
       if (modalStack.length) {
         // 有「一定要做選擇」的視窗（例如選編輯者身分）→ 返回鍵不關它，重新放回守衛
         if (modalStack.some(m => m.opts.locked)) { try { history.pushState({ mikaModal: 1 }, ''); guardPushed = true; } catch {} return; }
+        const top = modalStack[modalStack.length - 1];
+        if (top.opts.beforeClose && top.opts.beforeClose() === false) { try { history.pushState({ mikaModal: 1 }, ''); guardPushed = true; } catch {} return; }
         guardPushed = false; closeAllModals();
       }
     });
@@ -466,22 +474,36 @@ const App = (() => {
       showSplash(`☁️ ${by && by !== Store.getEditor() ? by : '其他人'}剛更新了行程，已自動載入最新版本`, 2500);
     });
     // 偵測到雲端新版本：手上還有未存的變更 → 只提醒，不強制蓋掉
-    document.addEventListener('cloud-update-available', () => {
+    let conflictOpen = false;
+    document.addEventListener('cloud-update-available', async () => {
       // 同一個視窗已經開著就不再疊一個（存檔衝突和心跳可能幾乎同時發現）
-      if ([...document.querySelectorAll('.modal-box h3')].some(h => h.textContent === '其他人剛更新了行程')) return;
-      UI.modal('其他人剛更新了行程',
-        `剛剛${Store.getLastRemoteSaveBy() && Store.getLastRemoteSaveBy() !== Store.getEditor() ? `「${Store.getLastRemoteSaveBy()}」` : '有其他人（或你的另一台裝置）'}存了這份行程，而你手上也有還沒存上雲端的修改。\n\n兩邊的修改無法自動合併，請選擇要保留哪一份：`,
+      if (conflictOpen || [...document.querySelectorAll('.modal-box h3')].some(h => h.textContent === '兩邊都改了行程')) return;
+      conflictOpen = true;
+      // v2.1.39 先比對雲端：內容一樣或手上沒有真正的修改 → 自動處理，不跳視窗
+      let info = null;
+      try { info = await Store.checkConflict(); } catch (e) { info = null; } // 讀不到雲端 → 照舊問使用者（不列細節）
+      if (info && info.resolved) { conflictOpen = false; UI.toast('☁️ 已同步成雲端最新版'); return; }
+      const who = (info && info.by) || Store.getLastRemoteSaveBy();
+      const whoTxt = who && who !== Store.getEditor() ? `「${who}」` : '其他人（或你的另一台裝置）';
+      const li = arr => (arr && arr.length ? arr : ['（看不出差別）']).map(t => `<li>${UI.esc(t)}</li>`).join('');
+      const body = document.createElement('div');
+      body.className = 'cf-body';
+      body.innerHTML = `<p>${UI.esc(whoTxt)}剛存了這份行程，你這邊也有還沒存上雲端的修改，兩邊沒辦法自動合併。</p>
+        ${info ? `<div class="cf-box mine"><b>📱 你還沒存的修改</b><ul>${li(info.mine)}</ul></div>
+        ${info.theirs ? `<div class="cf-box theirs"><b>☁️ ${UI.esc(whoTxt)}剛存的修改</b><ul>${li(info.theirs)}</ul></div>` : ''}` : ''}
+        <p class="hint">看上面哪一邊比較重要就選哪一邊；沒選的那邊的修改會不見。不確定的話，可以先按「關閉」，問一下對方再決定。</p>`;
+      UI.modal('兩邊都改了行程', body,
         [{
-          label: '💾 儲存我的版本（會蓋掉對方剛存的內容）', primary: true, onClick: () => {
-            UI.closeModal();
+          label: '📱 保留我的修改（蓋掉對方剛存的）', primary: true, onClick: () => {
+            UI.closeModal(); conflictOpen = false;
             Store.markSaved();
             Store.forceCloudSave()
               .then(() => { Itin.render(); UI.toast('☁️ 已用你的版本儲存到雲端'); })
               .catch(e => UI.alert('儲存失敗', (e && e.message) || String(e)));
           }
         }, {
-          label: '☁️ 載入雲端版本（放棄我還沒存的修改）', danger: true, onClick: async () => {
-            UI.closeModal();
+          label: '☁️ 用雲端的版本（放棄我還沒存的）', danger: true, onClick: async () => {
+            UI.closeModal(); conflictOpen = false;
             try {
               UI.progress(0, '載入最新版本…');
               UI.progressCreep(90);
@@ -490,7 +512,7 @@ const App = (() => {
               enterMain();
             } catch (e) { UI.loading(false); UI.alert('載入失敗', UI.friendlyError(e)); }
           }
-        }], { stackActions: true });
+        }], { stackActions: true, beforeClose: () => { conflictOpen = false; return true; } });
     });
     // 行程資料變動 → 重畫目前頁面相關區塊
     document.addEventListener('trip-changed', () => {

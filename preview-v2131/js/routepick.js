@@ -55,10 +55,21 @@ const RoutePick = (() => {
         ${cur ? '<button type="button" class="btn-ghost rp-reset">↩ 恢復 Google 預設</button>' : ''}
       </div>`}
       <p class="hint rp-note">❄️ Google 用的是「現在」的路況，冬天封閉的山路不一定知道。遇到封閉的路，按「⛔ 冬季封閉」標記，之後選路線會提醒大家。</p>`;
-    let routes = [], result = null, sel = 0, renderer = null, dragged = null;
+    let routes = [], result = null, sel = 0, renderer = null, dragged = null, done = false;
     let gmap = null, lines = [];
     const actions = ro ? [] : [{ label: '用這條路線', primary: true, onClick: () => save() }];
-    UI.modal('🛣 選路線', body, actions, { stackActions: true });
+    // v2.1.39 拖曳過但還沒按「用這條路線」就要關 → 先問要不要存
+    const beforeClose = () => {
+      if (ro || done || !dragged) return true;
+      UI.modal('拖曳的路線還沒存', '你剛剛拖曳的路線還沒存起來，現在關掉就不見了。要存嗎？', [
+        { label: '💾 存起來', primary: true, onClick: () => { UI.closeModal(); save(); } },
+        { label: '不存，直接關掉', danger: true, onClick: () => { done = true; UI.closeModal(); UI.closeModal(); } },
+        { label: '繼續編輯', onClick: () => UI.closeModal() }
+      ], { stackActions: true, noClose: true });
+      return false;
+    };
+    UI.modal('🛣 選路線', body, actions, { stackActions: true, beforeClose });
+    const saveBtn = () => body.closest('.modal-box') && body.closest('.modal-box').querySelector('.modal-actions .btn-primary');
 
     const draw = () => {
       lines.forEach(l => l.setMap(null)); lines = [];
@@ -73,6 +84,10 @@ const RoutePick = (() => {
         });
         line.addListener('click', () => { sel = i; draw(); list(); });
         lines.push(line);
+        // v2.1.39 線很細不好點：疊一條看不見的粗線當「感應區」，手指點在附近也算點到
+        const hit = new google.maps.Polyline({ map: gmap, path: r.path, zIndex: on ? 11 : 2, strokeColor: '#000000', strokeOpacity: 0.01, strokeWeight: 26 });
+        hit.addListener('click', () => { sel = i; draw(); list(); });
+        lines.push(hit);
         r.path.forEach(p => bounds.extend(p));
       });
       [from, to].forEach((p, i) => {
@@ -116,7 +131,7 @@ const RoutePick = (() => {
     const save = () => {
       const r = dragged || routes[sel];
       if (!r) { UI.toast('還沒有路線可以選'); return; }
-      if (!dragged && sel === 0 && !cur) { UI.closeModal(); UI.toast('維持 Google 建議路線'); return; }
+      if (!dragged && sel === 0 && !cur) { done = true; UI.closeModal(); UI.toast('維持 Google 建議路線'); return; }
       const t = trip();
       t.legRoutes = Object.assign({}, t.legRoutes || {});
       t.legRoutes[key] = {
@@ -125,6 +140,7 @@ const RoutePick = (() => {
         from: from.name || '', to: to.name || ''
       };
       Store.touch({ manual: true });
+      done = true;
       UI.closeModal();
       UI.toast(`🛣 改走「${r.summary || '自訂路線'}」約 ${Logic.fmtDur(r.min)}，時間已更新`);
       onDone && onDone();
@@ -134,6 +150,7 @@ const RoutePick = (() => {
       t.legRoutes = Object.assign({}, t.legRoutes || {});
       delete t.legRoutes[key];
       Store.touch({ manual: true });
+      done = true;
       UI.closeModal();
       UI.toast('已恢復 Google 預設路線');
       onDone && onDone();
@@ -153,6 +170,10 @@ const RoutePick = (() => {
         }).filter(Boolean);
         dragged = Object.assign(s, { via: wps });
         list();
+        const b = saveBtn();
+        if (b) { b.textContent = '💾 用我拖曳的路線'; b.classList.add('rp-save-hot'); }
+        const box = body.querySelector('.rp-list');
+        if (box && !box.querySelector('.rp-remind')) box.insertAdjacentHTML('afterbegin', '<p class="rp-remind">✋ 拖好了嗎？記得按下方「💾 用我拖曳的路線」才會存起來</p>');
       });
       const db = body.querySelector('.rp-drag'); if (db) db.disabled = true;
     };
