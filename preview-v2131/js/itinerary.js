@@ -2051,7 +2051,7 @@ const Itin = (() => {
         // v2.1.39 線只有 4 像素、手機很難點：看單一天時疊一條看不見的粗線當感應區（跟著實際路線一起更新）
         let hitLine = null;
         if (selDay && gMode !== 'transit' && !Store.isReadonly()) {
-          hitLine = new google.maps.Polyline({ map: el._gmap, path: poly.getPath(), strokeColor: '#000000', strokeOpacity: 0.01, strokeWeight: 26, zIndex: 5 });
+          hitLine = new google.maps.Polyline({ map: el._gmap, path: poly.getPath(), strokeColor: '#000000', strokeOpacity: 0.01, strokeWeight: 34, zIndex: 5 });
           add(hitLine);
           const rawSet = poly.setPath.bind(poly);
           poly.setPath = p => { rawSet(p); hitLine.setPath(p); };

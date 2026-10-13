@@ -85,7 +85,7 @@ const RoutePick = (() => {
         line.addListener('click', () => { sel = i; draw(); list(); });
         lines.push(line);
         // v2.1.39 線很細不好點：疊一條看不見的粗線當「感應區」，手指點在附近也算點到
-        const hit = new google.maps.Polyline({ map: gmap, path: r.path, zIndex: on ? 11 : 2, strokeColor: '#000000', strokeOpacity: 0.01, strokeWeight: 26 });
+        const hit = new google.maps.Polyline({ map: gmap, path: r.path, zIndex: on ? 11 : 2, strokeColor: '#000000', strokeOpacity: 0.01, strokeWeight: 34 });
         hit.addListener('click', () => { sel = i; draw(); list(); });
         lines.push(hit);
         r.path.forEach(p => bounds.extend(p));
@@ -105,7 +105,7 @@ const RoutePick = (() => {
         const cl = isClosed(r.summary);
         return `<div class="rp-card${on ? ' on' : ''}${cl ? ' closed' : ''}" data-i="${i}">
           <span class="rp-dot" style="background:${dragged ? '#7C3AED' : (cl ? '#94A3B8' : COLORS[i % 3])}"></span>
-          <div class="rp-info"><b>${dragged ? '✋ 你拖曳的路線' : (i === 0 ? 'Google 建議' : `替代路線 ${i}`)}｜約 ${Logic.fmtDur(r.min)}・${r.km} 公里</b>
+          <div class="rp-info"><b>${dragged ? '✋ 你拖曳的路線' : (r.mine ? '📌 目前用的路線' : (i === (routes[0] && routes[0].mine ? 1 : 0) ? 'Google 建議' : `替代路線 ${i - (routes[0] && routes[0].mine ? 1 : 0)}`))}｜約 ${Logic.fmtDur(r.min)}・${r.km} 公里</b>
             <div class="hint">經過：${UI.esc(r.summary || '（沒有道路名稱）')}${cl ? '　<span class="rp-closed">⛔ 你標記冬季封閉</span>' : ''}</div></div>
           ${!ro && r.summary ? `<button type="button" class="rp-mark" data-sum="${UI.esc(r.summary)}">${cl ? '取消封閉' : '⛔ 冬季封閉'}</button>` : ''}
         </div>`;
@@ -132,10 +132,11 @@ const RoutePick = (() => {
       const r = dragged || routes[sel];
       if (!r) { UI.toast('還沒有路線可以選'); return; }
       if (!dragged && sel === 0 && !cur) { done = true; UI.closeModal(); UI.toast('維持 Google 建議路線'); return; }
+      if (!dragged && r.mine) { done = true; UI.closeModal(); UI.toast('維持目前用的路線'); return; } // 沒換 → 原本存的（含拖曳途經點）不動
       const t = trip();
       t.legRoutes = Object.assign({}, t.legRoutes || {});
       t.legRoutes[key] = {
-        mode, via: dragged ? dragged.via : (sel === 0 ? [] : [r.path[Math.floor(r.path.length / 2)]].map(p => ({ lat: +p.lat.toFixed(5), lng: +p.lng.toFixed(5) }))),
+        mode, via: dragged ? dragged.via : (sel === (routes[0] && routes[0].mine ? 1 : 0) ? [] : [r.path[Math.floor(r.path.length / 2)]].map(p => ({ lat: +p.lat.toFixed(5), lng: +p.lng.toFixed(5) }))),
         min: r.min, km: r.km, summary: r.summary || '', pathEnc: Logic.encodePath(sample(r.path, 80)), by: Store.getEditor() || '', at: Date.now(),
         from: from.name || '', to: to.name || ''
       };
@@ -186,10 +187,10 @@ const RoutePick = (() => {
         const alt = await Api.routeAlternatives(from, to, mode);
         routes = alt.routes; result = alt.result;
         if (cur) {
-          // 找跟目前選定最像的那條（摘要相同）；找不到就把選定的那條加在最前面
-          const idx = routes.findIndex(r => r.summary && r.summary === cur.summary);
+          // 找跟目前選定一樣的那條（道路名稱相同、距離差不到 1 公里）；找不到（例如拖曳過的）就把選定的那條加在最前面
+          const idx = routes.findIndex(r => r.summary && r.summary === cur.summary && Math.abs((r.km || 0) - (cur.km || 0)) < 1);
           if (idx >= 0) sel = idx;
-          else { routes.unshift({ min: cur.min, km: cur.km, summary: cur.summary, path: pathOf(cur), warnings: [] }); sel = 0; }
+          else { routes.unshift({ min: cur.min, km: cur.km, summary: cur.summary, path: pathOf(cur), warnings: [], mine: true }); sel = 0; }
         } else if (isClosed((routes[0] || {}).summary)) {
           const ok = routes.findIndex(r => !isClosed(r.summary)); if (ok >= 0) sel = ok;
         }
