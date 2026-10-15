@@ -1253,7 +1253,7 @@ ${PRINT_DAY_CSS}
         <tr class="${printRowClass(r.type)}">
           <td class="type">${r.type === '航班' ? '✈️ 航班' : textEsc(r.type)}</td>
           <td><b>${textEsc(r.name)}</b>${r.address ? `<div class="addr">${textEsc(r.address)}</div>` : ''}${r.note ? `<div class="note">${textEsc(r.note)}</div>` : ''}</td>
-          <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="">` : ''}</td>
+          <td class="pic">${r.photo ? `<img src="${textEsc(r.photo)}" alt="" onerror="this.remove()" onload="if(this.naturalWidth<=120)this.remove()">` : ''}</td>
         </tr>`).join('');
       return `<section class="day"><h2>第 ${d} 天 ${dateLabel(Store.dateOfDay(d))}${themeTxt(d)} <span style="font-weight:400;color:#617587;font-size:15px">・${textEsc(dayTransportText(d))}</span></h2><table>${rows || '<tr><td colspan="3">尚未安排內容</td></tr>'}</table></section>`;
     }).join('') + (() => { // v2.1.36 ⭐ 備選景點（沒排進行程，有空再去）
