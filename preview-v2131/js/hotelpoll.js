@@ -469,8 +469,14 @@ const HotelPoll = (() => {
         const check = () => { if (img.naturalWidth && img.naturalWidth <= 120) bad(img); };
         img.addEventListener('error', () => bad(img), { once: true });
         if (img.complete) { if (!img.naturalWidth) bad(img); else check(); } else img.addEventListener('load', check, { once: true });
+        img._hpBad = () => bad(img);
       });
     });
+    // 保險：過一下再掃一次已經載完的照片（萬一載入事件沒接到，例如從快取瞬間載完）
+    const sweep = () => root.querySelectorAll('.hp-pics img').forEach(img => {
+      if (img.complete && img.naturalWidth <= 120 && img._hpBad && (img.naturalWidth || img.currentSrc)) img._hpBad();
+    });
+    setTimeout(sweep, 1500); setTimeout(sweep, 5000);
   }
   function moreMenu(c) {
     const opts = [];
