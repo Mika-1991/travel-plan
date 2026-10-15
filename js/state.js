@@ -49,6 +49,7 @@ const Store = (() => {
       endDate: basic.endDate,
       members: basic.members || [],
       transport: basic.transport || 'driving',
+      scope: basic.scope || '', // v2.1.41 'home' 國內／'abroad' 國外；空的＝舊行程，自動判斷
       dayStart: basic.dayStart || CONFIG.defaults.dayStart,
       dayEnd: basic.dayEnd || CONFIG.defaults.dayEnd,
       dayStartOv: {},   // {day: 'HH:MM'} 個別天的出發時間（覆寫 dayStart）

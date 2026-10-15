@@ -160,6 +160,7 @@ const ChangeLog = (() => {
     if (a.name !== b.name) out.push(`行程名稱改為「${b.name}」`);
     if (a.startDate !== b.startDate || a.endDate !== b.endDate) out.push(`日期改為 ${b.startDate} ~ ${b.endDate}`);
     if (!same(a.members, b.members)) out.push(`成員改為 ${(b.members || []).join('、')}`);
+    if ((a.scope || '') !== (b.scope || '') && b.scope) out.push(`行程改為${b.scope === 'abroad' ? '🌏 國外' : '🏠 國內'}旅遊`);
     if (a.transport !== b.transport) out.push(`全程交通方式改為 ${({ driving: '開車', transit: '大眾運輸', walking: '走路' })[b.transport] || b.transport}`);
     const pt = p => (p && p.name) || '（無）';
     if (pt(a.meetPoint) !== pt(b.meetPoint)) out.push(`🚩 集合地改為 ${pt(b.meetPoint)}`);

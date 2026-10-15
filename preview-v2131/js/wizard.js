@@ -4,7 +4,7 @@
 const Wizard = (() => {
 
   const $ = id => document.getElementById(id);
-  const basic = { name: '', creatorEmail: '', startDate: '', endDate: '', members: [], transport: 'driving', dayStart: '09:00', dayEnd: '21:00', meetPoint: null, endPoint: null };
+  const basic = { name: '', creatorEmail: '', startDate: '', endDate: '', members: [], transport: 'driving', scope: '', dayStart: '09:00', dayEnd: '21:00', meetPoint: null, endPoint: null };
   let hotelMode = 'skip';      // 'input' | 'recommend' | 'skip'
   let chosenHotels = {};       // {night: hotel}
   let currentNight = 0;
@@ -53,6 +53,14 @@ const Wizard = (() => {
         $('segTransport').querySelectorAll('button').forEach(x => x.classList.remove('on'));
         b.classList.add('on');
         basic.transport = b.dataset.v;
+      };
+    });
+    // v2.1.41 國內／國外（一定要選）
+    $('segScope').querySelectorAll('button').forEach(b => {
+      b.onclick = () => {
+        $('segScope').querySelectorAll('button').forEach(x => x.classList.remove('on'));
+        b.classList.add('on');
+        basic.scope = b.dataset.v;
       };
     });
     document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => show(b.dataset.back));
@@ -298,6 +306,11 @@ const Wizard = (() => {
     if (basic.members.length === 0) {
       UI.alert('請加入成員', '請至少加入一位實際人名；不能用「我」當成員。');
       $('inpMember').focus();
+      return;
+    }
+    if (!basic.scope) {
+      UI.alert('還差一步', '請選擇這趟是「🏠 國內」還是「🌏 國外」旅遊（會用來準備建議待辦，之後可以改）。');
+      $('segScope').scrollIntoView({ block: 'center' });
       return;
     }
     basic.name = $('inpTripName').value.trim() || '我的旅程';

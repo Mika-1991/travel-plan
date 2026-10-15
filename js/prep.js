@@ -121,6 +121,8 @@ const Prep = (() => {
   // ---------- 國外／國內 ----------
   function isAbroad() {
     const t = trip();
+    if (t.scope === 'abroad') return true;  // v2.1.41 新增行程時選的（或在「⋯ 更多」改的）為準
+    if (t.scope === 'home') return false;
     if ((t.flights || []).some(f => f.intl)) return true;
     const pts = [...(t.spots || []), ...(t.hotels || [])].filter(p => p && typeof p.lat === 'number' && typeof p.lng === 'number');
     const inTW = p => p.lat > 21.7 && p.lat < 26.5 && p.lng > 118 && p.lng < 122.2;
@@ -514,5 +516,5 @@ tr.done b{color:#94A3B8;text-decoration:line-through}.auto{font-size:12px;color:
 <div class="prog"><i style="width:${s.pct}%"></i></div>${rows || '<p>還沒有任何項目</p>'}</main></body></html>`;
   }
 
-  return { renderPage, miniHtml, bindMini, remindMine, printHtml, countdown, stats };
+  return { isAbroad, renderPage, miniHtml, bindMini, remindMine, printHtml, countdown, stats };
 })();

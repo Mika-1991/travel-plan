@@ -453,11 +453,30 @@ const HotelPoll = (() => {
       if (vb) vb.onclick = () => vote(c, !c.nights.every(nn => votesOf(c, nn).includes(me())), vb);
       const mb = el.querySelector('[data-act="more"]');
       if (mb) mb.onclick = () => moreMenu(c);
+      // v2.1.41 破圖自動隱藏：載入失敗，或 Google 回的「沒有圖片」小圖（照片網址過期時是 100×100）
+      // → 拿掉那張；兩張都壞就變成沒照片的樣子（🏨），同時在背景重抓新照片
+      const pics = el.querySelector('.hp-pics');
+      const bad = img => {
+        if (!img.isConnected) return;
+        img.remove();
+        const left = pics.querySelectorAll('img').length;
+        pics.className = 'hp-pics n' + left;
+        if (!left && !pics.querySelector('.hp-noimg')) pics.insertAdjacentHTML('afterbegin', '<span class="hp-noimg">🏨</span>');
+        refreshPhotos(c);
+      };
       el.querySelectorAll('.hp-pics img').forEach(img => {
         img.onclick = () => UI.photoZoom(img.src, c.place.name);
-        img.addEventListener('error', () => { img.classList.add('broken'); refreshPhotos(c); }, { once: true });
+        const check = () => { if (img.naturalWidth && img.naturalWidth <= 120) bad(img); };
+        img.addEventListener('error', () => bad(img), { once: true });
+        if (img.complete) { if (!img.naturalWidth) bad(img); else check(); } else img.addEventListener('load', check, { once: true });
+        img._hpBad = () => bad(img);
       });
     });
+    // 保險：過一下再掃一次已經載完的照片（萬一載入事件沒接到，例如從快取瞬間載完）
+    const sweep = () => root.querySelectorAll('.hp-pics img').forEach(img => {
+      if (img.complete && img.naturalWidth <= 120 && img._hpBad && (img.naturalWidth || img.currentSrc)) img._hpBad();
+    });
+    setTimeout(sweep, 1500); setTimeout(sweep, 5000);
   }
   function moreMenu(c) {
     const opts = [];

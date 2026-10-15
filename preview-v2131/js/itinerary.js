@@ -649,6 +649,10 @@ const Itin = (() => {
     if (t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length) {
       opts.push({ label: '🔄 重新計算車程（抓最新實際時間）', value: 'refresh' });
     }
+    if (!Store.isReadonly()) {
+      const ab = Prep.isAbroad();
+      opts.push({ label: `${ab ? '🌏 國外' : '🏠 國內'}旅遊${t.scope ? '' : '（自動判斷）'}：改成${ab ? '國內' : '國外'}`, value: 'scope' });
+    }
     opts.push({ label: '📋 複製成我的行程', value: 'copy' });
     opts.push({ label: '📋 複製景點／航班到其他行程', value: 'copyto' });
     opts.push({ label: '📝 修改紀錄（誰改了什麼）', value: 'changelog' });
@@ -669,7 +673,16 @@ const Itin = (() => {
       else if (v === 'clear') document.getElementById('btnClear').click();
       else if (v === 'changelog') App.showChangeLog();
       else if (v === 'copyto') CopyTo.open();
+      else if (v === 'scope') toggleScope();
     });
+  }
+
+  // v2.1.41 國內／國外切換（影響「準備」分頁的建議待辦範本）
+  function toggleScope() {
+    const t = trip(), next = Prep.isAbroad() ? 'home' : 'abroad';
+    t.scope = next;
+    Store.touch({ manual: true });
+    UI.toast(next === 'abroad' ? '🌏 已改成國外旅遊，「準備」分頁按「📋 帶入建議待辦」會用出國的清單' : '🏠 已改成國內旅遊，「準備」分頁按「📋 帶入建議待辦」會用國內的清單');
   }
 
   function saveCurrentArrangement() {
