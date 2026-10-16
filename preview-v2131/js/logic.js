@@ -252,17 +252,28 @@ const Logic = (() => {
     return pts;
   }
 
+  // v2.1.43 一筆支出每個人分多少：整數金額平分，除不盡的零頭由付錢的人先吸收（再依序給其他人），
+  // 這樣應分攤、結餘、轉帳、最終花費都是整數，表格跟轉帳不會差 1 元。請客＝整筆算付錢的人。
+  function splitShares(e, members) {
+    const amt = Number(e.amount) || 0, out = {};
+    if (e.treat) { out[e.payer] = amt; return out; }
+    const ps = ((e.participants && e.participants.length) ? e.participants : members).filter(p => members.includes(p));
+    if (!ps.length) return out;
+    if (!Number.isInteger(amt)) { ps.forEach(p => { out[p] = amt / ps.length; }); return out; }
+    const base = Math.floor(amt / ps.length);
+    let rem = amt - base * ps.length;
+    const order = ps.includes(e.payer) ? [e.payer, ...ps.filter(p => p !== e.payer)] : ps;
+    order.forEach(p => { out[p] = base + (rem > 0 ? 1 : 0); if (rem > 0) rem--; });
+    return out;
+  }
   function settleExpenses(expenses, members) {
     const paid = {}, owed = {};
     members.forEach(m => { paid[m] = 0; owed[m] = 0; });
     for (const e of expenses) {
       if (paid[e.payer] === undefined) continue;
-      const amt = Number(e.amount) || 0;
-      paid[e.payer] += amt;
-      if (e.treat) { owed[e.payer] += amt; continue; } // 請客：自己吸收，不產生別人的分攤
-      const ps = (e.participants && e.participants.length) ? e.participants : members;
-      const share = amt / ps.length;
-      ps.forEach(p => { if (owed[p] !== undefined) owed[p] += share; });
+      paid[e.payer] += Number(e.amount) || 0;
+      const sh = splitShares(e, members);
+      Object.keys(sh).forEach(p => { if (owed[p] !== undefined) owed[p] += sh[p]; });
     }
     const net = members.map(m => ({ name: m, net: paid[m] - owed[m] })); // 正=應收
     const creditors = net.filter(x => x.net > 0.5).map(x => ({ ...x })).sort((a, b) => b.net - a.net);
@@ -321,7 +332,7 @@ const Logic = (() => {
 
   return {
     haversineKm, travelMinutes, optimizeOrder, splitIntoDays, assignDaysByAnchors, distToSeg, hasCoords, fmtDur,
-    toMin, toHHMM, buildTimeline, settleExpenses, encodePath, decodePath, outfitAdvice,
+    toMin, toHHMM, buildTimeline, settleExpenses, splitShares, encodePath, decodePath, outfitAdvice,
     genEditCode, genViewCode, normalizeCode, isEditCodeFormat, isViewCodeFormat,
     uid, datesBetween
   };

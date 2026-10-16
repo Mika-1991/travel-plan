@@ -629,6 +629,82 @@ const Feat = (() => {
     $('btnCopySettle').onclick = copySettle;
   }
 
+  // ---------- v2.1.43 支出分類（大項目）＋每個人花費統計 ----------
+  const EXP_CATS = [
+    ['flight', '✈️ 機票'], ['local', '🚗 當地交通'], ['stay', '🏨 住宿'], ['food', '🍽 餐飲'],
+    ['ticket', '🎫 門票活動'], ['shop', '🛍 購物伴手禮'], ['other', '📌 其他']
+  ];
+  const CAT_LABEL = Object.fromEntries(EXP_CATS);
+  const CAT_RULES = [
+    ['flight', /機票|航班|行李|選位|航空|flight/i],
+    ['local', /租車|加油|油錢|油資|停車|過路|ETC|高鐵|新幹線|JR|電車|地鐵|捷運|巴士|公車|計程車|taxi|包車|接送|交通|車票|車資/i],
+    ['ticket', /門票|入場|票券|體驗|纜車|遊船|博物館|美術館|水族館|樂園|滑雪|溫泉|導覽/i],
+    ['food', /早餐|午餐|晚餐|點心|宵夜|咖啡|飲料|便當|超商|拉麵|壽司|燒肉|居酒屋|甜點|餐|飯|麵|食/i],
+    ['shop', /購物|伴手禮|紀念品|藥妝|名產|土產|outlet|禮物/i]
+  ];
+  // 依名稱猜大項目（飯店最優先：有連到行程飯店、含行程裡的飯店名，或含房費等字）
+  function guessCat(e) {
+    const item = String((e && e.item) || '');
+    if (e && e.hotelLink) return 'stay';
+    if (/房費|住宿|飯店|酒店|旅館|民宿|ホテル|hotel/i.test(item)) return 'stay';
+    const hs = (trip().hotels || []).map(h => String(h.name || '').trim()).filter(n => n.length >= 2);
+    if (hs.some(n => item.includes(n))) return 'stay';
+    for (const [k, re] of CAT_RULES) if (re.test(item)) return k;
+    return 'other';
+  }
+  // 實際用的分類：使用者改過（e.cat）為準，否則自動判斷
+  const catOf = e => (e && e.cat && CAT_LABEL[e.cat] ? e.cat : guessCat(e));
+  const catOptions = v => EXP_CATS.map(([k, lb]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${lb}</option>`).join('');
+  // 打項目名稱時分類跟著猜；使用者手動選過就不再自動改
+  function bindCatGuess(itemEl, catEl, extra) {
+    if (!itemEl || !catEl) return;
+    catEl.onchange = () => { catEl.dataset.touched = '1'; };
+    itemEl.addEventListener('input', () => { if (!catEl.dataset.touched) catEl.value = guessCat(Object.assign({ item: itemEl.value }, extra || {})); });
+  }
+  // 存檔：跟自動判斷一樣就不存（之後改名還會重猜），不一樣才記成使用者指定
+  function applyCat(e, v) { if (v && v !== guessCat(Object.assign({}, e, { cat: '' }))) e.cat = v; else delete e.cat; }
+  // 大項目 × 每個人：每筆支出照分帳的分法（Logic.splitShares）攤到每個人
+  function costStats() {
+    const t = trip(), members = t.members || [];
+    const rows = EXP_CATS.map(([k, lb]) => ({ key: k, label: lb, by: Object.fromEntries(members.map(m => [m, 0])), total: 0 }));
+    const R = Object.fromEntries(rows.map(r => [r.key, r]));
+    (t.expenses || []).forEach(e => {
+      const r = R[catOf(e)], sh = Logic.splitShares(e, members);
+      Object.keys(sh).forEach(m => { if (r.by[m] !== undefined) { r.by[m] += sh[m]; r.total += sh[m]; } });
+    });
+    const final = Object.fromEntries(members.map(m => [m, rows.reduce((s, r) => s + r.by[m], 0)]));
+    return { members, rows: rows.filter(r => r.total > 0), final, total: rows.reduce((s, r) => s + r.total, 0) };
+  }
+  const money = n => '$' + Math.round(n).toLocaleString();
+  function renderStats() {
+    const box = $('expStats');
+    if (!box) return;
+    const st = costStats();
+    if (!st.rows.length) { box.innerHTML = '<p class="hint">加入支出後，這裡會列出每個人最後花了多少、花在哪些項目</p>'; return; }
+    box.innerHTML = `<div class="stats-wrap"><table class="stats-table">
+        <tr><th>項目</th>${st.members.map(m => `<th>${UI.esc(m)}</th>`).join('')}<th>合計</th></tr>
+        ${st.rows.map(r => `<tr><td>${r.label}</td>${st.members.map(m => `<td>${r.by[m] ? money(r.by[m]) : '—'}</td>`).join('')}<td><b>${money(r.total)}</b></td></tr>`).join('')}
+        <tr class="stats-final"><td>最終花費</td>${st.members.map(m => `<td>${money(st.final[m])}</td>`).join('')}<td>${money(st.total)}</td></tr>
+      </table></div>
+      <p class="hint">「最終花費」＝照結算轉帳完之後，每個人實際花掉的錢。只算有記進分帳的費用；自己另外付、沒記進來的（例如自己買的機票）不會算在內。</p>`;
+  }
+  // 支出明細／結算結果摺疊：預設收合，展開狀態記在這台裝置
+  const EXP_FOLD_KEY = 'mika_exp_fold';
+  function bindExpFolds() {
+    let st = {};
+    try { st = JSON.parse(localStorage.getItem(EXP_FOLD_KEY)) || {}; } catch {}
+    [['expFoldList', 'list'], ['expFoldSettle', 'settle']].forEach(([id, k]) => {
+      const d = $(id);
+      if (!d || d.dataset.bound) return;
+      d.dataset.bound = '1';
+      d.open = !!st[k];
+      d.addEventListener('toggle', () => {
+        st[k] = d.open;
+        try { localStorage.setItem(EXP_FOLD_KEY, JSON.stringify(st)); } catch {}
+      });
+    });
+  }
+
   function renderExpensePage() {
     const t = trip();
     if (!t) return;
@@ -644,7 +720,14 @@ const Feat = (() => {
     [...new Set(t.hotels.map(h => h.name))].forEach(n => quick.push(n + ' 房費'));
     $('expQuick').innerHTML = quick.map(q => `<span class="chip" style="cursor:pointer">${UI.esc(q)}</span>`).join('');
     $('expQuick').querySelectorAll('.chip').forEach(c =>
-      c.onclick = () => { $('expItem').value = c.textContent; $('expAmount').focus(); });
+      c.onclick = () => { $('expItem').value = c.textContent; $('expItem').dispatchEvent(new Event('input')); $('expAmount').focus(); });
+    const ec = $('expCat');
+    if (ec && !ec.dataset.ready) {
+      ec.dataset.ready = '1';
+      ec.innerHTML = catOptions(guessCat({ item: $('expItem').value }));
+      bindCatGuess($('expItem'), ec);
+    }
+    bindExpFolds();
     // 勾「請客」→ 不用選參與人
     const treat = $('expTreat');
     const syncTreat = () => $('expPartsWrap').style.opacity = treat.checked ? '.35' : '1';
@@ -668,8 +751,10 @@ const Feat = (() => {
       item, amount, payer, participants, treat, note: ($('expNote') ? $('expNote').value.trim() : ''),
       ...payFields(PaySync.readFields(document, 'exp'))
     });
+    if ($('expCat')) { applyCat(t.expenses[t.expenses.length - 1], $('expCat').value); delete $('expCat').dataset.touched; }
     if ($('expPay')) { $('expPay').value = 'full'; $('expPaid').value = ''; $('expPaid').classList.add('hidden'); }
     $('expItem').value = ''; $('expAmount').value = '';
+    if ($('expCat')) $('expCat').value = 'other';
     if ($('expNote')) $('expNote').value = '';
     $('expTreat').checked = false;
     $('expPartsWrap').style.opacity = '1';
@@ -694,6 +779,8 @@ const Feat = (() => {
       <select id="qePayer">${t.members.map(m => `<option ${m === preset.payer ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
       <label>備註（選填）</label>
       <input id="qeNote" type="text" maxlength="80" placeholder="例如：含小費、用信用卡刷" value="${UI.esc(preset.note || '')}">
+      <label>分類</label>
+      <select id="qeCat">${catOptions(guessCat({ item: preset.item || '', hotelLink: preset.hotelLink }))}</select>
       ${PaySync.fieldsHtml('qe', preset.payStatus || 'full', preset.paidAmount)}
       ${preset.hotelLink ? `<p class="hint">🏨 這筆會連到行程裡的飯店，付款狀態兩邊會同步。</p>` : ''}
       <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="qeTreat"> 🎁 這筆是請客，不用分帳</label>
@@ -702,6 +789,7 @@ const Feat = (() => {
         <div class="chips" id="qeParts">${t.members.map(m => `<span class="chip on" data-m="${UI.esc(m)}">${UI.esc(m)}</span>`).join('')}</div>
       </div>`;
     body.querySelectorAll('#qeParts .chip').forEach(c => c.onclick = () => c.classList.toggle('on'));
+    bindCatGuess(body.querySelector('#qeItem'), body.querySelector('#qeCat'), preset.hotelLink ? { hotelLink: preset.hotelLink } : null);
     PaySync.bindFields(body, 'qe');
     body.querySelector('#qeTreat').onchange = e =>
       body.querySelector('#qePartsWrap').style.opacity = e.target.checked ? '.35' : '1';
@@ -723,6 +811,7 @@ const Feat = (() => {
           ...payFields(PaySync.readFields(body, 'qe')),
           ...(preset.hotelLink ? { hotelLink: preset.hotelLink } : {})
         });
+        applyCat(t.expenses[t.expenses.length - 1], body.querySelector('#qeCat').value);
         if (preset.hotelLink) PaySync.setExpensePay(t.expenses[t.expenses.length - 1], PaySync.readFields(body, 'qe').status);
         Store.touch();
         UI.closeModal();
@@ -749,6 +838,8 @@ const Feat = (() => {
       <select id="editExpPayer">${t.members.map(m => `<option ${e.payer === m ? 'selected' : ''}>${UI.esc(m)}</option>`).join('')}</select>
       <label>備註（選填）</label>
       <input id="editExpNote" type="text" maxlength="80" placeholder="例如：含小費、用信用卡刷" value="${UI.esc(e.note || '')}">
+      <label>分類</label>
+      <select id="editExpCat">${catOptions(catOf(e))}</select>
       ${PaySync.fieldsHtml('editExp', e.payStatus || 'full', e.paidAmount)}
       ${PaySync.groupOfExpense(e) ? `<div class="pay-link">🏨 連到：${UI.esc(PaySync.labelOf(PaySync.groupOfExpense(e)))}（付款狀態會同步）<button type="button" id="editExpUnlink" class="btn-ghost">解除連結</button></div>` : ''}
       <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="editExpTreat" ${e.treat ? 'checked' : ''}> 🎁 這筆是請客，不用分帳</label>
@@ -760,6 +851,7 @@ const Feat = (() => {
         }).join('')}</div>
       </div>`;
     body.querySelectorAll('#editExpParts .chip').forEach(c => c.onclick = () => c.classList.toggle('on'));
+    { const ce = body.querySelector('#editExpCat'); if (e.cat) ce.dataset.touched = '1'; bindCatGuess(body.querySelector('#editExpItem'), ce, e.hotelLink ? { hotelLink: e.hotelLink } : null); }
     PaySync.bindFields(body, 'editExp');
     let unlink = false;
     const ul = body.querySelector('#editExpUnlink');
@@ -788,6 +880,7 @@ const Feat = (() => {
         e.note = body.querySelector('#editExpNote').value.trim();
         const pf = PaySync.readFields(body, 'editExp');
         if (unlink) delete e.hotelLink;
+        applyCat(e, body.querySelector('#editExpCat').value);
         PaySync.setExpensePay(e, pf.status);
         if (pf.status === 'part') e.paidAmount = pf.paid;
         Store.touch();
@@ -805,14 +898,18 @@ const Feat = (() => {
       box.innerHTML = '<p class="hint">還沒有任何支出。小技巧：行程頁景點的 ⋯ 選單可以直接「記一筆帳」。</p>';
       $('expSettle').innerHTML = '<p class="hint">加入支出後，這裡會自動算出「誰付給誰多少」</p>';
       $('btnCopySettle').classList.add('hidden');
+      if ($('expListSum')) $('expListSum').textContent = '還沒有支出';
+      if ($('expSettleSum')) $('expSettleSum').textContent = '';
+      renderStats();
       return;
     }
+    if ($('expListSum')) $('expListSum').textContent = `${t.expenses.length} 筆・$${t.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0).toLocaleString()}`;
     const ro = Store.isReadonly();
     box.innerHTML = [...t.expenses].sort((a, b) => a.date.localeCompare(b.date)).map(e => `
       <div class="exp-item">
         <div class="e-main">
           <div>${UI.esc(e.item)}</div>
-          <div class="e-sub">${e.date.slice(5).replace('-', '/')}｜${UI.esc(e.payer)} ${e.treat ? '請客 <span class="treat-badge">🎁 不分帳</span>' : `先付｜${e.participants.length} 人分`}</div>
+          <div class="e-sub"><span class="cat-tag">${CAT_LABEL[catOf(e)]}</span>${e.date.slice(5).replace('-', '/')}｜${UI.esc(e.payer)} ${e.treat ? '請客 <span class="treat-badge">🎁 不分帳</span>' : `先付｜${e.participants.length} 人分`}</div>
           ${e.note ? `<div class="e-sub e-note">📝 ${UI.esc(e.note)}</div>` : ''}
           ${PaySync.badgeHtml(e) || PaySync.groupOfExpense(e) ? `<div class="e-sub">${PaySync.badgeHtml(e)}${PaySync.groupOfExpense(e) ? ` <span class="pay-linked">🏨 ${UI.esc(PaySync.nightsText(PaySync.groupOfExpense(e).nights))}</span>` : ''}</div>` : ''}
         </div>
@@ -826,6 +923,7 @@ const Feat = (() => {
         Store.touch(); renderExpenseList();
       }));
     renderSettle();
+    renderStats();
   }
 
   function renderSettle() {
@@ -850,6 +948,7 @@ const Feat = (() => {
     }
     html += unpaidHtml();
     $('expSettle').innerHTML = html;
+    if ($('expSettleSum')) $('expSettleSum').textContent = r.transfers.length ? `💸 轉帳 ${r.transfers.length} 筆` : '大家剛好扯平';
     $('btnCopySettle').classList.remove('hidden');
   }
 
@@ -880,6 +979,11 @@ const Feat = (() => {
     });
     if (r.transfers.length) {
       txt += '\n轉帳方式：\n' + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}`).join('\n');
+    }
+    const st = costStats();
+    if (st.rows.length) {
+      txt += '\n\n每個人最終花費：\n' + st.members.map(m => `${m}：$${Math.round(st.final[m]).toLocaleString()}`).join('\n');
+      txt += '\n\n花費項目：\n' + st.rows.map(r => `${r.label}：$${Math.round(r.total).toLocaleString()}`).join('\n');
     }
     const un = unpaidList();
     if (un.length) txt += `\n\n⏳ 還沒付清（共 $${un.reduce((s, x) => s + x.rem, 0).toLocaleString()}）：\n` + un.map(x => `${x.label}：${x.verb} $${x.rem.toLocaleString()}（${x.payer}）`).join('\n');
@@ -1000,8 +1104,9 @@ const Feat = (() => {
 
     (t.spots || []).sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
       spots.push([s.backup ? '⭐ 備選' : s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, s.address || '', s.stayMin || '', s.must ? '是' : '', s.note || '']));
-    const expenses = [['日期', '項目', '金額', '付款人', '請客', '參與人', '備註', '付款狀態', '已付金額']];
-    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
+    const expenses = [['日期', '項目', '分類', '金額', '付款人', '請客', '參與人', '備註', '付款狀態', '已付金額']];
+    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, CAT_LABEL[catOf(e)], Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
+    const stats = statsRows();
     const settle = [['成員', '已付', '應分攤', '結餘']];
     const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
     (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
@@ -1019,6 +1124,7 @@ ${sheetXml('住宿資訊', hotels)}
 ${sheetXml('景點清單', spots)}
 ${sheetXml('支出明細', expenses)}
 ${sheetXml('分帳結算', settle)}
+${sheetXml('費用統計', stats)}
 ${sheetXml('攜帶清單', packing)}
 </Workbook>`;
   }
@@ -1045,8 +1151,8 @@ ${sheetXml('攜帶清單', packing)}
 
     (t.spots || []).slice().sort((a, b) => (a.day || 0) - (b.day || 0) || (a.order || 0) - (b.order || 0)).forEach(s =>
       spots.push([s.backup ? '⭐ 備選' : s.day ? `第 ${s.day} 天` : '未排', Number(s.order) + 1, s.name, MEAL_LABELS[s.meal] || '', s.address || '', Number(s.stayMin) || '', s.must ? '是' : '', s.note || '']));
-    const expenses = [['日期', '項目', '金額', '付款人', '不分帳', '分帳成員', '備註', '付款狀態', '已付金額']];
-    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
+    const expenses = [['日期', '項目', '分類', '金額', '付款人', '不分帳', '分帳成員', '備註', '付款狀態', '已付金額']];
+    (t.expenses || []).forEach(e => expenses.push([e.date, e.item, CAT_LABEL[catOf(e)], Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
     const settle = [['成員', '已付', '應付', '餘額']];
     const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
     (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
@@ -1062,8 +1168,17 @@ ${sheetXml('攜帶清單', packing)}
       { name: '景點清單', rows: spots },
       { name: '支出明細', rows: expenses },
       { name: '結算表', rows: settle },
+      { name: '費用統計', rows: statsRows() },
       { name: '攜帶清單', rows: packing }
     ];
+  }
+  // 費用統計（Excel 用）：大項目 × 每個人，最後一列最終花費
+  function statsRows() {
+    const st = costStats();
+    const rows = [['項目', ...st.members, '合計']];
+    st.rows.forEach(r => rows.push([r.label, ...st.members.map(m => Math.round(r.by[m])), Math.round(r.total)]));
+    rows.push(['最終花費', ...st.members.map(m => Math.round(st.final[m])), Math.round(st.total)]);
+    return rows;
   }
   const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const enc = new TextEncoder();
