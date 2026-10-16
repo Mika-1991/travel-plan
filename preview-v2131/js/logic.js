@@ -252,29 +252,20 @@ const Logic = (() => {
     return pts;
   }
 
-  // v2.1.43 一筆支出每個人分多少：整數金額平分，除不盡的零頭由付錢的人先吸收（再依序給其他人），
-  // 這樣應分攤、結餘、轉帳、最終花費都是整數，表格跟轉帳不會差 1 元。請客＝整筆算付錢的人。
+  // 一筆支出每個人分多少（精確金額，可能有小數）。請客＝整筆算付錢的人。
   function splitShares(e, members) {
     const amt = Number(e.amount) || 0, out = {};
     if (e.treat) { out[e.payer] = amt; return out; }
     const ps = ((e.participants && e.participants.length) ? e.participants : members).filter(p => members.includes(p));
-    if (!ps.length) return out;
-    if (!Number.isInteger(amt)) { ps.forEach(p => { out[p] = amt / ps.length; }); return out; }
-    // v2.1.44 Mika 指定：要分攤的人無條件進位，少掉的零頭由付錢的人吸收（付錢的人沒參與時，最後一位吸收）
-    const up = Math.ceil(amt / ps.length);
-    const owers = ps.includes(e.payer) ? ps.filter(p => p !== e.payer) : ps.slice(0, -1);
-    const absorber = ps.includes(e.payer) ? e.payer : ps[ps.length - 1];
-    const rest = amt - up * owers.length;
-    if (rest >= 0) { owers.forEach(p => { out[p] = up; }); out[absorber] = rest; return out; }
-    // 金額太小（例如 5 元 10 人分）進位會讓吸收的人變負數 → 退回平均分配
-    const base = Math.floor(amt / ps.length);
-    let rem = amt - base * ps.length;
-    const order = ps.includes(e.payer) ? [e.payer, ...ps.filter(p => p !== e.payer)] : ps;
-    order.forEach(p => { out[p] = base + (rem > 0 ? 1 : 0); if (rem > 0) rem--; });
+    ps.forEach(p => { out[p] = amt / ps.length; });
     return out;
   }
+  // v2.1.44 結算（Mika 指定的零頭規則）：
+  // 1. 每個人整趟的精確分攤金額加總後，「無條件進位」到整數元（due）——大家同一個規則
+  // 2. 欠錢的人照進位後的金額付（due − 已付）
+  // 3. 進位多出來的幾元（整趟最多 人數−1 元）給先墊錢的人，付錢的人不吃虧
   function settleExpenses(expenses, members) {
-    const paid = {}, owed = {};
+    const paid = {}, owed = {}, due = {};
     members.forEach(m => { paid[m] = 0; owed[m] = 0; });
     for (const e of expenses) {
       if (paid[e.payer] === undefined) continue;
@@ -282,19 +273,36 @@ const Logic = (() => {
       const sh = splitShares(e, members);
       Object.keys(sh).forEach(p => { if (owed[p] !== undefined) owed[p] += sh[p]; });
     }
-    const net = members.map(m => ({ name: m, net: paid[m] - owed[m] })); // 正=應收
-    const creditors = net.filter(x => x.net > 0.5).map(x => ({ ...x })).sort((a, b) => b.net - a.net);
-    const debtors = net.filter(x => x.net < -0.5).map(x => ({ ...x, net: -x.net })).sort((a, b) => b.net - a.net);
+    const EPS = 1e-6;
+    members.forEach(m => { due[m] = Math.ceil(owed[m] - EPS); });
+    // 欠錢的人：要付 due − 已付（整數）
+    const debtors = members.filter(m => due[m] - paid[m] > EPS).map(m => ({ name: m, net: Math.round(due[m] - paid[m]) }));
+    const pool = debtors.reduce((s, x) => s + x.net, 0);
+    // 收錢的人：照精確應收先取整數，剩下的（進位多出的）依小數大的先各補 1 元，還有剩就給應收最多的人
+    const cred = members.map(m => ({ name: m, ex: paid[m] - owed[m] })).filter(x => x.ex > EPS)
+      .map(x => ({ name: x.name, net: Math.floor(x.ex + EPS), frac: x.ex - Math.floor(x.ex + EPS) }));
+    let left = pool - cred.reduce((s, x) => s + x.net, 0);
+    cred.slice().sort((x, y) => y.frac - x.frac).forEach(x => { if (left > 0 && x.frac > EPS) { x.net++; left--; } });
+    if (left > 0 && cred.length) { cred.slice().sort((x, y) => y.net - x.net)[0].net += left; left = 0; }
+    const netMap = Object.fromEntries(members.map(m => [m, 0]));
+    debtors.forEach(x => { netMap[x.name] = -x.net; });
+    cred.forEach(x => { netMap[x.name] = x.net; });
+    const net = members.map(m => ({ name: m, net: netMap[m] })); // 正＝應收（整數）
+    // 進位多出來的零頭：收錢的人實際多收了多少（跟「已付 − 應分攤」比）
+    const bonus = cred.map(x => ({ name: x.name, amt: x.net - Math.round(paid[x.name] - due[x.name]) })).filter(x => x.amt > 0);
+    const surplus = members.reduce((s, m) => s + due[m], 0) - Math.round(members.reduce((s, m) => s + paid[m], 0));
+    const creditors = cred.filter(x => x.net > 0).map(x => ({ name: x.name, net: x.net })).sort((x, y) => y.net - x.net);
+    const ds = debtors.filter(x => x.net > 0).map(x => ({ ...x })).sort((x, y) => y.net - x.net);
     const transfers = [];
     let ci = 0, di = 0;
-    while (ci < creditors.length && di < debtors.length) {
-      const amt = Math.min(creditors[ci].net, debtors[di].net);
-      transfers.push({ from: debtors[di].name, to: creditors[ci].name, amount: Math.round(amt) });
-      creditors[ci].net -= amt; debtors[di].net -= amt;
-      if (creditors[ci].net < 0.5) ci++;
-      if (debtors[di].net < 0.5) di++;
+    while (ci < creditors.length && di < ds.length) {
+      const amt = Math.min(creditors[ci].net, ds[di].net);
+      if (amt > 0) transfers.push({ from: ds[di].name, to: creditors[ci].name, amount: amt });
+      creditors[ci].net -= amt; ds[di].net -= amt;
+      if (creditors[ci].net <= 0) ci++;
+      if (ds[di].net <= 0) di++;
     }
-    return { paid, owed, net, transfers };
+    return { paid, owed, due, net, netMap, transfers, surplus, bonus };
   }
 
   // ---------- 穿搭建議 ----------
