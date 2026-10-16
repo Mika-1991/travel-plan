@@ -1,13 +1,13 @@
 // ============================================================
 // 💳 付款狀態＋飯店⇄分帳同步（v2.1.35）
-// 支出：payStatus 'unpaid'|'part'|'full'|'onsite'（沒填＝full）、paidAmount（part 時已付多少）、
+// 支出：payStatus 'unpaid'|'part'|'full'|'precharge'|'onsite'（沒填＝full；precharge＝入住前自動扣款，v2.1.42）、paidAmount（part 時已付多少）、
 //       hotelLink { key, nights:[0-based] }（對應哪間飯店的哪幾晚）
 // 飯店：每晚 h.pay（沿用）。一間飯店連住多晚＝一組＝一筆支出；付款狀態兩邊互相同步，
 //       金額／付款人／備註以分帳那筆為準。
 // ============================================================
 const PaySync = (() => {
   const trip = () => Store.get();
-  const STATUS_ORDER = ['unpaid', 'part', 'full', 'onsite'];
+  const STATUS_ORDER = ['unpaid', 'part', 'full', 'precharge', 'onsite'];
   const statusOf = e => (e && e.payStatus) || 'full';
   const keyOf = h => String(h.placeId || h.name || '');
   const nightsText = ns => {
@@ -33,7 +33,7 @@ const PaySync = (() => {
   const linkFor = g => ({ key: g.key, nights: g.nights.slice() });
   const labelOf = g => `${g.name}（${nightsText(g.nights)}）`;
 
-  // 還要付多少（已刷全額＝0；已刷部分＝總額－已付；未付款／當天現刷＝全額）
+  // 還要付多少（已刷全額＝0；已刷部分＝總額－已付；未付款／入住前自動扣款／當天現刷＝全額）
   function remainingOf(e) {
     const st = statusOf(e), amt = Number(e.amount) || 0;
     if (st === 'full') return 0;

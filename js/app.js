@@ -215,7 +215,7 @@ const UI = (() => {
   }
 
   // 飯店付款狀態標籤（全站共用）
-  const PAY_LABELS = { unpaid: '未付款', part: '已刷部分', full: '已刷全額', onsite: '當天現刷' }; // v2.1.35 多「未付款」
+  const PAY_LABELS = { unpaid: '未付款', part: '已刷部分', full: '已刷全額', precharge: '入住前自動扣款', onsite: '當天現刷' }; // v2.1.35 多「未付款」；v2.1.42 多「入住前自動扣款」
 
   // 照片點擊放大
   function photoZoom(url, title) {

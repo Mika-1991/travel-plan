@@ -187,6 +187,9 @@ const Prep = (() => {
   }
 
   // ---------- 準備分頁 ----------
+  // v2.1.42 細項預設收合，只留進度卡；展開狀態記在這台裝置
+  const FOLD_KEY = 'mika_prep_fold';
+  let foldOpen = (() => { try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; } })();
   function renderPage() {
     const root = $('prepRoot');
     if (!root || !trip()) return;
@@ -219,6 +222,8 @@ const Prep = (() => {
         ${s.overdue.length ? `<div class="pp-line pp-over">⚠️ 逾期 ${s.overdue.length} 項：${s.overdue.slice(0, 2).map(x => UI.esc(x.title + whoTxt(x))).join('、')}${s.overdue.length > 2 ? '…' : ''}</div>` : ''}
         ${askTpl ? `<div class="pp-tpl">📋 要帶入${isAbroad() ? '出國' : '國內'}旅遊的建議待辦嗎？（截止日會依出發日自動算）<span><button id="ppTplYes" class="pp-mini">帶入</button><button id="ppTplNo" class="pp-mini ghost">不用</button></span></div>` : ''}
       </div>
+      <details class="pp-fold" id="ppFold"${foldOpen ? ' open' : ''}>
+        <summary>📋 細項（${s.doneCount}/${s.total} 完成${s.overdue.length ? `・⚠️ 逾期 ${s.overdue.length}` : ''}）<span class="pp-fold-hint">${foldOpen ? '收合' : '點開查看、新增'}</span></summary>
       <div class="prep-panel">
         <div class="pp-tools">
           <div class="pp-seg">${[['cat', '分類'], ['owner', '負責人'], ['due', '截止日']].map(([k, lb]) => `<button data-g="${k}" class="${groupMode === k ? 'on' : ''}">${lb}</button>`).join('')}</div>
@@ -227,7 +232,14 @@ const Prep = (() => {
         ${groups.length ? groups.map(([lb, g]) => `<div class="pp-group"><div class="pp-gtitle">${UI.esc(lb)}</div>${g.map(rowHtml).join('')}</div>`).join('') : '<p class="hint" style="padding:8px 2px">沒有符合的項目</p>'}
         ${canEdit() ? `<div class="pp-actions"><button id="ppAdd" class="btn-primary">➕ 新增待辦</button><button id="ppTpl" class="btn-outline">📋 帶入建議待辦</button></div>` : ''}
         <p class="hint pp-foot">「自動」項目由系統依行程資料判斷，填好就會完成。一般項目的狀態只有負責人或主揪（${UI.esc(boss() || '未設定')}）可以改；「每人」項目每個人勾自己的。</p>
-      </div>`;
+      </div>
+      </details>`;
+    const fold = $('ppFold');
+    if (fold) fold.addEventListener('toggle', () => {
+      foldOpen = fold.open;
+      try { localStorage.setItem(FOLD_KEY, foldOpen ? '1' : '0'); } catch {}
+      const h = fold.querySelector('.pp-fold-hint'); if (h) h.textContent = foldOpen ? '收合' : '點開查看、新增';
+    });
     requestAnimationFrame(() => setTimeout(() => root.querySelectorAll('.pp-bar i').forEach(el => { el.style.width = el.dataset.w + '%'; }), 80));
     const y = $('ppTplYes'); if (y) y.onclick = () => applyTemplate();
     const n = $('ppTplNo'); if (n) n.onclick = () => { prep().templateAsked = true; Store.touch(); refresh(); };
