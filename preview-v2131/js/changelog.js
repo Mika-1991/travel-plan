@@ -77,7 +77,7 @@ const ChangeLog = (() => {
       const o = A.get(id);
       if (!o) out.push(`💰 新增記帳「${e.item}」$${e.amount}（${e.payer} 付）`);
       else if (!same(o, e)) {
-        const L = { unpaid: '未付款', part: '已刷部分', full: '已刷全額', onsite: '當天現刷' };
+        const L = { unpaid: '未付款', part: '已刷部分', full: '已刷全額', precharge: '入住前自動扣款', onsite: '當天現刷' };
         const ps = x => x.payStatus || 'full';
         if (ps(o) !== ps(e) || Number(o.paidAmount || 0) !== Number(e.paidAmount || 0)) out.push(`💳 「${e.item}」付款狀態：${L[ps(o)]} → ${L[ps(e)]}${ps(e) === 'part' ? `（已付 ${e.paidAmount || 0}）` : ''}`);
         const rest = x => { const c = Object.assign({}, x); delete c.payStatus; delete c.paidAmount; delete c.hotelLink; return c; };

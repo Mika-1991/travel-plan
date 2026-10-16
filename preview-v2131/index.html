@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
-<link rel="stylesheet" href="css/style.css?v=2.1.41">
+<link rel="stylesheet" href="css/style.css?v=2.1.42">
 </head>
 <body>
 
@@ -272,25 +272,27 @@
         <button id="btnPreviewPrint" class="btn-primary" style="width:100%">📄 預覽 PDF</button>
       </div>
       <div class="card">
-        <div class="step-title"><span class="step-badge">2</span><span class="step-text">Excel 匯出</span></div>
-        <p class="hint">輸出繁體中文欄位，分頁包含總覽、每日行程、住宿、景點、支出明細、結算與攜帶清單。</p>
-        <button id="btnExportExcel" class="btn-primary" style="width:100%">下載 Excel</button>
-      </div>
-      <div class="card">
-        <div class="step-title"><span class="step-badge">3</span><span class="step-text">攜帶物品清單</span></div>
+        <div class="step-title"><span class="step-badge">2</span><span class="step-text">攜帶物品清單</span></div>
         <p class="hint">點「預覽 PDF」後，在預覽頁左下角按「列印／存 PDF」即可輸出或列印，不需要下載 HTML 檔。</p>
         <button id="btnPackingPreview" class="btn-primary" style="width:100%;margin-bottom:10px">📄 預覽 PDF</button>
+        <details class="fold-box"><summary>📋 展開清單</summary>
         <div id="packingListBox" class="resource-list"></div>
+        </details>
       </div>
       <div class="card">
-        <div class="step-title"><span class="step-badge">4</span><span class="step-text">行前準備清單</span></div>
+        <div class="step-title"><span class="step-badge">3</span><span class="step-text">行前準備清單</span></div>
         <p class="hint">依分類列出待辦、負責人、截止日、狀態與費用，可列印或存 PDF 貼在群組。</p>
         <button id="btnPrepPreview" class="btn-primary" style="width:100%">📄 預覽 PDF</button>
       </div>
       <div class="card">
-        <div class="step-title"><span class="step-badge">5</span><span class="step-text">加入 Google／Apple 日曆</span></div>
+        <div class="step-title"><span class="step-badge">4</span><span class="step-text">加入 Google／Apple 日曆</span></div>
         <p class="hint">下載 .ics 行事曆檔案，用 Google 日曆／Apple 日曆／Outlook 開啟即可加入一筆整趟旅程的行事曆事件（不需登入、不需授權）。</p>
         <button id="btnExportCalendar" class="btn-primary" style="width:100%">📅 下載日曆檔</button>
+      </div>
+      <div class="card">
+        <div class="step-title"><span class="step-badge">5</span><span class="step-text">Excel 匯出</span></div>
+        <p class="hint">輸出繁體中文欄位，分頁包含總覽、每日行程、住宿、景點、支出明細、結算與攜帶清單。</p>
+        <button id="btnExportExcel" class="btn-primary" style="width:100%">下載 Excel</button>
       </div>
       </div>
       <div class="bottom-space"></div>
@@ -322,22 +324,22 @@
 <div id="toast" class="toast hidden"></div>
 <div id="loading" class="loading hidden"><div class="spinner"></div><p id="loadingText">處理中…</p><div class="loading-bar"><div id="loadingBarFill" class="loading-bar-fill"></div></div><div id="loadingPct" class="loading-pct">0%</div></div>
 
-<script src="js/config.js?v=2.1.41"></script>
-<script src="js/mock-data.js?v=2.1.41"></script>
-<script src="js/logic.js?v=2.1.41"></script>
-<script src="js/api.js?v=2.1.41"></script>
-<script src="js/changelog.js?v=2.1.41"></script>
-<script src="js/state.js?v=2.1.41"></script>
-<script src="js/wizard.js?v=2.1.41"></script>
-<script src="js/flights.js?v=2.1.41"></script>
-<script src="js/itinerary.js?v=2.1.41"></script>
-<script src="js/copyto.js?v=2.1.41"></script>
-<script src="js/paysync.js?v=2.1.41"></script>
-<script src="js/routepick.js?v=2.1.41"></script>
-<script src="js/hotelpoll.js?v=2.1.41"></script>
-<script src="js/prep.js?v=2.1.41"></script>
-<script src="js/tour.js?v=2.1.41"></script>
-<script src="js/features.js?v=2.1.41"></script>
-<script src="js/app.js?v=2.1.41"></script>
+<script src="js/config.js?v=2.1.42"></script>
+<script src="js/mock-data.js?v=2.1.42"></script>
+<script src="js/logic.js?v=2.1.42"></script>
+<script src="js/api.js?v=2.1.42"></script>
+<script src="js/changelog.js?v=2.1.42"></script>
+<script src="js/state.js?v=2.1.42"></script>
+<script src="js/wizard.js?v=2.1.42"></script>
+<script src="js/flights.js?v=2.1.42"></script>
+<script src="js/itinerary.js?v=2.1.42"></script>
+<script src="js/copyto.js?v=2.1.42"></script>
+<script src="js/paysync.js?v=2.1.42"></script>
+<script src="js/routepick.js?v=2.1.42"></script>
+<script src="js/hotelpoll.js?v=2.1.42"></script>
+<script src="js/prep.js?v=2.1.42"></script>
+<script src="js/tour.js?v=2.1.42"></script>
+<script src="js/features.js?v=2.1.42"></script>
+<script src="js/app.js?v=2.1.42"></script>
 </body>
 </html>

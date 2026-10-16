@@ -401,6 +401,7 @@ body.readonly .edit-only { display: none !important; }
 .pay-full { background: var(--ok); }
 .pay-part { background: var(--accent); }
 .pay-onsite { background: var(--main); }
+.pay-precharge { background: #7C3AED; }
 .treat-badge { background: var(--accent); }
 
 /* 商家/飯店照片縮圖與放大 */
@@ -1110,3 +1111,18 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 /* ===== v2.1.40 總車程面板：出現捲軸時預留位置，右側的時間和 ▾ 不會被擠掉 ===== */
 .map-day-summary { scrollbar-gutter: stable; overflow-x: hidden; }
 .map-day-summary .mds-head b, .map-day-summary .mds-row b, .mds-min { white-space: nowrap; }
+
+/* ===== v2.1.42 準備分頁：細項摺疊、攜帶清單摺疊 ===== */
+.pp-fold { margin: 0 0 14px; }
+.pp-fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; font-weight: 700; color: var(--main); box-shadow: var(--shadow); }
+.pp-fold > summary::-webkit-details-marker { display: none; }
+.pp-fold > summary::after { content: '▾'; margin-left: 6px; transition: transform .2s; }
+.pp-fold[open] > summary::after { transform: rotate(180deg); }
+.pp-fold-hint { margin-left: auto; font-size: .85rem; font-weight: 400; color: var(--text-2); }
+.pp-fold[open] > summary { border-radius: 14px 14px 0 0; border-bottom-color: transparent; box-shadow: none; }
+.pp-fold[open] > .prep-panel { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: 0; animation: none; }
+.fold-box { margin-top: 2px; }
+.fold-box > summary { cursor: pointer; font-weight: 700; color: var(--main); padding: 8px 2px; list-style: none; }
+.fold-box > summary::-webkit-details-marker { display: none; }
+.fold-box > summary::after { content: ' ▾'; }
+.fold-box[open] > summary::after { content: ' ▴'; }

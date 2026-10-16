@@ -853,9 +853,9 @@ const Feat = (() => {
     $('btnCopySettle').classList.remove('hidden');
   }
 
-  // v2.1.35 還沒付清的支出（已刷部分的尾款、未付款、當天現刷）
+  // v2.1.35 還沒付清的支出（已刷部分的尾款、未付款、入住前自動扣款、當天現刷）
   function unpaidList() {
-    const VERB = { unpaid: '還沒付', part: '尾款', onsite: '當天要付' };
+    const VERB = { unpaid: '還沒付', part: '尾款', precharge: '入住前自動扣款', onsite: '當天要付' };
     return (trip().expenses || []).map(e => ({ e, rem: PaySync.remainingOf(e) })).filter(x => x.rem > 0)
       .map(({ e, rem }) => ({ label: e.item, rem, payer: e.payer, verb: VERB[PaySync.statusOf(e)] || '還沒付', date: e.date }))
       .sort((a, b) => String(a.date).localeCompare(String(b.date)));
