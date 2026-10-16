@@ -80,7 +80,9 @@ const ChangeLog = (() => {
         const L = { unpaid: '未付款', part: '已刷部分', full: '已刷全額', precharge: '入住前自動扣款', onsite: '當天現刷' };
         const ps = x => x.payStatus || 'full';
         if (ps(o) !== ps(e) || Number(o.paidAmount || 0) !== Number(e.paidAmount || 0)) out.push(`💳 「${e.item}」付款狀態：${L[ps(o)]} → ${L[ps(e)]}${ps(e) === 'part' ? `（已付 ${e.paidAmount || 0}）` : ''}`);
-        const rest = x => { const c = Object.assign({}, x); delete c.payStatus; delete c.paidAmount; delete c.hotelLink; return c; };
+        const CL = { flight: '✈️ 機票', local: '🚗 當地交通', stay: '🏨 住宿', food: '🍽 餐飲', ticket: '🎫 門票活動', shop: '🛍 購物伴手禮', other: '📌 其他' };
+        if ((o.cat || '') !== (e.cat || '') && e.cat) out.push(`🏷 「${e.item}」分類改為 ${CL[e.cat] || e.cat}`);
+        const rest = x => { const c = Object.assign({}, x); delete c.payStatus; delete c.paidAmount; delete c.hotelLink; delete c.cat; return c; };
         if (!same(rest(o), rest(e))) out.push(`💰 修改記帳「${e.item}」${Number(o.amount) !== Number(e.amount) ? `$${o.amount} → $${e.amount}` : ''}`.trim());
       }
     });

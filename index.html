@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
-<link rel="stylesheet" href="css/style.css?v=2.1.42">
+<link rel="stylesheet" href="css/style.css?v=2.1.44">
 </head>
 <body>
 
@@ -238,6 +238,8 @@
           <select id="expPayer" aria-label="誰付的"></select>
         </div>
         <input id="expNote" type="text" maxlength="80" placeholder="備註（選填），例如：含小費、用信用卡刷">
+        <label>分類（會依項目名稱自動判斷，可以改）</label>
+        <select id="expCat" aria-label="分類"></select>
         <div id="expPayWrap"></div>
         <label class="check-row" style="margin:4px 0 8px"><input type="checkbox" id="expTreat"> 🎁 這筆是請客，不用分帳</label>
         <div id="expPartsWrap">
@@ -247,13 +249,23 @@
         <button id="btnAddExp" class="btn-primary">＋ 加入這筆</button>
       </div>
       <div class="card">
-        <div class="step-title"><span class="step-badge">2</span><span class="step-text">支出明細</span></div>
-        <div id="expList" class="exp-list"><p class="hint">還沒有任何支出</p></div>
+        <details class="exp-fold" id="expFoldList">
+          <summary><span class="step-title"><span class="step-badge">2</span><span class="step-text">支出明細</span></span><span class="exp-fold-sum" id="expListSum"></span></summary>
+          <div id="expList" class="exp-list"><p class="hint">還沒有任何支出</p></div>
+        </details>
       </div>
       <div class="card">
-        <div class="step-title"><span class="step-badge">3</span><span class="step-text">結算結果</span></div>
-        <div id="expSettle"><p class="hint">加入支出後，這裡會自動算出「誰付給誰多少」</p></div>
-        <button id="btnCopySettle" class="btn-outline hidden">📋 複製結算結果</button>
+        <details class="exp-fold" id="expFoldSettle">
+          <summary><span class="step-title"><span class="step-badge">3</span><span class="step-text">結算結果</span></span><span class="exp-fold-sum" id="expSettleSum"></span></summary>
+          <div id="expSettle"><p class="hint">加入支出後，這裡會自動算出「誰付給誰多少」</p></div>
+          <button id="btnCopySettle" class="btn-outline hidden">📋 複製結算結果</button>
+        </details>
+      </div>
+      <div class="card">
+        <details class="exp-fold" id="expFoldStats">
+          <summary><span class="step-title"><span class="step-badge">4</span><span class="step-text">每個人花費統計</span></span><span class="exp-fold-sum" id="expStatsSum"></span></summary>
+          <div id="expStats"><p class="hint">加入支出後，這裡會列出每個人最後花了多少、花在哪些項目</p></div>
+        </details>
       </div>
       <div class="bottom-space"></div>
     </div>
@@ -324,22 +336,22 @@
 <div id="toast" class="toast hidden"></div>
 <div id="loading" class="loading hidden"><div class="spinner"></div><p id="loadingText">處理中…</p><div class="loading-bar"><div id="loadingBarFill" class="loading-bar-fill"></div></div><div id="loadingPct" class="loading-pct">0%</div></div>
 
-<script src="js/config.js?v=2.1.42"></script>
-<script src="js/mock-data.js?v=2.1.42"></script>
-<script src="js/logic.js?v=2.1.42"></script>
-<script src="js/api.js?v=2.1.42"></script>
-<script src="js/changelog.js?v=2.1.42"></script>
-<script src="js/state.js?v=2.1.42"></script>
-<script src="js/wizard.js?v=2.1.42"></script>
-<script src="js/flights.js?v=2.1.42"></script>
-<script src="js/itinerary.js?v=2.1.42"></script>
-<script src="js/copyto.js?v=2.1.42"></script>
-<script src="js/paysync.js?v=2.1.42"></script>
-<script src="js/routepick.js?v=2.1.42"></script>
-<script src="js/hotelpoll.js?v=2.1.42"></script>
-<script src="js/prep.js?v=2.1.42"></script>
-<script src="js/tour.js?v=2.1.42"></script>
-<script src="js/features.js?v=2.1.42"></script>
-<script src="js/app.js?v=2.1.42"></script>
+<script src="js/config.js?v=2.1.44"></script>
+<script src="js/mock-data.js?v=2.1.44"></script>
+<script src="js/logic.js?v=2.1.44"></script>
+<script src="js/api.js?v=2.1.44"></script>
+<script src="js/changelog.js?v=2.1.44"></script>
+<script src="js/state.js?v=2.1.44"></script>
+<script src="js/wizard.js?v=2.1.44"></script>
+<script src="js/flights.js?v=2.1.44"></script>
+<script src="js/itinerary.js?v=2.1.44"></script>
+<script src="js/copyto.js?v=2.1.44"></script>
+<script src="js/paysync.js?v=2.1.44"></script>
+<script src="js/routepick.js?v=2.1.44"></script>
+<script src="js/hotelpoll.js?v=2.1.44"></script>
+<script src="js/prep.js?v=2.1.44"></script>
+<script src="js/tour.js?v=2.1.44"></script>
+<script src="js/features.js?v=2.1.44"></script>
+<script src="js/app.js?v=2.1.44"></script>
 </body>
 </html>

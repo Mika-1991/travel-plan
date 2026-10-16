@@ -1126,3 +1126,20 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .fold-box > summary::-webkit-details-marker { display: none; }
 .fold-box > summary::after { content: ' ▾'; }
 .fold-box[open] > summary::after { content: ' ▴'; }
+
+/* ===== v2.1.43 分帳：摺疊、分類標籤、每個人花費統計 ===== */
+.exp-fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.exp-fold > summary::-webkit-details-marker { display: none; }
+.exp-fold > summary .step-title { margin: 0; }
+.exp-fold-sum { margin-left: auto; font-size: .9rem; color: var(--text-2); font-weight: 700; }
+.exp-fold > summary::after { content: '▾'; color: var(--main); transition: transform .2s; }
+.exp-fold[open] > summary::after { transform: rotate(180deg); }
+.exp-fold[open] > summary { margin-bottom: 10px; }
+.cat-tag { display: inline-block; font-size: .78rem; font-weight: 700; color: var(--main); background: var(--soft); border-radius: 999px; padding: 0 8px; margin-right: 6px; }
+.stats-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px 6px; padding: 0 4px; }
+.stats-table { width: 100%; border-collapse: collapse; font-size: .92rem; white-space: nowrap; }
+.stats-table th, .stats-table td { padding: 8px 8px; text-align: right; border-bottom: 1px solid var(--line); }
+.stats-table th:first-child, .stats-table td:first-child { text-align: left; position: sticky; left: 0; background: var(--card); }
+.stats-table th { color: var(--text-2); font-weight: 700; }
+.stats-table .stats-final td { font-weight: 700; color: var(--main); border-top: 2px solid var(--main); border-bottom: none; background: var(--soft-2); }
+.stats-table .stats-final td:first-child { background: var(--soft-2); }
