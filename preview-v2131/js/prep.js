@@ -188,7 +188,8 @@ const Prep = (() => {
 
   // ---------- 準備分頁 ----------
   // v2.1.42 細項預設收合，只留進度卡；展開狀態記在這台裝置
-  const FOLD_KEY = 'mika_prep_fold';
+  const FOLD_KEY = 'mika_prep_fold', DONE_KEY = 'mika_prep_done';
+  let doneOpen = (() => { try { return localStorage.getItem(DONE_KEY) === '1'; } catch { return false; } })();
   let foldOpen = (() => { try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; } })();
   function renderPage() {
     const root = $('prepRoot');
@@ -199,6 +200,10 @@ const Prep = (() => {
     const askTpl = canEdit() && !p.templateAsked && !p.tasks.length;
     let items = [...s.autos, ...s.tasks];
     if (onlyMine && me()) items = items.filter(x => (x.perPerson ? whoOf(x) : (x.owners || [])).includes(me()));
+    // v2.1.47 已完成的另外收在最下面（點開才看），上面只列還沒完成的
+    const isDone = x => (x.auto ? x.progress : progressOf(x)) >= 1;
+    const doneItems = items.filter(isDone);
+    items = items.filter(x => !isDone(x));
     const groups = [];
     if (groupMode === 'cat') {
       CATS.forEach(([k, lb]) => { const g = items.filter(x => x.cat === k); if (g.length) groups.push([lb, g]); });
@@ -229,11 +234,14 @@ const Prep = (() => {
           <div class="pp-seg">${[['cat', '分類'], ['owner', '負責人'], ['due', '截止日']].map(([k, lb]) => `<button data-g="${k}" class="${groupMode === k ? 'on' : ''}">${lb}</button>`).join('')}</div>
           ${me() ? `<label class="pp-mine"><input type="checkbox" id="ppMine" ${onlyMine ? 'checked' : ''}> 只看我的</label>` : ''}
         </div>
-        ${groups.length ? groups.map(([lb, g]) => `<div class="pp-group"><div class="pp-gtitle">${UI.esc(lb)}</div>${g.map(rowHtml).join('')}</div>`).join('') : '<p class="hint" style="padding:8px 2px">沒有符合的項目</p>'}
+        ${groups.length ? groups.map(([lb, g]) => `<div class="pp-group"><div class="pp-gtitle">${UI.esc(lb)}</div>${g.map(rowHtml).join('')}</div>`).join('') : `<p class="hint" style="padding:8px 2px">${doneItems.length ? '🎉 都完成了！' : '沒有符合的項目'}</p>`}
+        ${doneItems.length ? `<details class="pp-done" id="ppDone"${doneOpen ? ' open' : ''}><summary>✅ 已完成（${doneItems.length} 項）</summary>${doneItems.map(rowHtml).join('')}</details>` : ''}
         ${canEdit() ? `<div class="pp-actions"><button id="ppAdd" class="btn-primary">➕ 新增待辦</button><button id="ppTpl" class="btn-outline">📋 帶入建議待辦</button></div>` : ''}
         <p class="hint pp-foot">「自動」項目由系統依行程資料判斷，填好就會完成。一般項目的狀態只有負責人或主揪（${UI.esc(boss() || '未設定')}）可以改；「每人」項目每個人勾自己的。</p>
       </div>
       </details>`;
+    const dn = $('ppDone');
+    if (dn) dn.addEventListener('toggle', () => { doneOpen = dn.open; try { localStorage.setItem(DONE_KEY, doneOpen ? '1' : '0'); } catch {} });
     const fold = $('ppFold');
     if (fold) fold.addEventListener('toggle', () => {
       foldOpen = fold.open;
