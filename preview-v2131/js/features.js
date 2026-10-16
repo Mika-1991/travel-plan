@@ -677,8 +677,6 @@ const Feat = (() => {
     return { members, rows: rows.filter(r => r.total > 0), final, total: rows.reduce((s, r) => s + r.total, 0), surplus: sr.surplus, bonus: sr.bonus };
   }
   const money = n => '$' + Math.round(n).toLocaleString();
-  // 進位多出來的零頭說明（給先墊錢的人）
-  const surplusTxt = r => (r.surplus > 0 && r.bonus && r.bonus.length ? `進位多出 $${r.surplus}，由先墊錢的${r.bonus.map(b => b.name).join('、')}收下。` : '');
   function renderStats() {
     const box = $('expStats');
     if (!box) return;
@@ -691,7 +689,7 @@ const Feat = (() => {
         ${st.rows.map(r => `<tr><td>${r.label}</td>${st.members.map(m => `<td>${r.by[m] ? money(r.by[m]) : '—'}</td>`).join('')}<td><b>${money(r.total)}</b></td></tr>`).join('')}
         <tr class="stats-final"><td>最終花費</td>${st.members.map(m => `<td>${money(st.final[m])}</td>`).join('')}<td>${money(st.total)}</td></tr>
       </table></div>
-      <p class="hint">「最終花費」＝每個人整趟要負擔的錢（加總後無條件進位到元；各項目為四捨五入顯示）。${surplusTxt(st)}只算有記進分帳的費用；自己另外付、沒記進來的（例如自己買的機票）不會算在內。</p>`;
+      <p class="hint">「最終花費」＝每個人整趟要負擔的錢（加總後無條件進位到元；各項目為四捨五入顯示）。只算有記進分帳的費用；自己另外付、沒記進來的（例如自己買的機票）不會算在內。</p>`;
   }
   // 支出明細／結算結果摺疊：預設收合，展開狀態記在這台裝置
   const EXP_FOLD_KEY = 'mika_exp_fold';
@@ -951,7 +949,6 @@ const Feat = (() => {
     } else {
       html += `<p class="hint" style="margin-top:8px">目前大家剛好扯平，不需要轉帳 🎉</p>`;
     }
-    if (surplusTxt(r)) html += `<p class="hint" style="margin-top:6px">※ 應分攤是每個人整趟加總後無條件進位到元；${surplusTxt(r)}</p>`;
     html += unpaidHtml();
     $('expSettle').innerHTML = html;
     if ($('expSettleSum')) $('expSettleSum').textContent = r.transfers.length ? `💸 轉帳 ${r.transfers.length} 筆` : '大家剛好扯平';
@@ -983,7 +980,6 @@ const Feat = (() => {
       const net = r.netMap[m];
       txt += `${m}：已付 $${Math.round(r.paid[m]).toLocaleString()}／應分攤 $${r.due[m].toLocaleString()}（${net >= 0 ? '應收' : '應付'} $${Math.abs(net).toLocaleString()}）\n`;
     });
-    if (surplusTxt(r)) txt += `※ 應分攤為整趟加總後無條件進位；${surplusTxt(r)}\n`;
     if (r.transfers.length) {
       txt += '\n轉帳方式：\n' + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}`).join('\n');
     }

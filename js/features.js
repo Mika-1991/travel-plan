@@ -672,8 +672,9 @@ const Feat = (() => {
       const r = R[catOf(e)], sh = Logic.splitShares(e, members);
       Object.keys(sh).forEach(m => { if (r.by[m] !== undefined) { r.by[m] += sh[m]; r.total += sh[m]; } });
     });
-    const final = Object.fromEntries(members.map(m => [m, rows.reduce((s, r) => s + r.by[m], 0)]));
-    return { members, rows: rows.filter(r => r.total > 0), final, total: rows.reduce((s, r) => s + r.total, 0) };
+    const sr = Logic.settleExpenses(t.expenses || [], members);
+    const final = Object.fromEntries(members.map(m => [m, sr.due[m]])); // 整趟加總後無條件進位（跟結算一致）
+    return { members, rows: rows.filter(r => r.total > 0), final, total: rows.reduce((s, r) => s + r.total, 0), surplus: sr.surplus, bonus: sr.bonus };
   }
   const money = n => '$' + Math.round(n).toLocaleString();
   function renderStats() {
@@ -688,7 +689,7 @@ const Feat = (() => {
         ${st.rows.map(r => `<tr><td>${r.label}</td>${st.members.map(m => `<td>${r.by[m] ? money(r.by[m]) : '—'}</td>`).join('')}<td><b>${money(r.total)}</b></td></tr>`).join('')}
         <tr class="stats-final"><td>最終花費</td>${st.members.map(m => `<td>${money(st.final[m])}</td>`).join('')}<td>${money(st.total)}</td></tr>
       </table></div>
-      <p class="hint">「最終花費」＝照結算轉帳完之後，每個人實際花掉的錢。只算有記進分帳的費用；自己另外付、沒記進來的（例如自己買的機票）不會算在內。</p>`;
+      <p class="hint">「最終花費」＝每個人整趟要負擔的錢（加總後無條件進位到元；各項目為四捨五入顯示）。只算有記進分帳的費用；自己另外付、沒記進來的（例如自己買的機票）不會算在內。</p>`;
   }
   // 支出明細／結算結果摺疊：預設收合，展開狀態記在這台裝置
   const EXP_FOLD_KEY = 'mika_exp_fold';
@@ -936,9 +937,9 @@ const Feat = (() => {
       <table class="settle-table">
         <tr><th>成員</th><th>已付</th><th>應分攤</th><th>結餘</th></tr>
         ${t.members.map(m => {
-          const net = Math.round(r.paid[m]) - Math.round(r.owed[m]); // 跟畫面上兩欄一致（避免差 1 塊）
+          const net = r.netMap[m]; // v2.1.44 跟轉帳金額一致（應分攤＝加總後無條件進位）
           return `<tr><td>${UI.esc(m)}</td><td>$${Math.round(r.paid[m]).toLocaleString()}</td>
-            <td>$${Math.round(r.owed[m]).toLocaleString()}</td>
+            <td>$${r.due[m].toLocaleString()}</td>
             <td style="color:${net >= 0 ? 'var(--ok)' : 'var(--danger)'};font-weight:700">${net >= 0 ? '+' : ''}$${net.toLocaleString()}</td></tr>`;
         }).join('')}
       </table>`;
@@ -976,8 +977,8 @@ const Feat = (() => {
     const total = t.expenses.reduce((s, e) => s + e.amount, 0);
     let txt = `【${t.name}】分帳結算\n總支出：$${total.toLocaleString()}\n\n`;
     t.members.forEach(m => {
-      const net = Math.round(r.paid[m]) - Math.round(r.owed[m]);
-      txt += `${m}：已付 $${Math.round(r.paid[m]).toLocaleString()}／應分攤 $${Math.round(r.owed[m]).toLocaleString()}（${net >= 0 ? '應收' : '應付'} $${Math.abs(net).toLocaleString()}）\n`;
+      const net = r.netMap[m];
+      txt += `${m}：已付 $${Math.round(r.paid[m]).toLocaleString()}／應分攤 $${r.due[m].toLocaleString()}（${net >= 0 ? '應收' : '應付'} $${Math.abs(net).toLocaleString()}）\n`;
     });
     if (r.transfers.length) {
       txt += '\n轉帳方式：\n' + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}`).join('\n');
@@ -1111,7 +1112,7 @@ const Feat = (() => {
     const stats = statsRows();
     const settle = [['成員', '已付', '應分攤', '結餘']];
     const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
-    (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
+    (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), sr.due[m] || 0, sr.netMap[m] || 0]));
     settle.push([]);
     settle.push(['轉出人', '收款人', '金額']);
     sr.transfers.forEach(x => settle.push([x.from, x.to, x.amount]));
@@ -1157,7 +1158,7 @@ ${sheetXml('攜帶清單', packing)}
     (t.expenses || []).forEach(e => expenses.push([e.date, e.item, CAT_LABEL[catOf(e)], Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
     const settle = [['成員', '已付', '應付', '餘額']];
     const sr = Logic.settleExpenses(t.expenses || [], t.members || []);
-    (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), Math.round(sr.owed[m] || 0), Math.round((sr.paid[m] || 0) - (sr.owed[m] || 0))]));
+    (t.members || []).forEach(m => settle.push([m, Math.round(sr.paid[m] || 0), sr.due[m] || 0, sr.netMap[m] || 0]));
     settle.push([]);
     settle.push(['付款人', '收款人', '金額']);
     sr.transfers.forEach(x => settle.push([x.from, x.to, x.amount]));
