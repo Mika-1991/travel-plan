@@ -640,24 +640,23 @@ const Itin = (() => {
     const t = trip();
     // v2.1.47 Mika 指定順序：車程 → 修改紀錄 → 新手導覽 → 還原 → 國內外 → 複製（二合一）→ 其他
     if (t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length) {
-      opts.push({ label: '🔄 重新計算車程（抓最新實際時間）', value: 'refresh' });
+      opts.push({ label: '🔄 重新計算車程', value: 'refresh' });
     }
-    opts.push({ label: '📝 修改紀錄（誰改了什麼）', value: 'changelog' });
-    opts.push({ label: '🧭 新手導覽（重看一次）', value: 'tour' });
+    opts.push({ label: '📝 修改紀錄', value: 'changelog' });
+    opts.push({ label: '🧭 新手導覽', value: 'tour' });
     if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
     if (!Store.isReadonly()) {
       const ab = Prep.isAbroad();
-      opts.push({ label: `${ab ? '🌏 國外' : '🏠 國內'}旅遊${t.scope ? '' : '（自動判斷）'}：改成${ab ? '國內' : '國外'}`, value: 'scope' });
+      opts.push({ label: `${ab ? '🌏 國外' : '🏠 國內'}旅遊：改成${ab ? '國內' : '國外'}`, value: 'scope' });
     }
     opts.push({ label: '📋 複製…', value: 'copymenu' });
     if (isMobile()) {
-      if (Store.canUndo()) opts.push({ label: '↩ 上一步（復原）', value: 'undo' });
+      if (Store.canUndo()) opts.push({ label: '↩ 上一步', value: 'undo' });
       opts.push({ label: '💾 儲存目前安排', value: 'save' });
       opts.push({ label: '📤 分享行程', value: 'share' });
     }
     opts.push({ label: '🔎 同步紀錄（出狀況時截圖給 Mika）', value: 'synclog' });
     opts.push({ label: '💬 意見回饋', value: 'feedback' });
-    opts.push({ label: '🧹 清除這台裝置的資料', value: 'clear' });
     UI.choose('更多操作', opts, v => {
       if (v === 'undo') doUndo();
       else if (v === 'save') saveCurrentArrangement();
@@ -668,14 +667,13 @@ const Itin = (() => {
       else if (v === 'synclog') App.showSyncLog();
       else if (v === 'tour') Tour.start(true);
       else if (v === 'feedback') App.openFeedback();
-      else if (v === 'clear') document.getElementById('btnClear').click();
       else if (v === 'changelog') App.showChangeLog();
       else if (v === 'copyto') CopyTo.open();
       else if (v === 'scope') toggleScope();
-      else if (v === 'copymenu') setTimeout(() => UI.choose('📋 複製', [
-        { label: '📋 複製成我的行程（整份變成新的獨立行程）', value: 'copy' },
+      else if (v === 'copymenu') UI.choose('📋 複製', [ // 同一輪立刻打開（不要 setTimeout，見 v2.1.48 說明）
+        { label: '📋 複製成我的行程', value: 'copy' },
         { label: '📋 複製景點／航班到其他行程', value: 'copyto' }
-      ], w => { if (w === 'copy') Feat.copyTrip(); else if (w === 'copyto') CopyTo.open(); }), 0);
+      ], w => { if (w === 'copy') Feat.copyTrip(); else if (w === 'copyto') CopyTo.open(); });
     });
   }
 
