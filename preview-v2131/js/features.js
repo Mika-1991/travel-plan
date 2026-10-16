@@ -680,7 +680,9 @@ const Feat = (() => {
     const box = $('expStats');
     if (!box) return;
     const st = costStats();
-    if (!st.rows.length) { box.innerHTML = '<p class="hint">加入支出後，這裡會列出每個人最後花了多少、花在哪些項目</p>'; return; }
+    const sum = $('expStatsSum');
+    if (!st.rows.length) { box.innerHTML = '<p class="hint">加入支出後，這裡會列出每個人最後花了多少、花在哪些項目</p>'; if (sum) sum.textContent = ''; return; }
+    if (sum) { const v = st.members.map(m => st.final[m]); sum.textContent = `每人 ${money(Math.min(...v))}～${money(Math.max(...v))}`; }
     box.innerHTML = `<div class="stats-wrap"><table class="stats-table">
         <tr><th>項目</th>${st.members.map(m => `<th>${UI.esc(m)}</th>`).join('')}<th>合計</th></tr>
         ${st.rows.map(r => `<tr><td>${r.label}</td>${st.members.map(m => `<td>${r.by[m] ? money(r.by[m]) : '—'}</td>`).join('')}<td><b>${money(r.total)}</b></td></tr>`).join('')}
@@ -693,7 +695,7 @@ const Feat = (() => {
   function bindExpFolds() {
     let st = {};
     try { st = JSON.parse(localStorage.getItem(EXP_FOLD_KEY)) || {}; } catch {}
-    [['expFoldList', 'list'], ['expFoldSettle', 'settle']].forEach(([id, k]) => {
+    [['expFoldList', 'list'], ['expFoldSettle', 'settle'], ['expFoldStats', 'stats']].forEach(([id, k]) => {
       const d = $(id);
       if (!d || d.dataset.bound) return;
       d.dataset.bound = '1';

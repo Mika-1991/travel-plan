@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap">
-<link rel="stylesheet" href="css/style.css?v=2.1.43">
+<link rel="stylesheet" href="css/style.css?v=2.1.44">
 </head>
 <body>
 
@@ -262,8 +262,10 @@
         </details>
       </div>
       <div class="card">
-        <div class="step-title"><span class="step-badge">4</span><span class="step-text">每個人花費統計</span></div>
-        <div id="expStats"><p class="hint">加入支出後，這裡會列出每個人最後花了多少、花在哪些項目</p></div>
+        <details class="exp-fold" id="expFoldStats">
+          <summary><span class="step-title"><span class="step-badge">4</span><span class="step-text">每個人花費統計</span></span><span class="exp-fold-sum" id="expStatsSum"></span></summary>
+          <div id="expStats"><p class="hint">加入支出後，這裡會列出每個人最後花了多少、花在哪些項目</p></div>
+        </details>
       </div>
       <div class="bottom-space"></div>
     </div>
@@ -334,22 +336,22 @@
 <div id="toast" class="toast hidden"></div>
 <div id="loading" class="loading hidden"><div class="spinner"></div><p id="loadingText">處理中…</p><div class="loading-bar"><div id="loadingBarFill" class="loading-bar-fill"></div></div><div id="loadingPct" class="loading-pct">0%</div></div>
 
-<script src="js/config.js?v=2.1.43"></script>
-<script src="js/mock-data.js?v=2.1.43"></script>
-<script src="js/logic.js?v=2.1.43"></script>
-<script src="js/api.js?v=2.1.43"></script>
-<script src="js/changelog.js?v=2.1.43"></script>
-<script src="js/state.js?v=2.1.43"></script>
-<script src="js/wizard.js?v=2.1.43"></script>
-<script src="js/flights.js?v=2.1.43"></script>
-<script src="js/itinerary.js?v=2.1.43"></script>
-<script src="js/copyto.js?v=2.1.43"></script>
-<script src="js/paysync.js?v=2.1.43"></script>
-<script src="js/routepick.js?v=2.1.43"></script>
-<script src="js/hotelpoll.js?v=2.1.43"></script>
-<script src="js/prep.js?v=2.1.43"></script>
-<script src="js/tour.js?v=2.1.43"></script>
-<script src="js/features.js?v=2.1.43"></script>
-<script src="js/app.js?v=2.1.43"></script>
+<script src="js/config.js?v=2.1.44"></script>
+<script src="js/mock-data.js?v=2.1.44"></script>
+<script src="js/logic.js?v=2.1.44"></script>
+<script src="js/api.js?v=2.1.44"></script>
+<script src="js/changelog.js?v=2.1.44"></script>
+<script src="js/state.js?v=2.1.44"></script>
+<script src="js/wizard.js?v=2.1.44"></script>
+<script src="js/flights.js?v=2.1.44"></script>
+<script src="js/itinerary.js?v=2.1.44"></script>
+<script src="js/copyto.js?v=2.1.44"></script>
+<script src="js/paysync.js?v=2.1.44"></script>
+<script src="js/routepick.js?v=2.1.44"></script>
+<script src="js/hotelpoll.js?v=2.1.44"></script>
+<script src="js/prep.js?v=2.1.44"></script>
+<script src="js/tour.js?v=2.1.44"></script>
+<script src="js/features.js?v=2.1.44"></script>
+<script src="js/app.js?v=2.1.44"></script>
 </body>
 </html>

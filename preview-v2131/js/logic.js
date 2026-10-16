@@ -260,6 +260,13 @@ const Logic = (() => {
     const ps = ((e.participants && e.participants.length) ? e.participants : members).filter(p => members.includes(p));
     if (!ps.length) return out;
     if (!Number.isInteger(amt)) { ps.forEach(p => { out[p] = amt / ps.length; }); return out; }
+    // v2.1.44 Mika 指定：要分攤的人無條件進位，少掉的零頭由付錢的人吸收（付錢的人沒參與時，最後一位吸收）
+    const up = Math.ceil(amt / ps.length);
+    const owers = ps.includes(e.payer) ? ps.filter(p => p !== e.payer) : ps.slice(0, -1);
+    const absorber = ps.includes(e.payer) ? e.payer : ps[ps.length - 1];
+    const rest = amt - up * owers.length;
+    if (rest >= 0) { owers.forEach(p => { out[p] = up; }); out[absorber] = rest; return out; }
+    // 金額太小（例如 5 元 10 人分）進位會讓吸收的人變負數 → 退回平均分配
     const base = Math.floor(amt / ps.length);
     let rem = amt - base * ps.length;
     const order = ps.includes(e.payer) ? [e.payer, ...ps.filter(p => p !== e.payer)] : ps;
