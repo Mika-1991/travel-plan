@@ -1143,3 +1143,15 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .stats-table th { color: var(--text-2); font-weight: 700; }
 .stats-table .stats-final td { font-weight: 700; color: var(--main); border-top: 2px solid var(--main); border-bottom: none; background: var(--soft-2); }
 .stats-table .stats-final td:first-child { background: var(--soft-2); }
+
+/* ===== v2.1.47 景點排序：▲▼ 按鈕、手機也顯示 ☰ 拖曳把手 ===== */
+.spot-actions .mv-btn { font-size: .95rem; color: var(--main); border: 1px solid var(--line); background: var(--white); min-width: 38px; }
+.spot-actions .mv-btn:disabled { opacity: .3; }
+@media (max-width: 560px) {
+  .spot-main .drag-grip { display: block; opacity: .55; padding: 10px 6px; font-size: 1.3rem; }
+}
+.pp-done { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 6px; }
+.pp-done > summary { cursor: pointer; list-style: none; font-weight: 700; color: var(--ok); padding: 8px 2px; }
+.pp-done > summary::-webkit-details-marker { display: none; }
+.pp-done > summary::after { content: ' ▾'; color: var(--text-2); }
+.pp-done[open] > summary::after { content: ' ▴'; }

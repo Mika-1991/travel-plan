@@ -637,27 +637,25 @@ const Itin = (() => {
   // 底部「⋯ 更多」：手機把次要動作收在這裡（桌面多按鈕已外露，這裡只補還原）
   function openMoreActions() {
     const opts = [];
-    if (isMobile()) {
-      if (Store.canUndo()) opts.push({ label: '↩ 上一步（復原）', value: 'undo' });
-      opts.push({ label: '💾 儲存目前安排', value: 'save' });
-      if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
-      opts.push({ label: '📤 分享行程', value: 'share' });
-    } else {
-      if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
-    }
     const t = trip();
+    // v2.1.47 Mika 指定順序：車程 → 修改紀錄 → 新手導覽 → 還原 → 國內外 → 複製（二合一）→ 其他
     if (t.spots.length || t.meetPoint || t.endPoint || (t.hotels || []).length) {
       opts.push({ label: '🔄 重新計算車程（抓最新實際時間）', value: 'refresh' });
     }
+    opts.push({ label: '📝 修改紀錄（誰改了什麼）', value: 'changelog' });
+    opts.push({ label: '🧭 新手導覽（重看一次）', value: 'tour' });
+    if (Store.canRestoreSaved()) opts.push({ label: `↺ 還原到上次儲存（${savedTimeTxt()}）`, value: 'restore' });
     if (!Store.isReadonly()) {
       const ab = Prep.isAbroad();
       opts.push({ label: `${ab ? '🌏 國外' : '🏠 國內'}旅遊${t.scope ? '' : '（自動判斷）'}：改成${ab ? '國內' : '國外'}`, value: 'scope' });
     }
-    opts.push({ label: '📋 複製成我的行程', value: 'copy' });
-    opts.push({ label: '📋 複製景點／航班到其他行程', value: 'copyto' });
-    opts.push({ label: '📝 修改紀錄（誰改了什麼）', value: 'changelog' });
+    opts.push({ label: '📋 複製…', value: 'copymenu' });
+    if (isMobile()) {
+      if (Store.canUndo()) opts.push({ label: '↩ 上一步（復原）', value: 'undo' });
+      opts.push({ label: '💾 儲存目前安排', value: 'save' });
+      opts.push({ label: '📤 分享行程', value: 'share' });
+    }
     opts.push({ label: '🔎 同步紀錄（出狀況時截圖給 Mika）', value: 'synclog' });
-    opts.push({ label: '🧭 新手導覽（重看一次）', value: 'tour' });
     opts.push({ label: '💬 意見回饋', value: 'feedback' });
     opts.push({ label: '🧹 清除這台裝置的資料', value: 'clear' });
     UI.choose('更多操作', opts, v => {
@@ -674,6 +672,10 @@ const Itin = (() => {
       else if (v === 'changelog') App.showChangeLog();
       else if (v === 'copyto') CopyTo.open();
       else if (v === 'scope') toggleScope();
+      else if (v === 'copymenu') setTimeout(() => UI.choose('📋 複製', [
+        { label: '📋 複製成我的行程（整份變成新的獨立行程）', value: 'copy' },
+        { label: '📋 複製景點／航班到其他行程', value: 'copyto' }
+      ], w => { if (w === 'copy') Feat.copyTrip(); else if (w === 'copyto') CopyTo.open(); }), 0);
     });
   }
 
@@ -1694,6 +1696,8 @@ const Itin = (() => {
           <button data-act="stay+" aria-label="增加停留時間">＋</button>
         </div>
         <div class="spot-actions edit-only">
+          <button data-act="up" class="mv-btn" title="往上移" aria-label="往上移">▲</button>
+          <button data-act="down" class="mv-btn" title="往下移" aria-label="往下移">▼</button>
           <button data-act="lock" title="${s.locked ? '解除鎖定' : '鎖定在這天（自動安排不會移動）'}">${s.locked ? '🔒' : '🔓'}</button>
           <button data-act="meal" title="設定餐別：早餐／午餐／晚餐／點心"${s.meal ? ' class="on"' : ''}>🍽</button>
           <button data-act="exp" title="記一筆帳">💰</button>
@@ -1712,6 +1716,11 @@ const Itin = (() => {
     div.querySelector('[data-act="exp"]').onclick = () =>
       Feat.quickExpense({ item: s.name, date: s.day ? Store.dateOfDay(s.day) : trip().startDate });
     div.querySelector('[data-act="menu"]').onclick = () => spotMenu(s);
+    div.querySelector('[data-act="up"]').onclick = () => moveSpot(s, -1);
+    div.querySelector('[data-act="down"]').onclick = () => moveSpot(s, 1);
+    { const sib = s.day >= 1 ? spotsOfDay(s.day) : unassigned(); const i = sib.findIndex(x => x.id === s.id);
+      if (i <= 0) div.querySelector('[data-act="up"]').disabled = true;
+      if (i < 0 || i >= sib.length - 1) div.querySelector('[data-act="down"]').disabled = true; }
     const grip = div.querySelector('.drag-grip');
     grip.addEventListener('pointerdown', e => startDrag(e, s, div));
     const thumb = div.querySelector('.spot-thumb');
@@ -1855,6 +1864,22 @@ const Itin = (() => {
     });
   }
 
+  // v2.1.47 ▲▼ 上下移一格（同一天內；手機拖曳不順時用）。移完保持展開，可以連按
+  function moveSpot(s, dir) {
+    const t = trip();
+    const list = s.day >= 1 ? spotsOfDay(s.day) : unassigned();
+    const i = list.findIndex(x => x.id === s.id), j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    list.forEach((x, k) => { x.order = k; });
+    if (s.day >= 1) delete t.legsByDay[s.day];
+    openRowId = s.id;
+    Store.touch({ manual: true });
+    render();
+    const row = document.querySelector(`#dayList .spot-row[data-spot-id="${CSS.escape(s.id)}"]`);
+    if (row) row.scrollIntoView({ block: 'nearest' });
+  }
+
   // ---------- 拖曳排序（可跨天） ----------
   let drag = null;
   function startDrag(e, spot, rowEl) {
@@ -1867,6 +1892,7 @@ const Itin = (() => {
   }
   function onDragMove(e) {
     if (!drag) return;
+    if (e.clientY < 90) window.scrollBy(0, -14); else if (e.clientY > window.innerHeight - 90) window.scrollBy(0, 14);
     // 先看有沒有落在其他景點列上（跨卡片也算）
     const rows = [...document.querySelectorAll('#dayList .spot-row[data-spot-id]')];
     for (const r of rows) {
