@@ -304,7 +304,7 @@ const App = (() => {
     $('wizard').classList.add('hidden');
     $('app').classList.remove('hidden');
     document.body.classList.add('in-app');
-    ['btnManualSave', 'btnReload', 'btnHome', 'btnClear'].forEach(id => $(id).classList.remove('hidden'));
+    ['btnManualSave', 'btnReload', 'btnHome'].forEach(id => $(id).classList.remove('hidden'));
     applyRole();
     Itin.render();
     switchPage('page-trip');
@@ -415,15 +415,7 @@ const App = (() => {
     if (roCopy) roCopy.onclick = () => Feat.copyTrip();
     $('btnHome').onclick = () => { Store.stopPresencePoll(); location.href = location.pathname; };
     $('btnFeedback').onclick = openFeedback;
-    $('btnClear').onclick = () => {
-      UI.confirm('清除本機資料？',
-        '會清除這台裝置記住的行程與偏好設定。\n\n☁️ 雲端的行程不受影響，之後仍可用行程代碼載入。\n\n確定要清除嗎？', () => {
-          Store.stopPresencePoll();
-          Store.clearLocal();
-          UI.toast('已清除，即將回到開始畫面');
-          setTimeout(() => location.href = location.pathname, 900);
-        });
-    };
+    // v2.1.48 拿掉「🧹 清除本機資料」：自動存檔＋找回未存修改之後用不到，反而可能清掉還沒存上雲端的修改
 
     // 同步狀態小圓點：點它看最近的同步紀錄（出狀況時截圖回報用）
     $('editorChip').onclick = () => askIdentity(false);
