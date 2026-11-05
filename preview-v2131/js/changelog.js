@@ -89,6 +89,19 @@ const ChangeLog = (() => {
     A.forEach((e, id) => { if (!B.has(id)) out.push(`💰 刪除記帳「${e.item}」$${e.amount}`); });
   }
 
+  // v2.1.49 轉帳紀錄（分段還錢）
+  function diffRepays(a, b, out) {
+    const lab = x => `${x.from} ➜ ${x.to} $${(Math.round(Number(x.amount)) || 0).toLocaleString()}`;
+    const A = new Map((a.repays || []).map(x => [x.id, x]));
+    const B = new Map((b.repays || []).map(x => [x.id, x]));
+    B.forEach((x, id) => {
+      const o = A.get(id);
+      if (!o) out.push(`💸 記一筆已轉帳：${lab(x)}${x.note ? `（${x.note}）` : ''}`);
+      else if (!same(o, x)) out.push(`💸 修改轉帳紀錄：${lab(o)} → ${lab(x)}`);
+    });
+    A.forEach((x, id) => { if (!B.has(id)) out.push(`💸 刪除轉帳紀錄：${lab(x)}`); });
+  }
+
   // v2.1.27 航班（groundAuto＝自動算的地面交通，不算使用者修改）
   function diffFlights(a, b, out) {
     const clean = f => { const c = Object.assign({}, f); delete c.groundAuto; delete c.groundAutoKey; return c; };
@@ -199,6 +212,7 @@ const ChangeLog = (() => {
     diffSpots(base, b, out);
     diffHotels(base, b, out);
     diffExpenses(base, b, out);
+    diffRepays(base, b, out);
     diffFlights(base, b, out);
     diffHotelPoll(base, b, out);
     diffPrep(base, b, out);

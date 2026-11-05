@@ -1155,3 +1155,21 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .pp-done > summary::-webkit-details-marker { display: none; }
 .pp-done > summary::after { content: ' ▾'; color: var(--text-2); }
 .pp-done[open] > summary::after { content: ' ▴'; }
+
+/* v2.1.49 轉帳紀錄（分段還錢） */
+.tr-card { flex-direction: column; align-items: stretch; gap: 6px; }
+.tr-card .tr-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tr-refund { color: var(--danger); font-size: .9rem; }
+.tr-prog { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.tr-prog > i { display: block; height: 100%; background: var(--main); border-radius: 99px; }
+.tr-given { color: var(--text-2); font-size: .9rem; font-weight: 400; }
+.tr-act { display: flex; justify-content: flex-end; }
+.tr-act .tr-add { padding: 6px 12px; font-size: .95rem; }
+.tr-settled { opacity: .75; }
+.tr-settled .amt { color: var(--ok); }
+.tr-done-all { margin: 10px 0 4px; font-weight: 700; color: var(--ok); }
+.rp-hist { margin: 12px 0 6px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.rp-hist-title { font-weight: 700; color: var(--main); }
+.rp-hist .rp-item { margin: 6px 0; }
+.tr-add-free { margin-top: 4px; }
+.rp-warn { color: var(--danger); font-size: .95rem; margin: 4px 0; }

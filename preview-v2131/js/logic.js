@@ -264,7 +264,7 @@ const Logic = (() => {
   // 1. 每個人整趟的精確分攤金額加總後，「無條件進位」到整數元（due）——大家同一個規則
   // 2. 欠錢的人照進位後的金額付（due − 已付）
   // 3. 進位多出來的幾元（整趟最多 人數−1 元）給先墊錢的人，付錢的人不吃虧
-  function settleExpenses(expenses, members) {
+  function settleExpenses(expenses, members, repays) {
     const paid = {}, owed = {}, due = {};
     members.forEach(m => { paid[m] = 0; owed[m] = 0; });
     for (const e of expenses) {
@@ -302,7 +302,50 @@ const Logic = (() => {
       if (creditors[ci].net <= 0) ci++;
       if (ds[di].net <= 0) di++;
     }
-    return { paid, owed, due, net, netMap, transfers, surplus, bonus };
+    const rp = applyRepays(netMap, transfers, repays, members);
+    return { paid, owed, due, net, netMap, plan: transfers, transfers: rp.transfers, left: rp.left, settled: rp.settled, repaid: rp.repaid, surplus, bonus };
+  }
+
+  // v2.1.49 分段還錢（算法 A）：已轉帳的錢算進結餘，再重算「還要給多少」。
+  // 原本建議的轉帳對象優先保留；給太多 → 由收到錢的人退回（refund）。
+  function applyRepays(netMap, plan, repays, members) {
+    const amt = x => Math.round(Number(x.amount)) || 0;
+    const ok = (repays || []).filter(x => members.includes(x.from) && members.includes(x.to) && x.from !== x.to && amt(x) > 0);
+    if (!ok.length) return { transfers: plan.map(p => ({ ...p, given: 0 })), left: { ...netMap }, settled: [], repaid: 0 };
+    const bal = { ...netMap }, given = {};
+    const key = (f, t) => f + '\u0001' + t;
+    ok.forEach(x => { bal[x.from] += amt(x); bal[x.to] -= amt(x); given[key(x.from, x.to)] = (given[key(x.from, x.to)] || 0) + amt(x); });
+    const left = { ...bal }; // 「還差」：正＝還要收、負＝還要給
+    const out = [];
+    const add = (from, to, amount, refund) => {
+      if (amount <= 0) return;
+      const f = out.find(o => o.from === from && o.to === to);
+      if (f) f.amount += amount; else out.push({ from, to, amount, ...(refund ? { refund: true } : {}) });
+      bal[from] += amount; bal[to] -= amount;
+    };
+    // 1. 原本該付錢（或扯平）的人給太多 → 從最近收到他錢的人退回
+    members.forEach(m => {
+      if (netMap[m] > 0 || bal[m] <= 0) return;
+      ok.filter(x => x.from === m).sort((a, b) => (Number(b.at) || 0) - (Number(a.at) || 0)).forEach(x => {
+        if (bal[m] > 0) add(x.to, m, Math.min(bal[m], amt(x)), true);
+      });
+    });
+    // 2. 收太多的人退給給他錢的人；3. 原本建議的對象優先
+    const pri = ok.map(x => [x.to, x.from, true]).concat(plan.map(p => [p.from, p.to, false]));
+    pri.forEach(([f, t, ref]) => { if (bal[f] < 0 && bal[t] > 0) add(f, t, Math.min(-bal[f], bal[t]), ref && netMap[f] >= 0); });
+    // 4. 其餘用最省事的配法
+    const cs = members.filter(m => bal[m] > 0).sort((a, b) => bal[b] - bal[a]);
+    const dsx = members.filter(m => bal[m] < 0).sort((a, b) => bal[a] - bal[b]);
+    let i = 0, j = 0;
+    while (i < cs.length && j < dsx.length) {
+      add(dsx[j], cs[i], Math.min(-bal[dsx[j]], bal[cs[i]]), false);
+      if (bal[cs[i]] <= 0) i++;
+      if (bal[dsx[j]] >= 0) j++;
+    }
+    out.forEach(o => { o.given = given[key(o.from, o.to)] || 0; });
+    const settled = Object.keys(given).map(k => { const [from, to] = k.split('\u0001'); return { from, to, given: given[k] }; })
+      .filter(s => !out.some(o => o.from === s.from && o.to === s.to));
+    return { transfers: out, left, settled, repaid: ok.reduce((s, x) => s + amt(x), 0) };
   }
 
   // ---------- 穿搭建議 ----------
