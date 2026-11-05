@@ -1087,7 +1087,7 @@ const Feat = (() => {
     let txt = `【${t.name}】分帳結算\n總支出：$${total.toLocaleString()}\n\n`;
     t.members.forEach(m => {
       const net = r.left[m];
-      txt += `${m}：已付 $${Math.round(r.paid[m]).toLocaleString()}／應分攤 $${r.due[m].toLocaleString()}（${net >= 0 ? '應收' : '應付'} $${Math.abs(net).toLocaleString()}）\n`;
+      txt += `${m}：已付 $${Math.round(r.paid[m]).toLocaleString()}／應分攤 $${r.due[m].toLocaleString()}（${r.repaid && !net ? '已結清' : `${r.repaid ? (net > 0 ? '還要收' : '還要付') : (net >= 0 ? '應收' : '應付')} $${Math.abs(net).toLocaleString()}`}）\n`;
     });
     if (r.transfers.length) {
       txt += `\n${r.repaid ? '還要轉帳' : '轉帳方式'}：\n` + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}${tr.refund ? '（多給了，退回）' : ''}${tr.given ? `（已給 $${tr.given.toLocaleString()}）` : ''}`).join('\n');

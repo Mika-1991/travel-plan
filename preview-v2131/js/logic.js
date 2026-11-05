@@ -274,7 +274,7 @@ const Logic = (() => {
       Object.keys(sh).forEach(p => { if (owed[p] !== undefined) owed[p] += sh[p]; });
     }
     const EPS = 1e-6;
-    members.forEach(m => { due[m] = Math.ceil(owed[m] - EPS); });
+    members.forEach(m => { due[m] = Math.ceil(owed[m] - EPS) || 0; }); // || 0：避免 -0 顯示成「$-0」
     // 欠錢的人：要付 due − 已付（整數）
     const debtors = members.filter(m => due[m] - paid[m] > EPS).map(m => ({ name: m, net: Math.round(due[m] - paid[m]) }));
     const pool = debtors.reduce((s, x) => s + x.net, 0);
