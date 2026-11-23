@@ -1207,3 +1207,4 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .mem-tip { margin: 4px 0 0; }
 .solo-line { margin: 6px 0 0; color: var(--text-2); }
 .solo-badge { display: inline-block; padding: 0 8px; border-radius: 99px; background: #EEF3F7; color: var(--main-dark); font-size: .85rem; font-weight: 700; }
+.settle-table .mem-row td:first-child { white-space: nowrap; }
