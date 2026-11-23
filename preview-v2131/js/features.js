@@ -375,7 +375,7 @@ const Feat = (() => {
           t.hotels = t.hotels.filter(h => h.night < maxNight);
           t.flights = (t.flights || []).filter(f => Number(f.day) <= newDays);
           // 清掉超出天數的每日設定
-          [t.dayStartOv, t.dayEndOv, t.dayTransportOv, t.rainPlans, t.rainActive, t.rainBackup].forEach(obj => {
+          [t.dayStartOv, t.dayEndOv, t.dayStartPts, t.dayTransportOv, t.rainPlans, t.rainActive, t.rainBackup].forEach(obj => {
             if (obj) Object.keys(obj).forEach(k => { if (Number(k) > newDays) delete obj[k]; });
           });
           t.legsByDay = {};
@@ -396,10 +396,18 @@ const Feat = (() => {
   }
 
   // ================= 集合出發地 / 解散地（行程內隨時可調） =================
-  function openRoutePoints() {
+  // v2.1.50 帶 day（第 2 天起）＝設定「這天從哪裡出發」（trip.dayStartPts[day]）
+  function openRoutePoints(day) {
     const t = trip();
     if (Store.isReadonly()) { UI.toast('唯讀模式無法修改'); return; }
     const body = document.createElement('div');
+    const dayMode = Number(day) > 1;
+    const getP = field => dayMode ? (t.dayStartPts || {})[day] || null : t[field];
+    const setP = (field, v) => {
+      if (!dayMode) { t[field] = v; return; }
+      if (!t.dayStartPts) t.dayStartPts = {};
+      if (v) t.dayStartPts[day] = v; else delete t.dayStartPts[day];
+    };
 
     const section = (field, icon, title, hint) => {
       const box = document.createElement('div');
@@ -414,11 +422,11 @@ const Feat = (() => {
           </div>
           <div class="result-list" data-res></div>`;
         const chipBox = box.querySelector('[data-chip]');
-        chipBox.innerHTML = t[field]
-          ? `<span class="chip on">${icon} ${UI.esc(t[field].name)} <span class="x">✕</span></span>`
-          : `<span class="hint">未設定（用飯店當起終點）</span>`;
+        chipBox.innerHTML = getP(field)
+          ? `<span class="chip on">${icon} ${UI.esc(getP(field).name)} <span class="x">✕</span></span>`
+          : `<span class="hint">${dayMode ? '未設定（用前一晚的住宿當起點；前一晚沒住宿就從第一個景點開始）' : '未設定（用飯店當起終點）'}</span>`;
         const x = chipBox.querySelector('.x');
-        if (x) x.onclick = () => { t[field] = null; applyChange(); renderState(); };
+        if (x) x.onclick = () => { setP(field, null); applyChange(); renderState(); };
         const inp = box.querySelector('input');
         const search = async () => {
           const q = inp.value.trim();
@@ -437,7 +445,7 @@ const Feat = (() => {
             res.querySelectorAll('button[data-i]').forEach(b =>
               b.onclick = () => {
                 const p = rs[Number(b.dataset.i)];
-                t[field] = { placeId: p.placeId, name: p.name, address: p.address || '', lat: p.lat, lng: p.lng };
+                setP(field, { placeId: p.placeId, name: p.name, address: p.address || '', lat: p.lat, lng: p.lng });
                 applyChange();
                 renderState();
               });
@@ -451,13 +459,19 @@ const Feat = (() => {
     };
 
     function applyChange() {
-      delete t.legsByDay[1];
-      delete t.legsByDay[Store.days()];
+      if (dayMode) delete t.legsByDay[day];
+      else { delete t.legsByDay[1]; delete t.legsByDay[Store.days()]; }
       Store.touch();
       Itin.render();
-      UI.toast('起終點已更新，車程時間重新計算');
+      UI.toast(dayMode ? `第 ${day} 天出發地已更新，車程時間重新計算` : '起終點已更新，車程時間重新計算');
     }
 
+    if (dayMode) {
+      body.appendChild(section('dayStart', '📍', `第 ${day} 天從哪裡出發`, '例如：車宿地點、朋友家'));
+      body.insertAdjacentHTML('beforeend', '<p class="hint">前一晚沒住飯店（例如車宿、夜衝）時，在這裡設定隔天的出發地點。</p>');
+      UI.modal(`📍 第 ${day} 天出發地`, body, []);
+      return;
+    }
     body.appendChild(section('meetPoint', '🚩', '集合出發地（第一天從這裡出發）', '例如：台中火車站'));
     body.appendChild(section('endPoint', '🏁', '解散地（最後一天在這裡結束）', '例如：台中火車站'));
     UI.modal('集合地／解散地', body, []);
@@ -693,18 +707,16 @@ const Feat = (() => {
   }
   // 支出明細／結算結果摺疊：預設收合，展開狀態記在這台裝置
   const EXP_FOLD_KEY = 'mika_exp_fold';
+  function foldState() { try { return JSON.parse(localStorage.getItem(EXP_FOLD_KEY)) || {}; } catch { return {}; } }
+  function foldSet(k, v) { try { const s = foldState(); s[k] = v; localStorage.setItem(EXP_FOLD_KEY, JSON.stringify(s)); } catch {} }
   function bindExpFolds() {
-    let st = {};
-    try { st = JSON.parse(localStorage.getItem(EXP_FOLD_KEY)) || {}; } catch {}
+    const st = foldState();
     [['expFoldList', 'list'], ['expFoldSettle', 'settle'], ['expFoldStats', 'stats']].forEach(([id, k]) => {
       const d = $(id);
       if (!d || d.dataset.bound) return;
       d.dataset.bound = '1';
       d.open = !!st[k];
-      d.addEventListener('toggle', () => {
-        st[k] = d.open;
-        try { localStorage.setItem(EXP_FOLD_KEY, JSON.stringify(st)); } catch {}
-      });
+      d.addEventListener('toggle', () => foldSet(k, d.open));
     });
   }
 
@@ -908,7 +920,9 @@ const Feat = (() => {
     }
     if ($('expListSum')) $('expListSum').textContent = `${t.expenses.length} 筆・$${t.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0).toLocaleString()}`;
     const ro = Store.isReadonly();
-    box.innerHTML = [...t.expenses].sort((a, b) => a.date.localeCompare(b.date)).map(e => `
+    // v2.1.50 依分類分組（每組可摺疊，記在這台裝置），組內日期從舊到新
+    const sorted = [...t.expenses].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const itemHtml = e => `
       <div class="exp-item">
         <div class="e-main">
           <div>${UI.esc(e.item)}</div>
@@ -918,7 +932,17 @@ const Feat = (() => {
         </div>
         <span class="exp-amt">$${e.amount.toLocaleString()}</span>
         ${ro ? '' : `<button class="btn-outline mini-action" data-edit="${e.id}">✎</button><button class="btn-danger-ghost mini-action" data-del="${e.id}">✕</button>`}
-      </div>`).join('');
+      </div>`;
+    const fst = foldState();
+    box.innerHTML = EXP_CATS.map(([k, lb]) => {
+      const g = sorted.filter(e => catOf(e) === k);
+      if (!g.length) return '';
+      const sum = g.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+      return `<details class="exp-cat" data-cat="${k}"${fst['cat_' + k] ? ' open' : ''}>
+        <summary><span class="exp-cat-name">${lb}</span><span class="exp-cat-sum">${g.length} 筆・$${sum.toLocaleString()}</span></summary>
+        ${g.map(itemHtml).join('')}</details>`;
+    }).join('');
+    box.querySelectorAll('details.exp-cat').forEach(d => d.addEventListener('toggle', () => foldSet('cat_' + d.dataset.cat, d.open)));
     box.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editExpense(b.dataset.edit));
     box.querySelectorAll('[data-del]').forEach(b =>
       b.onclick = () => UI.confirm('刪除這筆支出', '確定要刪除嗎？', () => {
@@ -945,8 +969,14 @@ const Feat = (() => {
             <td style="color:${net >= 0 ? 'var(--ok)' : 'var(--danger)'};font-weight:700">${net >= 0 ? '+' : ''}$${net.toLocaleString()}</td></tr>`;
         }).join('')}
       </table>`;
+    const rel = relationSections(t, r);
+    if (rel.length) {
+      html += `<div class="rel-box"><p class="rel-title">🤝 帳款關係（不折抵，各自直接給）</p>` +
+        rel.map(s => `<div class="rel-who">【${UI.esc(s.who)}】</div>` + s.lines.map(l => `<div class="rel-line">${l.html}</div>`).join('')).join('') +
+        (r.repaid ? '<p class="hint">這裡是原本的帳款；已經轉過的錢，請看下面「還要轉帳」。</p>' : '') + '</div>';
+    }
     if (r.transfers.length) {
-      html += `<p style="margin:8px 0 4px;font-weight:700">💸 ${r.repaid ? '還要轉帳' : '這樣轉帳最省事'}（${r.transfers.length} 筆）：</p>` +
+      html += `<p style="margin:10px 0 4px;font-weight:700">${r.repaid ? '💸 還要轉帳' : rel.length ? '💡 互相折抵後，這樣轉帳更省事' : '💸 這樣轉帳最省事'}（${r.transfers.length} 筆）：</p>` +
         r.transfers.map((tr, i) => {
           const all = tr.amount + tr.given;
           return `<div class="transfer-line tr-card">
@@ -1080,6 +1110,26 @@ const Feat = (() => {
   }
   const payFields = pf => (pf.status === 'full' ? {} : { payStatus: pf.status, ...(pf.status === 'part' ? { paidAmount: pf.paid } : {}) });
 
+  // v2.1.50 帳款關係：只列「要付錢給別人」的人的角度（跟 Mika 給的範例一樣），列出他跟每個人的往來
+  function relationSections(t, r) {
+    const ms = t.members || [];
+    if (ms.length < 3) return []; // 兩個人時跟「最省事」一模一樣，不重複列
+    const pairs = Logic.pairDebts(t.expenses || [], ms, r.netMap);
+    if (!pairs.some(p => p.amount > 0)) return [];
+    const $m = n => `$${n.toLocaleString()}`;
+    const line = (p, me) => {
+      const other = p.a === me ? p.b : p.a;
+      const parts = [`${p.from}欠${p.to} ${$m(p.fromOwes)}`].concat(p.toOwes ? [`${p.to}欠${p.from} ${$m(p.toOwes)}`] : []);
+      const res = p.amount ? `${p.from}要給${p.to} ${$m(p.amount)}` : '互不相欠';
+      return {
+        txt: `${me} ↔ ${other}：${parts.join(' − ')} ＝ ${res}`,
+        html: `<b>${UI.esc(me)} ↔ ${UI.esc(other)}</b>：${UI.esc(parts.join(' − '))} ＝ <b class="rel-res">${UI.esc(res)}</b>`
+      };
+    };
+    return ms.filter(m => pairs.some(p => p.from === m && p.amount > 0))
+      .map(m => ({ who: m, lines: pairs.filter(p => (p.a === m || p.b === m) && (p.amount || p.fromOwes)).map(p => line(p, m)) }));
+  }
+
   function copySettle() {
     const t = trip();
     const r = Logic.settleExpenses(t.expenses, t.members, t.repays || []);
@@ -1089,18 +1139,24 @@ const Feat = (() => {
       const net = r.left[m];
       txt += `${m}：已付 $${Math.round(r.paid[m]).toLocaleString()}／應分攤 $${r.due[m].toLocaleString()}（${r.repaid && !net ? '已結清' : `${r.repaid ? (net > 0 ? '還要收' : '還要付') : (net >= 0 ? '應收' : '應付')} $${Math.abs(net).toLocaleString()}`}）\n`;
     });
+    const rel = relationSections(t, r);
+    if (rel.length) {
+      txt += '\n帳款關係（不想折抵的話，各自直接給）：\n' +
+        rel.map(s => `【${s.who}】\n` + s.lines.map(l => l.txt).join('\n')).join('\n') + '\n';
+    }
     if (r.transfers.length) {
-      txt += `\n${r.repaid ? '還要轉帳' : '轉帳方式'}：\n` + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}${tr.refund ? '（多給了，退回）' : ''}${tr.given ? `（已給 $${tr.given.toLocaleString()}）` : ''}`).join('\n');
+      txt += `\n${r.repaid ? '還要轉帳' : rel.length ? '互相折抵後可以這樣轉帳更省事' : '這樣轉帳最省事'}：\n` + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}${tr.refund ? '（多給了，退回）' : ''}${tr.given ? `（已給 $${tr.given.toLocaleString()}）` : ''}`).join('\n');
     } else if (r.repaid) txt += '\n🎉 大家都結清了';
     const reps = (t.repays || []).slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
     if (reps.length) txt += '\n\n已轉帳紀錄：\n' + reps.map(x => `${repayTime(x.at)} ${x.from} 給 ${x.to} $${(Math.round(Number(x.amount)) || 0).toLocaleString()}${x.note ? `（${x.note}）` : ''}`).join('\n');
     const st = costStats();
     if (st.rows.length) {
       txt += '\n\n每個人最終花費：\n' + st.members.map(m => `${m}：$${Math.round(st.final[m]).toLocaleString()}`).join('\n');
-      txt += '\n\n花費項目：\n' + st.rows.map(r => `${r.label}：$${Math.round(r.total).toLocaleString()}`).join('\n');
+      txt += '\n\n總花費項目：\n' + st.rows.map(r => `${r.label}：$${Math.round(r.total).toLocaleString()}`).join('\n');
     }
     const un = unpaidList();
     if (un.length) txt += `\n\n⏳ 還沒付清（共 $${un.reduce((s, x) => s + x.rem, 0).toLocaleString()}）：\n` + un.map(x => `${x.label}：${x.verb} $${x.rem.toLocaleString()}（${x.payer}）`).join('\n');
+    if (t.viewCode) txt += `\n\n👀 行程與分帳明細（僅檢視）：\n${shareLink(t.viewCode)}`;
     UI.copy(txt, '結算結果已複製，可以貼到群組裡');
   }
 
@@ -1164,7 +1220,7 @@ const Feat = (() => {
       rows.push(flightRow(arrF));
       rows.push({ type: '機場', name: arrF.arrAirport.name, address: arrF.arrAirport.address || '', note: `${Itin.dayStartOf(d)} 出關後出發` });
     } else if (d === 1 && t.meetPoint) rows.push({ type: '集合地', name: t.meetPoint.name, address: t.meetPoint.address || '', note: '', photo: t.meetPoint.photo || '' });
-    else if (sp) rows.push({ type: '住宿出發', name: sp.name, address: sp.address || '', note: [HotelPoll.isConfirmedHotel(sp) ? '✅ 已確定' : '', stayMealNote(d, 'start')].filter(Boolean).join('｜'), photo: sp.photo || '' });
+    else if (sp) rows.push({ type: (Itin.startPoint(d) || {}).kind === 'start' ? '出發地' : '住宿出發', name: sp.name, address: sp.address || '', note: [HotelPoll.isConfirmedHotel(sp) ? '✅ 已確定' : '', stayMealNote(d, 'start')].filter(Boolean).join('｜'), photo: sp.photo || '' });
     const shouldShowEmptyLeg = !list.length && sp && ep && sp !== ep && legs[0] > 0 &&
       ((d === 1 && t.meetPoint) || (d === Store.days() && t.endPoint));
     if (shouldShowEmptyLeg) rows.push({ type: '路程', name: legName(legs[0]), address: '', note: '' });
@@ -1227,6 +1283,7 @@ const Feat = (() => {
     settle.push([]);
     settle.push(['轉出人', '收款人', '金額', '已給', '備註']);
     sr.transfers.forEach(x => settle.push([x.from, x.to, x.amount, x.given || '', x.refund ? '多給了，退回' : '']));
+    relRows(t, sr).forEach(r => settle.push(r));
     repayRows(t).forEach(r => settle.push(r));
     const packing = [['分類', '物品', '已準備']];
     packingTemplate.forEach(g => g.items.forEach(i => packing.push([g.cat, i, '□'])));
@@ -1274,6 +1331,7 @@ ${sheetXml('攜帶清單', packing)}
     settle.push([]);
     settle.push(['付款人', '收款人', '金額', '已給', '備註']);
     sr.transfers.forEach(x => settle.push([x.from, x.to, x.amount, x.given || '', x.refund ? '多給了，退回' : '']));
+    relRows(t, sr).forEach(r => settle.push(r));
     repayRows(t).forEach(r => settle.push(r));
     const packing = [['分類', '物品', '確認']];
     packingTemplate.forEach(g => g.items.forEach(i => packing.push([g.cat, i, '□'])));
@@ -1287,6 +1345,15 @@ ${sheetXml('攜帶清單', packing)}
       { name: '費用統計', rows: statsRows() },
       { name: '攜帶清單', rows: packing }
     ];
+  }
+  // v2.1.50 帳款關係（不折抵，兩兩之間各自直接給）
+  function relRows(t, sr) {
+    const ms = t.members || [];
+    if (ms.length < 3) return [];
+    const pairs = Logic.pairDebts(t.expenses || [], ms, sr.netMap).filter(p => p.amount || p.fromOwes);
+    if (!pairs.length) return [];
+    return [[], ['帳款關係（不折抵，各自直接給）'], ['付款人', '收款人', '付款人欠', '收款人欠', '抵掉後要給']]
+      .concat(pairs.map(p => [p.from, p.to, p.fromOwes, p.toOwes, p.amount]));
   }
   function repayRows(t) {
     const reps = (t.repays || []).slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
@@ -1642,7 +1709,7 @@ h2{margin:0 0 6px;color:#006599;font-size:16px}ul{list-style:none;margin:0;paddi
   // 每晚飯店 / 集合地 / 解散地當作每天起訖
   function dayAnchors(t, d, totalDays) {
     const hotelNight = n => (t.hotels || []).find(h => Number(h.night) === n) || null;
-    const start = (d === 1 && t.meetPoint) ? t.meetPoint : (hotelNight(d - 2) || hotelNight(d - 1) || null);
+    const start = (d === 1 && t.meetPoint) ? t.meetPoint : (d > 1 && (t.dayStartPts || {})[d]) || (d === 1 ? hotelNight(0) : hotelNight(d - 2));
     const end = (d === totalDays && t.endPoint) ? t.endPoint : hotelNight(d - 1);
     return { start, end };
   }

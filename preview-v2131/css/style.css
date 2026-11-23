@@ -1173,3 +1173,20 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .rp-hist .rp-item { margin: 6px 0; }
 .tr-add-free { margin-top: 4px; }
 .rp-warn { color: var(--danger); font-size: .95rem; margin: 4px 0; }
+
+/* ===== v2.1.50 支出依分類分組、帳款關係、跨夜時間 ===== */
+.exp-cat { border: 1px solid var(--line); border-radius: 12px; margin: 0 0 8px; background: var(--white); }
+.exp-cat > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-weight: 700; }
+.exp-cat > summary::-webkit-details-marker { display: none; }
+.exp-cat > summary::after { content: '▾'; color: var(--main); transition: transform .2s; }
+.exp-cat[open] > summary::after { transform: rotate(180deg); }
+.exp-cat-name { color: var(--main); }
+.exp-cat-sum { margin-left: auto; color: var(--text-2); font-size: .95rem; }
+.exp-cat > .exp-item { margin: 0 8px 8px; }
+.rel-box { margin: 10px 0 4px; padding: 10px 12px; border: 1.5px solid var(--main); border-radius: 12px; background: #F3F8FB; }
+.rel-title { font-weight: 800; color: var(--main); margin: 0 0 4px; }
+.rel-who { font-weight: 700; margin-top: 6px; }
+.rel-line { padding: 2px 0 2px 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.rel-res { color: var(--accent, #FF8C00); }
+.nd-row { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 1rem; }
+.nd-row input { width: auto; }

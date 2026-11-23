@@ -50,12 +50,17 @@ const Itin = (() => {
   // 終點：最後一天優先用「解散地」；否則當晚飯店（最後一晚沒有就不設）
   // v2.1.27 航班：這天有「抵達航班」→ 起點改成抵達機場；有「起飛航班」→ 終點改成出發機場。
   // 原本的集合地／飯店／解散地（base）變成「搭機前從哪裡出發」與「下機後要去哪裡」。
+  // v2.1.50 第 2 天起可自訂「這天從哪裡出發」（trip.dayStartPts[day]，例如前一晚睡車宿）；
+  // 修正：前一晚沒有住宿時，不再拿「當晚」的住宿當起點（第 1 天沒集合地才用第一晚住宿）
   function baseStartPoint(day) {
     const t = trip();
     if (day === 1 && t.meetPoint) return { p: t.meetPoint, kind: 'meet' };
-    const h = Store.hotelOfNight(day - 2) || Store.hotelOfNight(day - 1) || null;
+    const cp = day > 1 && (t.dayStartPts || {})[day];
+    if (cp) return { p: cp, kind: 'start', day };
+    const h = day === 1 ? Store.hotelOfNight(0) : Store.hotelOfNight(day - 2);
     return h ? { p: h, kind: 'hotel' } : null;
   }
+  const startIcon = d => ({ meet: '🚩', start: '📍' }[(startPoint(d) || {}).kind] || '🏨');
   function baseEndPoint(day) {
     const t = trip();
     if (day === Store.days() && t.endPoint) return { p: t.endPoint, kind: 'end' };
@@ -99,6 +104,7 @@ const Itin = (() => {
   function pointEmptyDayText(point) {
     if (point.kind === 'airport') return '機場';
     if (point.kind === 'hotel') return `${hotelNightLabel(point.p.night)}住宿`;
+    if (point.kind === 'start') return '出發地';
     return point.kind === 'meet' ? '集合地' : '解散地';
   }
 
@@ -144,6 +150,11 @@ const Itin = (() => {
     const fm = Flights.dayStartMin(day); // 有抵達航班：抵達＋出關
     if (fm !== null) return Logic.toHHMM(fm);
     return (t.dayStartOv || {})[day] || t.dayStart;
+  }
+  // v2.1.50 結束時間可以跨夜：存成 '28:00'（＝隔天 04:00），顯示成「隔天 04:00」
+  function fmtEnd(hhmm) {
+    const m = Logic.toMin(hhmm || '00:00');
+    return m >= 1440 ? `隔天 ${Logic.toHHMM(m - 1440)}` : hhmm;
   }
   // 每一天的結束時間（可個別覆寫，預設用全域 dayEnd）
   function dayEndOf(day) {
@@ -895,7 +906,7 @@ const Itin = (() => {
   function dayMenu(d, list) {
     const t = trip();
     const opts = [
-      { label: `🕘 出發／結束時間（${dayStartOf(d)}–${dayEndOf(d)}）`, value: 'time' },
+      { label: `🕘 出發／結束時間（${dayStartOf(d)}–${fmtEnd(dayEndOf(d))}）`, value: 'time' },
       { label: `${TRANSPORT_META[dayTransportOf(d)][0]} 這天的交通方式（${TRANSPORT_META[dayTransportOf(d)][1]}）`, value: 'trans' },
       { label: '🍜 附近美食', value: 'food' },
       ...(list.length ? [{ label: '🧭 全日導航', value: 'nav' }] : []),
@@ -905,6 +916,7 @@ const Itin = (() => {
       { label: '✎ 這天的主題與圖示', value: 'theme' }
     ];
     if (d === 1) opts.push({ label: `🚩 集合地${t.meetPoint ? '（已設定）' : ''}`, value: 'pts' });
+    else opts.push({ label: `📍 這天從哪裡出發${(t.dayStartPts || {})[d] ? `（${(t.dayStartPts || {})[d].name}）` : ''}`, value: 'startpt' });
     if (d === Store.days()) opts.push({ label: `🏁 解散地${t.endPoint ? '（已設定）' : ''}`, value: 'pts' });
     UI.choose(`第 ${d} 天設定`, opts, v => {
       if (v === 'time') editDayTime(d);
@@ -916,6 +928,7 @@ const Itin = (() => {
       else if (v === 'flight') Flights.openDay(d, render);
       else if (v === 'theme') editDayTheme(d);
       else if (v === 'pts') Feat.openRoutePoints();
+      else if (v === 'startpt') Feat.openRoutePoints(d);
     });
   }
   // 時間軸列：點卡片展開／收合動作列（一次只開一列）
@@ -1160,7 +1173,7 @@ const Itin = (() => {
       ${RoutePick.winterTip(d) ? `<div class="dh-winter">❄️ 冬季部分山路會封閉，出發前請查當地官方道路公告；點交通段（🚗 開車 ›）可以改路線。</div>` : ''}
       ${estimateHint}
       <div data-rain-slot="${d}"></div>
-      ${list.length ? `<p class="dh-sum">🚗 車程 ${Logic.fmtDur(tl.totalTravel)}｜⏱ 停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${tl.endTime} 結束${overTime ? ` <span style="color:var(--danger);font-weight:700">${overTxt}</span>` : ''}</p>` : ''}
+      ${list.length ? `<p class="dh-sum">🚗 車程 ${Logic.fmtDur(tl.totalTravel)}｜⏱ 停留 ${Logic.fmtDur(tl.totalStay)}｜預計 ${rawEndMin >= 1440 ? '隔天 ' : ''}${Logic.toHHMM(rawEndMin)} 結束${overTime ? ` <span style="color:var(--danger);font-weight:700">${overTxt}</span>` : ''}</p>` : ''}
       ${list.length ? mealSummaryHtml(list, d) : ''}
       <div class="day-tools">
         <button data-addspot="${d}" class="edit-only dt-add">➕ 加景點</button>
@@ -1177,7 +1190,7 @@ const Itin = (() => {
     // 搭機前（有抵達航班）：出發地 → 地面交通 → 出發機場 → ✈️ 航班卡
     if (Flights.isComplete(arriveF)) appendPreFlight(tlw, d, arriveF);
     // 起點列
-    const startLabel = sp ? ({ meet: '從集合地出發', airport: '出關後從機場出發' }[sp.kind] || '從飯店出發') : '';
+    const startLabel = sp ? ({ meet: '從集合地出發', start: '從這裡出發', airport: '出關後從機場出發' }[sp.kind] || '從飯店出發') : '';
     if (sp && list.length) tlw.appendChild(pointRow(sp, `${dayStartOf(d)} ${startLabel}`, d, 'start'));
 
     // 景點列 + 路段
@@ -1282,21 +1295,23 @@ const Itin = (() => {
       <label>第 ${d} 天出發時間</label>
       <input id="dayStartInp" type="time" value="${dayStartOf(d)}">
       <label style="margin-top:8px">第 ${d} 天結束時間</label>
-      <input id="dayEndInp" type="time" value="${dayEndOf(d)}">
-      <p class="hint">抵達／出發時間會依停留與車程自動重排。若行程排不進這個時段，會在該天卡片提醒你。全域預設 ${t.dayStart}–${t.dayEnd}。</p>`;
+      <input id="dayEndInp" type="time" value="${Logic.toHHMM(Logic.toMin(dayEndOf(d)) % 1440)}">
+      <label class="nd-row"><input type="checkbox" id="dayEndNext" ${Logic.toMin(dayEndOf(d)) >= 1440 ? 'checked' : ''}> 結束時間在隔天（玩到半夜／凌晨）</label>
+      <p class="hint">抵達／出發時間會依停留與車程自動重排。若行程排不進這個時段，會在該天卡片提醒你。全域預設 ${t.dayStart}–${fmtEnd(t.dayEnd)}。</p>`;
     const actions = [{
       label: '套用', primary: true,
       onClick: () => {
         const s = document.getElementById('dayStartInp').value;
-        const e = document.getElementById('dayEndInp').value;
+        let e = document.getElementById('dayEndInp').value;
         if (!s || !e) { UI.toast('請選擇時間'); return; }
-        if (Logic.toMin(e) <= Logic.toMin(s)) { UI.toast('結束時間要晚於出發時間'); return; }
+        if (document.getElementById('dayEndNext').checked) e = `${Logic.toMin(e) / 60 + 24 | 0}:${e.slice(3)}`;
+        if (Logic.toMin(e) <= Logic.toMin(s)) { UI.toast('結束時間要晚於出發時間；玩到半夜請勾「結束時間在隔天」'); return; }
         t.dayStartOv[d] = s;
         t.dayEndOv[d] = e;
         Store.touch();
         UI.closeModal();
         render();
-        UI.toast(`第 ${d} 天改為 ${s}–${e}，時間已重排`);
+        UI.toast(`第 ${d} 天改為 ${s}–${fmtEnd(e)}，時間已重排`);
       }
     }];
     if ((t.dayStartOv[d] || t.dayEndOv[d])) actions.push({
@@ -1356,7 +1371,7 @@ const Itin = (() => {
   // 起終點列（飯店 / 集合地 / 解散地）
   function pointRow(spObj, timeTxt, day, pos) {
     const p = spObj.p, kind = spObj.kind;
-    const icon = kind === 'meet' ? '🚩' : kind === 'end' ? '🏁' : kind === 'airport' ? '✈️' : '🏨';
+    const icon = kind === 'meet' ? '🚩' : kind === 'start' ? '📍' : kind === 'end' ? '🏁' : kind === 'airport' ? '✈️' : '🏨';
     const stayM = (kind === 'hotel' && day) ? stayMealsOf(day, pos) : [];
     const mealTags = stayM.length ? `<div class="spot-times" style="color:var(--ok)">🍽 ${stayM.map(m => MEAL_TAG[m]).join('｜')}（在這裡吃）</div>` : '';
     const div = document.createElement('div');
@@ -1393,7 +1408,7 @@ const Itin = (() => {
           ${kind === 'hotel' ? `<button class="edit-only" data-act="hmeal" title="在這裡用餐：早／午／晚／點心">🍽</button>
           <button class="edit-only" data-act="hexp" title="記一筆帳">💰</button>
           <button class="edit-only pt-text-btn" data-act="hedit" title="付款狀態（已刷全額／已刷部分／入住前自動扣款／當天現刷）、房價、備註">💳 付款／備註</button>` : ''}
-          ${(kind === 'meet' || kind === 'end') ? `<button class="edit-only" data-act="ptmenu" title="更多：更改地點／移除／導航／記帳">⋯</button>` : ''}
+          ${(kind === 'meet' || kind === 'end' || kind === 'start') ? `<button class="edit-only" data-act="ptmenu" title="更多：更改地點／移除／導航／記帳">⋯</button>` : ''}
           ${kind === 'airport' ? `<button class="edit-only" data-act="apflight" title="編輯航班">✎</button>` : ''}
           ${mapLink}
         </div>
@@ -1416,8 +1431,29 @@ const Itin = (() => {
     return div;
   }
 
+  // v2.1.50 自訂出發地（第 2 天起）的選單
+  function startPointMenu(spObj) {
+    const p = spObj.p, d = spObj.day;
+    const opts = [{ label: '✏️ 更改出發地點', value: 'edit' }];
+    if (Logic.hasCoords(p) || p.name) opts.push({ label: '🧭 導航到這裡', value: 'nav' });
+    opts.push({ label: '🗑 移除（改回用前一晚住宿）', value: 'del', danger: true });
+    UI.choose(`📍 第 ${d} 天出發地`, opts, v => {
+      const t = trip();
+      if (v === 'edit') Feat.openRoutePoints(d);
+      else if (v === 'nav') window.open(UI.navLink(p), '_blank', 'noopener');
+      else if (v === 'del') {
+        UI.confirm('移除出發地？', `確定要移除「${p.name}」嗎？之後第 ${d} 天會改用前一晚的住宿當起點。`, () => {
+          delete (t.dayStartPts || {})[d];
+          delete t.legsByDay[d];
+          Store.touch(); render();
+          UI.toast(`已移除第 ${d} 天的出發地`);
+        });
+      }
+    });
+  }
   // 集合地／解散地的功能選單（比照景點的 ⋯）
   function pointMenu(spObj) {
+    if (spObj.kind === 'start') return startPointMenu(spObj);
     const p = spObj.p, isMeet = spObj.kind === 'meet';
     const opts = [
       { label: '✏️ 更改地點', value: 'edit' },
@@ -2152,7 +2188,7 @@ const Itin = (() => {
           fillColor: '#FFFFFF', fillOpacity: 1, strokeColor: color, strokeWeight: 2.5
         }
       }));
-      if (g.sp) boundaryMarker(g.sp, g.d === 1 && trip().meetPoint ? '🚩' : '🏨');
+      if (g.sp) boundaryMarker(g.sp, g.d ? startIcon(g.d) : '🏨');
       g.list.forEach((s, i) => {
         add(new google.maps.Marker({
           map: el._gmap, position: { lat: s.lat, lng: s.lng }, title: s.name,
@@ -2253,7 +2289,7 @@ const Itin = (() => {
     }
     for (const g of groups) {
       const color = g.d ? dayColor(g.d) : '#617587';
-      if (g.sp) svg += `<text x="${X(g.sp)}" y="${Y(g.sp) + 5}" text-anchor="middle" font-size="16">${g.d === 1 && trip().meetPoint ? '🚩' : '🏨'}</text>`;
+      if (g.sp) svg += `<text x="${X(g.sp)}" y="${Y(g.sp) + 5}" text-anchor="middle" font-size="16">${g.d ? startIcon(g.d) : '🏨'}</text>`;
       g.list.forEach((s, i) => {
         const short = s.name.length > 6 ? s.name.slice(0, 6) + '…' : s.name;
         svg += `<circle cx="${X(s)}" cy="${Y(s)}" r="11" fill="${color}"/>
@@ -2310,6 +2346,6 @@ const Itin = (() => {
   return {
     init, render, renderFullMap, addSpot, openAddSpot,
     spotsOfDay, unassigned, dayCenter, startHotel, endHotel, legsForDay, dayTransportOf, stayMealsOf,
-    saveCurrentArrangement, baseStartPoint, baseEndPoint, dayStartOf, dayEndOf, showDay, dayTheme, tripArea
+    saveCurrentArrangement, baseStartPoint, baseEndPoint, startPoint, endPoint, dayStartOf, dayEndOf, fmtEnd, showDay, dayTheme, tripArea
   };
 })();
