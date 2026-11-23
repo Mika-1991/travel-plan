@@ -155,7 +155,19 @@ const Prep = (() => {
       const done = pollNights.filter(n => (t.hotels || []).some(h => Number(h.night) === n && h.fromPoll)).length;
       out.push({ key: 'vote', cat: 'stay', title: '飯店投票拍板', progress: pollNights.length ? done / pollNights.length : 0, detail: `${done}/${pollNights.length} 晚已確定`, owners: ownersOf('vote') });
     }
-    return out.map(a => Object.assign(a, { auto: true, status: a.progress >= 1 ? 'done' : a.progress > 0 ? 'doing' : 'todo' }));
+    // v2.1.50 自動項目可以刪除（隱藏）：prep.autoHidden = ['flights', ...]，之後可加回來
+    const hid = prep().autoHidden || [];
+    return out.filter(a => !hid.includes(a.key)).map(a => Object.assign(a, { auto: true, status: a.progress >= 1 ? 'done' : a.progress > 0 ? 'doing' : 'todo' }));
+  }
+  const AUTO_TITLES = { flights: '填好去程／回程航班', stay: '每晚住宿都訂好', spots: '每天都排好景點', vote: '飯店投票拍板' };
+  function restoreAuto() {
+    const hid = prep().autoHidden || [];
+    if (!hid.length) return;
+    UI.choose('↩️ 加回自動項目', hid.map(k => ({ label: AUTO_TITLES[k] || k, value: k })), k => {
+      prep().autoHidden = (prep().autoHidden || []).filter(x => x !== k);
+      Store.touch({ manual: true }); refresh();
+      UI.toast(`已加回「${AUTO_TITLES[k] || k}」`);
+    });
   }
   function stats() {
     const autos = autoItems(), tasks = prep().tasks;
@@ -237,6 +249,7 @@ const Prep = (() => {
         ${groups.length ? groups.map(([lb, g]) => `<div class="pp-group"><div class="pp-gtitle">${UI.esc(lb)}</div>${g.map(rowHtml).join('')}</div>`).join('') : `<p class="hint" style="padding:8px 2px">${doneItems.length ? '🎉 都完成了！' : '沒有符合的項目'}</p>`}
         ${doneItems.length ? `<details class="pp-done" id="ppDone"${doneOpen ? ' open' : ''}><summary>✅ 已完成（${doneItems.length} 項）</summary>${doneItems.map(rowHtml).join('')}</details>` : ''}
         ${canEdit() ? `<div class="pp-actions"><button id="ppAdd" class="btn-primary">➕ 新增待辦</button><button id="ppTpl" class="btn-outline">📋 帶入建議待辦</button></div>` : ''}
+        ${canEdit() && (p.autoHidden || []).length ? `<button id="ppRestoreAuto" class="btn-ghost pp-restore">↩️ 加回已刪除的自動項目（${p.autoHidden.length}）</button>` : ''}
         <p class="hint pp-foot">「自動」項目由系統依行程資料判斷，填好就會完成。一般項目的狀態只有負責人或主揪（${UI.esc(boss() || '未設定')}）可以改；「每人」項目每個人勾自己的。</p>
       </div>
       </details>`;
@@ -255,6 +268,7 @@ const Prep = (() => {
     const mine = $('ppMine'); if (mine) mine.onchange = () => { onlyMine = mine.checked; renderPage(); };
     const add = $('ppAdd'); if (add) add.onclick = () => openForm(null);
     const tpl = $('ppTpl'); if (tpl) tpl.onclick = () => applyTemplate();
+    const rs = $('ppRestoreAuto'); if (rs) rs.onclick = () => restoreAuto();
     root.querySelectorAll('.pp-row').forEach(el => {
       const autoKey = el.dataset.auto;
       const task = autoKey ? null : prep().tasks.find(x => x.id === el.dataset.id);
@@ -408,7 +422,14 @@ const Prep = (() => {
     UI.modal(`👤 ${a.title}`, body, [{ label: '儲存', primary: true, onClick: () => {
       prep().autoOwners[key] = picker.value();
       Store.touch({ manual: true }); UI.closeModal(); refresh();
-    } }, { label: '前往填寫', onClick: () => { UI.closeModal(); gotoAuto(key); } }], { stackActions: true });
+    } }, { label: '前往填寫', onClick: () => { UI.closeModal(); gotoAuto(key); } }].concat(canEdit() ? [{
+      label: '🗑 刪除這個自動項目', danger: true, onClick: () => {
+        const p = prep();
+        p.autoHidden = [...new Set([...(p.autoHidden || []), key])];
+        Store.touch({ manual: true }); UI.closeModal(); refresh();
+        UI.toast('已刪除；要加回來，按細項最下面的「↩️ 加回已刪除的自動項目」');
+      }
+    }] : []), { stackActions: true });
   }
   function gotoAuto(key) {
     const t = trip(), days = Store.days();

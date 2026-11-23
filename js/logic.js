@@ -306,6 +306,45 @@ const Logic = (() => {
     return { paid, owed, due, net, netMap, plan: transfers, transfers: rp.transfers, left: rp.left, settled: rp.settled, repaid: rp.repaid, surplus, bonus };
   }
 
+  // v2.1.50 帳款關係：不折抵時，兩兩之間誰欠誰多少（照每筆支出「誰付錢、誰有參與」算）。
+  // 回傳 [{ a, b, aOwes, bOwes, from, to, amount }]：a 欠 b 共 aOwes、b 欠 a 共 bOwes，
+  // 抵掉後 from 要給 to amount（整數）。零頭調整成跟結算一致：每個人的往來加總＝netMap。
+  function pairDebts(expenses, members, netMap) {
+    const owe = {}; // owe[x][y]：x 欠 y（精確）
+    members.forEach(x => { owe[x] = {}; members.forEach(y => { owe[x][y] = 0; }); });
+    for (const e of expenses || []) {
+      if (e.treat || !members.includes(e.payer)) continue;
+      const sh = splitShares(e, members);
+      Object.keys(sh).forEach(p => { if (p !== e.payer && owe[p]) owe[p][e.payer] += sh[p]; });
+    }
+    const pairs = [];
+    for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) {
+      const a = members[i], b = members[j];
+      pairs.push({ a, b, ex: owe[a][b] - owe[b][a], v: Math.round(owe[a][b] - owe[b][a]) }); // v＞0：a 給 b
+    }
+    // 零頭調整：每個人的往來加總要等於結算的 netMap（正＝應收）
+    if (netMap) {
+      const recv = m => pairs.reduce((s, p) => s + (p.b === m ? p.v : p.a === m ? -p.v : 0), 0);
+      for (let guard = 0; guard < 200; guard++) {
+        const r = Object.fromEntries(members.map(m => [m, (netMap[m] || 0) - recv(m)]));
+        const up = members.filter(m => r[m] > 0).sort((x, y) => r[y] - r[x])[0];
+        const dn = members.filter(m => r[m] < 0).sort((x, y) => r[x] - r[y])[0];
+        if (!up || !dn) break;
+        // dn 要多付 1 元給 up：挑這兩人之間那一對調整
+        const p = pairs.find(q => (q.a === dn && q.b === up) || (q.a === up && q.b === dn));
+        if (!p) break;
+        p.v += p.a === dn ? 1 : -1;
+      }
+    }
+    return pairs.filter(p => p.v !== 0 || owe[p.a][p.b] > 0.004 || owe[p.b][p.a] > 0.004).map(p => {
+      const from = p.v >= 0 ? p.a : p.b, to = p.v >= 0 ? p.b : p.a, amount = Math.abs(p.v);
+      // 顯示用的「你欠我／我欠你」：收錢那邊欠的取整數，付錢那邊＝它＋折抵後金額，減起來剛好對得上
+      const toOwes = Math.round(owe[to][from]);
+      const fromOwes = toOwes + amount;
+      return { a: p.a, b: p.b, from, to, amount, fromOwes, toOwes };
+    });
+  }
+
   // v2.1.49 分段還錢（算法 A）：已轉帳的錢算進結餘，再重算「還要給多少」。
   // 原本建議的轉帳對象優先保留；給太多 → 由收到錢的人退回（refund）。
   function applyRepays(netMap, plan, repays, members) {
@@ -390,7 +429,7 @@ const Logic = (() => {
 
   return {
     haversineKm, travelMinutes, optimizeOrder, splitIntoDays, assignDaysByAnchors, distToSeg, hasCoords, fmtDur,
-    toMin, toHHMM, buildTimeline, settleExpenses, splitShares, encodePath, decodePath, outfitAdvice,
+    toMin, toHHMM, buildTimeline, settleExpenses, splitShares, pairDebts, encodePath, decodePath, outfitAdvice,
     genEditCode, genViewCode, normalizeCode, isEditCodeFormat, isViewCodeFormat,
     uid, datesBetween
   };

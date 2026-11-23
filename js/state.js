@@ -221,6 +221,7 @@ const Store = (() => {
       e: t.endPoint ? (t.endPoint.placeId || t.endPoint.name) : null,
       tr: t.transport,
       ds: t.dayStartOv || {},
+      sp: Object.fromEntries(Object.entries(t.dayStartPts || {}).map(([k, v]) => [k, v && (v.placeId || v.name)])),
       l: t.legsByDay || {}
     });
   }

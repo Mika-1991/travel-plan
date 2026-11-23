@@ -181,6 +181,7 @@ const ChangeLog = (() => {
     if (pt(a.meetPoint) !== pt(b.meetPoint)) out.push(`🚩 集合地改為 ${pt(b.meetPoint)}`);
     if (pt(a.endPoint) !== pt(b.endPoint)) out.push(`🏁 解散地改為 ${pt(b.endPoint)}`);
     if (a.dayStart !== b.dayStart || a.dayEnd !== b.dayEnd || !same(a.dayStartOv, b.dayStartOv) || !same(a.dayEndOv, b.dayEndOv)) out.push('🕘 調整每日出發／結束時間');
+    if (!same(a.dayStartPts || {}, b.dayStartPts || {})) out.push('📍 調整每天的出發地點');
     if (!same(a.dayTransportOv, b.dayTransportOv)) out.push('調整某幾天的交通方式');
     // v2.1.35 選路線／冬季封閉道路
     const LA = a.legRoutes || {}, LB = b.legRoutes || {};
