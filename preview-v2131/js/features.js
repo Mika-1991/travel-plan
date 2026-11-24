@@ -968,19 +968,19 @@ const Feat = (() => {
     if (ps.open === 0) html += ps.repaid ? '<p class="tr-done-all">🎉 大家都結清了</p>' : '<p class="hint" style="margin-top:8px">目前大家剛好扯平，不需要轉帳 🎉</p>';
     const groups = payGroups(t, ps);
     html += groups.filter(g => g.rows.length).map(g => `
-      <div class="pay-group">
-        <div class="pay-head"><b>${UI.esc(g.m)}</b>${g.openRows.length > 1 ? `<span class="pay-sum">一共${still} <b>${$m(g.pay)}</b></span>` : ''}</div>
-        ${g.recv.length && g.pay ? `<div class="pay-note">${stillGet} ${g.recv.map(x => `${UI.esc(x.from)} ${$m(x.rem)}`).join('、')}</div>` : ''}
+      <div class="sett-group">
+        <div class="sett-head"><b>${UI.esc(g.m)}</b>${g.openRows.length > 1 ? `<span class="sett-sum">一共${still} <b>${$m(g.pay)}</b></span>` : ''}</div>
+        ${g.recv.length && g.pay ? `<div class="sett-note">（${stillGet}${g.recv.map(x => `${UI.esc(x.from)}的 ${$m(x.rem)}`).join('、')}）</div>` : ''}
         ${g.rows.map(x => `
-          <div class="pay-row${x.rem ? '' : ' done'}">
-            <div class="pay-top"><span>➜ ${UI.esc(x.to)}${x.refund ? '<span class="tr-refund">（多給了，退回）</span>' : ''}</span><span class="amt">${x.rem ? `${still} ${$m(x.rem)}` : '✅ 已結清'}</span></div>
+          <div class="sett-row${x.rem ? '' : ' done'}">
+            <div class="sett-top"><span>➜ ${UI.esc(x.to)}${x.refund ? '<span class="tr-refund">（多給了，退回）</span>' : ''}</span><span class="amt">${x.rem ? `${still} ${$m(x.rem)}` : '✅ 已結清'}</span></div>
             ${x.rem && x.rem < x.total ? `<div class="tr-prog"><i style="width:${Math.round((x.total - x.rem) / x.total * 100)}%"></i></div>` : ''}
             ${x.given || x.offset ? `<div class="tr-given">${[x.given ? (x.given > x.total ? `已給 ${$m(x.given)}，比 ${$m(x.total)} 多 ${$m(x.given - x.total)}` : `已給 ${$m(x.given)} / ${$m(x.total)}`) : '', x.offset ? `抵掉 ${$m(x.offset)}` : ''].filter(Boolean).join('｜')}</div>` : ''}
             ${ro || !x.rem ? '' : `<div class="tr-act"><button type="button" class="btn-outline tr-add" data-i="${ps.rows.indexOf(x)}">＋記一筆已給</button></div>`}
           </div>`).join('')}
       </div>`).join('');
     const getters = groups.filter(g => !g.rows.length && (g.recv.length || g.wasRecv));
-    html += getters.map(g => `<div class="pay-get"><b>${UI.esc(g.m)}</b><span>${g.recv.length ? `${stillGet} <b>${$m(g.get)}</b>` : '✅ 收齊了'}</span></div>`).join('');
+    html += getters.map(g => `<div class="sett-get"><b>${UI.esc(g.m)}</b><span>${g.recv.length ? `${stillGet} <b>${$m(g.get)}</b>` : '✅ 收齊了'}</span></div>`).join('');
     const formulas = pairFormulas(t, r);
     html += `<details class="exp-fold rp-hist" id="expFoldCalc"><summary><span class="rp-hist-title">🧮 看怎麼算的</span></summary>
       ${formulas.length ? `<div class="rel-box">${formulas.map(f => `<div class="rel-line"><b>${UI.esc(f.who)}</b>：${UI.esc(f.calc)}</div>`).join('')}</div>` : ''}
