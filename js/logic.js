@@ -306,6 +306,16 @@ const Logic = (() => {
     return { paid, owed, due, net, netMap, plan: transfers, transfers: rp.transfers, left: rp.left, settled: rp.settled, repaid: rp.repaid, surplus, bonus };
   }
 
+  // 最短路徑（廣度優先）：從 a 走到 b，ok(x, y) 為真才能走；走不到回傳 null
+  function findPath(nodes, a, b, ok) {
+    const prev = { [a]: null }, q = [a];
+    while (q.length) {
+      const x = q.shift();
+      if (x === b) { const path = []; for (let n = b; n !== null; n = prev[n]) path.unshift(n); return path; }
+      nodes.forEach(y => { if (!(y in prev) && ok(x, y)) { prev[y] = x; q.push(y); } });
+    }
+    return null;
+  }
   // v2.1.50 帳款關係：不折抵時，兩兩之間誰欠誰多少（照每筆支出「誰付錢、誰有參與」算）。
   // 回傳 [{ a, b, aOwes, bOwes, from, to, amount }]：a 欠 b 共 aOwes、b 欠 a 共 bOwes，
   // 抵掉後 from 要給 to amount（整數）。零頭調整成跟結算一致：每個人的往來加總＝netMap。
@@ -330,10 +340,13 @@ const Logic = (() => {
         const up = members.filter(m => r[m] > 0).sort((x, y) => r[y] - r[x])[0];
         const dn = members.filter(m => r[m] < 0).sort((x, y) => r[x] - r[y])[0];
         if (!up || !dn) break;
-        // dn 要多付 1 元給 up：挑這兩人之間那一對調整
-        const p = pairs.find(q => (q.a === dn && q.b === up) || (q.a === up && q.b === dn));
-        if (!p) break;
-        p.v += p.a === dn ? 1 : -1;
+        // dn 要多付 1 元給 up：沿著「本來就有往來」的人調整（避免憑空多出一筆 $1）；真的沒有往來才直接調
+        const pairOf = (x, y) => pairs.find(q => (q.a === x && q.b === y) || (q.a === y && q.b === x));
+        const path = findPath(members, dn, up, (x, y) => { const q = pairOf(x, y); return !!q && Math.abs(q.ex) > 0.004; }) || [dn, up];
+        for (let i = 0; i + 1 < path.length; i++) {
+          const p = pairOf(path[i], path[i + 1]);
+          p.v += p.a === path[i] ? 1 : -1;
+        }
       }
     }
     return pairs.filter(p => p.v !== 0 || owe[p.a][p.b] > 0.004 || owe[p.b][p.a] > 0.004).map(p => {
@@ -343,6 +356,45 @@ const Logic = (() => {
       const fromOwes = toOwes + amount;
       return { a: p.a, b: p.b, from, to, amount, fromOwes, toOwes };
     });
+  }
+
+  // v2.1.52 帳款關係＋已轉帳紀錄 → 每一筆還要給多少（結算結果唯一的清單）
+  // 給超過的部分：能繞回來的自動抵掉（例：茹多給族，就抵掉「茹欠麗、麗欠族」），抵不掉的列成退回（refund）。
+  // 每個人「還要給 − 會收到」的合計，一定等於 settleExpenses 的 left。
+  function pairStatus(pairs, repays, members) {
+    const amt = x => Math.round(Number(x.amount)) || 0;
+    const ok = (repays || []).filter(x => members.includes(x.from) && members.includes(x.to) && x.from !== x.to && amt(x) > 0);
+    const grid = () => Object.fromEntries(members.map(x => [x, Object.fromEntries(members.map(y => [y, 0]))]));
+    const N = grid(), orig = grid(), paid = grid(); // N[x][y]＞0：x 還要給 y（N[y][x] 是它的相反數）
+    const move = (x, y, v) => { N[x][y] += v; N[y][x] -= v; };
+    (pairs || []).forEach(p => { if (p.amount > 0) { orig[p.from][p.to] = p.amount; move(p.from, p.to, p.amount); } });
+    ok.forEach(x => { paid[x.from][x.to] += amt(x); move(x.from, x.to, -amt(x)); });
+    const isRefund = (x, y) => N[x][y] > 0 && !orig[x][y];
+    for (let guard = 0; guard < 500; guard++) {
+      let hit = null;
+      for (const x of members) for (const y of members) {
+        if (hit || !isRefund(x, y)) continue;
+        const path = findPath(members, y, x, (a, b) => N[a][b] > 0);
+        if (path) hit = [x, ...path]; // x → y → … → x
+      }
+      if (!hit) break;
+      let k = Infinity;
+      for (let i = 0; i + 1 < hit.length; i++) k = Math.min(k, N[hit[i]][hit[i + 1]]);
+      for (let i = 0; i + 1 < hit.length; i++) move(hit[i], hit[i + 1], -k);
+    }
+    // 每個人都不用收也不用付了（只剩互相繞圈的帳）→ 全部抵掉
+    const flat = members.every(m => members.reduce((s, y) => s + N[m][y], 0) === 0);
+    if (flat) members.forEach(x => members.forEach(y => { N[x][y] = 0; }));
+    const rows = [];
+    members.forEach(f => members.forEach(t => {
+      if (orig[f][t]) {
+        const net = paid[f][t] - paid[t][f], total = orig[f][t] + Math.max(0, -net);
+        const given = Math.max(0, net), rem = Math.max(0, N[f][t]);
+        rows.push({ from: f, to: t, total, given, rem, offset: Math.max(0, total - given - rem) });
+      } else if (isRefund(f, t)) rows.push({ from: f, to: t, total: N[f][t], given: 0, rem: N[f][t], offset: 0, refund: true });
+    }));
+    const open = rows.filter(x => x.rem > 0);
+    return { rows: !ok.length && flat ? [] : rows, open: open.length, repaid: ok.length > 0, flat };
   }
 
   // v2.1.49 分段還錢（算法 A）：已轉帳的錢算進結餘，再重算「還要給多少」。
@@ -429,7 +481,7 @@ const Logic = (() => {
 
   return {
     haversineKm, travelMinutes, optimizeOrder, splitIntoDays, assignDaysByAnchors, distToSeg, hasCoords, fmtDur,
-    toMin, toHHMM, buildTimeline, settleExpenses, splitShares, pairDebts, encodePath, decodePath, outfitAdvice,
+    toMin, toHHMM, buildTimeline, settleExpenses, splitShares, pairDebts, pairStatus, encodePath, decodePath, outfitAdvice,
     genEditCode, genViewCode, normalizeCode, isEditCodeFormat, isViewCodeFormat,
     uid, datesBetween
   };

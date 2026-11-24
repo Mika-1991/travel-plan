@@ -961,40 +961,38 @@ const Feat = (() => {
     const ro = Store.isReadonly();
     // v2.1.51 表格只算要分的錢：自己付自己用／請客另外列；點成員看怎麼算
     const sv = settleView(t, r);
-    let html = `<p style="margin-bottom:6px">總支出：<b style="color:var(--main)">$${total.toLocaleString()}</b></p>
+    // v2.1.52 只留一份清單：以帳款關係為準，依「誰要付錢」分組，進度和按鈕都在這裡
+    const ps = payStatus(t, r), $m = n => `$${n.toLocaleString()}`;
+    const still = ps.repaid ? '還要給' : '要給', stillGet = ps.repaid ? '還會收到' : '會收到';
+    let html = `<p style="margin-bottom:6px">總支出：<b style="color:var(--main)">${$m(total)}</b></p>`;
+    if (ps.open === 0) html += ps.repaid ? '<p class="tr-done-all">🎉 大家都結清了</p>' : '<p class="hint" style="margin-top:8px">目前大家剛好扯平，不需要轉帳 🎉</p>';
+    const groups = payGroups(t, ps);
+    html += groups.filter(g => g.rows.length).map(g => `
+      <div class="sett-group">
+        <div class="sett-head"><b>${UI.esc(g.m)}</b>${g.openRows.length > 1 ? `<span class="sett-sum">一共${still} <b>${$m(g.pay)}</b></span>` : ''}</div>
+        ${g.recv.length && g.pay ? `<div class="sett-note">（${stillGet}${g.recv.map(x => `${UI.esc(x.from)}的 ${$m(x.rem)}`).join('、')}）</div>` : ''}
+        ${g.rows.map(x => `
+          <div class="sett-row${x.rem ? '' : ' done'}">
+            <div class="sett-top"><span>➜ ${UI.esc(x.to)}${x.refund ? '<span class="tr-refund">（多給了，退回）</span>' : ''}</span><span class="amt">${x.rem ? `${x.refund ? '要退' : still} ${$m(x.rem)}` : '✅ 已結清'}</span></div>
+            ${x.rem && x.rem < x.total ? `<div class="tr-prog"><i style="width:${Math.round((x.total - x.rem) / x.total * 100)}%"></i></div>` : ''}
+            ${x.given || x.offset ? `<div class="tr-given">${[x.given ? (x.given > x.total ? `已給 ${$m(x.given)}，比 ${$m(x.total)} 多 ${$m(x.given - x.total)}` : `已給 ${$m(x.given)} / ${$m(x.total)}`) : '', x.offset ? `抵掉 ${$m(x.offset)}` : ''].filter(Boolean).join('｜')}</div>` : ''}
+            ${ro || !x.rem ? '' : `<div class="tr-act"><button type="button" class="btn-outline tr-add" data-i="${ps.rows.indexOf(x)}">＋記一筆已給</button></div>`}
+          </div>`).join('')}
+      </div>`).join('');
+    const getters = groups.filter(g => !g.rows.length && (g.recv.length || g.wasRecv));
+    html += getters.map(g => `<div class="sett-get"><b>${UI.esc(g.m)}</b><span>${g.recv.length ? `${stillGet} <b>${$m(g.get)}</b>` : '✅ 收齊了'}</span></div>`).join('');
+    const formulas = pairFormulas(t, r);
+    html += `<details class="exp-fold rp-hist" id="expFoldCalc"><summary><span class="rp-hist-title">🧮 看怎麼算的</span></summary>
+      ${formulas.length ? `<div class="rel-box">${formulas.map(f => `<div class="rel-line"><b>${UI.esc(f.who)}</b>：${UI.esc(f.calc)}</div>`).join('')}</div>` : ''}
       <table class="settle-table">
-        <tr><th>成員</th><th>幫大家墊付</th><th>自己該出</th><th>${r.repaid ? '還差' : '結算'}</th></tr>
-        ${sv.map(v => `<tr class="mem-row" data-m="${UI.esc(v.m)}"><td><span class="mem-name">${UI.esc(v.m)}</span> <span class="mem-arrow">▸</span></td><td>$${v.paid.toLocaleString()}</td>
-            <td>$${v.due.toLocaleString()}</td>
+        <tr><th>成員</th><th>幫大家墊付</th><th>自己該出</th><th>收付相減${r.repaid ? '（扣掉已給）' : ''}</th></tr>
+        ${sv.map(v => `<tr class="mem-row" data-m="${UI.esc(v.m)}"><td><span class="mem-name">${UI.esc(v.m)}</span> <span class="mem-arrow">▸</span></td><td>${$m(v.paid)}</td>
+            <td>${$m(v.due)}</td>
             <td class="mem-net" style="color:${v.net > 0 ? 'var(--ok)' : v.net < 0 ? 'var(--danger)' : 'var(--text-2)'}">${netText(v.net, r.repaid)}${!r.repaid && v.bonus > 0 ? `<div class="mem-bonus">（含進位零頭 $${v.bonus}）</div>` : ''}</td></tr>
           <tr class="mem-det hidden" data-det="${UI.esc(v.m)}"><td colspan="4">${memberDetail(t, v)}</td></tr>`).join('')}
       </table>
       <p class="hint mem-tip">👆 點成員名字，可以看每一筆怎麼算</p>
-      ${soloLines(sv).map(x => `<p class="solo-line">${UI.esc(x)}</p>`).join('')}`;
-    const rel = relationSections(t, r);
-    if (rel.length) {
-      html += `<div class="rel-box"><p class="rel-title">🤝 帳款關係（不折抵，各自直接給）</p>` +
-        rel.map(s => `<div class="rel-who">【${UI.esc(s.who)}】</div>` + s.lines.map(l => `<div class="rel-line">${l.html}</div>`).join('')).join('') +
-        (r.repaid ? '<p class="hint">這裡是原本的帳款；已經轉過的錢，請看下面「還要轉帳」。</p>' : '') + '</div>';
-    }
-    if (r.transfers.length) {
-      html += `<p style="margin:10px 0 4px;font-weight:700">${r.repaid ? '💸 還要轉帳' : rel.length ? '💡 互相折抵後，這樣轉帳更省事' : '💸 這樣轉帳最省事'}（${r.transfers.length} 筆）：</p>` +
-        r.transfers.map((tr, i) => {
-          const all = tr.amount + tr.given;
-          return `<div class="transfer-line tr-card">
-            <div class="tr-top">${UI.esc(tr.from)} ➜ ${UI.esc(tr.to)}${tr.refund ? '<span class="tr-refund">（多給了，退回）</span>' : ''}<span class="amt">${r.repaid ? '還要給 ' : ''}$${tr.amount.toLocaleString()}</span></div>
-            ${tr.given ? `<div class="tr-prog"><i style="width:${Math.round(tr.given / all * 100)}%"></i></div><div class="tr-given">已給 $${tr.given.toLocaleString()} / $${all.toLocaleString()}</div>` : ''}
-            ${ro ? '' : `<div class="tr-act"><button type="button" class="btn-outline tr-add" data-i="${i}">＋記一筆已給</button></div>`}
-          </div>`;
-        }).join('');
-    } else if (r.repaid) {
-      html += `<p class="tr-done-all">🎉 大家都結清了</p>`;
-    } else {
-      html += `<p class="hint" style="margin-top:8px">目前大家剛好扯平，不需要轉帳 🎉</p>`;
-    }
-    r.settled.forEach(s => {
-      html += `<div class="transfer-line tr-card tr-settled"><div class="tr-top">${UI.esc(s.from)} ➜ ${UI.esc(s.to)}<span class="amt">✅ 已結清</span></div><div class="tr-given">已給 $${s.given.toLocaleString()}</div></div>`;
-    });
+      ${soloLines(sv).map(x => `<p class="solo-line">${UI.esc(x)}</p>`).join('')}</details>`;
     if (reps.length) {
       const sum = reps.reduce((s, x) => s + (Math.round(Number(x.amount)) || 0), 0);
       html += `<details class="exp-fold rp-hist" id="expFoldRepay"><summary><span class="rp-hist-title">🧾 已轉帳紀錄（${reps.length} 筆・$${sum.toLocaleString()}）</span></summary>` +
@@ -1018,7 +1016,7 @@ const Feat = (() => {
       const open = det.classList.toggle('hidden') === false;
       tr.classList.toggle('open', open);
     });
-    box.querySelectorAll('.tr-add').forEach(b => b.onclick = () => { const tr = r.transfers[Number(b.dataset.i)]; repayDialog({ from: tr.from, to: tr.to, amount: tr.amount, remain: tr.amount }); });
+    box.querySelectorAll('.tr-add').forEach(b => b.onclick = () => { const x = ps.rows[Number(b.dataset.i)]; repayDialog({ from: x.from, to: x.to, amount: x.rem, remain: x.rem }); });
     box.querySelectorAll('[data-rpedit]').forEach(b => b.onclick = () => repayDialog(null, b.dataset.rpedit));
     box.querySelectorAll('[data-rpdel]').forEach(b => b.onclick = () => {
       const x = (t.repays || []).find(y => y.id === b.dataset.rpdel);
@@ -1029,16 +1027,13 @@ const Feat = (() => {
       });
     });
     if ($('btnRepayFree')) $('btnRepayFree').onclick = () => repayDialog({});
-    const fd = $('expFoldRepay');
-    if (fd) {
-      let st = {};
-      try { st = JSON.parse(localStorage.getItem(EXP_FOLD_KEY)) || {}; } catch {}
-      fd.open = !!st.repay;
-      fd.addEventListener('toggle', () => {
-        try { const s2 = JSON.parse(localStorage.getItem(EXP_FOLD_KEY)) || {}; s2.repay = fd.open; localStorage.setItem(EXP_FOLD_KEY, JSON.stringify(s2)); } catch {}
-      });
-    }
-    if ($('expSettleSum')) $('expSettleSum').textContent = r.transfers.length ? `💸 ${r.repaid ? '還要轉帳' : '轉帳'} ${r.transfers.length} 筆` : (r.repaid ? '🎉 都結清了' : '大家剛好扯平');
+    [['expFoldRepay', 'repay'], ['expFoldCalc', 'calc']].forEach(([id, k]) => {
+      const fd = $(id);
+      if (!fd) return;
+      fd.open = !!foldState()[k];
+      fd.addEventListener('toggle', () => foldSet(k, fd.open));
+    });
+    if ($('expSettleSum')) $('expSettleSum').textContent = ps.open ? `💸 ${ps.repaid ? '還有 ' : ''}${ps.open} 筆${ps.repaid ? '沒給' : '要給'}` : (ps.repaid ? '🎉 都結清了' : '大家剛好扯平');
     $('btnCopySettle').classList.remove('hidden');
   }
 
@@ -1079,7 +1074,7 @@ const Feat = (() => {
     const check = () => {
       const a = Number($b('rpAmount').value), w = $b('rpWarn');
       const over = !!(pre && pre.remain && a > pre.remain && $b('rpFrom').value === pre.from && $b('rpTo').value === pre.to);
-      w.textContent = over ? `⚠️ 比還要給的多 $${(a - pre.remain).toLocaleString()}，記下來後會列出要退回的金額` : '';
+      w.textContent = over ? `⚠️ 比還要給的多 $${(a - pre.remain).toLocaleString()}；多的會先抵掉其他要給的錢，抵不掉才列成退回` : '';
       w.classList.toggle('hidden', !over);
     };
     ['rpAmount', 'rpFrom', 'rpTo'].forEach(id => { $b(id).addEventListener('input', check); $b(id).addEventListener('change', check); });
@@ -1178,54 +1173,43 @@ const Feat = (() => {
     return h + '</div>';
   }
 
-  // v2.1.50 帳款關係：只列「要付錢給別人」的人的角度（跟 Mika 給的範例一樣），列出他跟每個人的往來
-  function relationSections(t, r) {
-    const ms = t.members || [];
-    if (ms.length < 3) return []; // 兩個人時跟「最省事」一模一樣，不重複列
-    const pairs = Logic.pairDebts(t.expenses || [], ms, r.netMap);
-    if (!pairs.some(p => p.amount > 0)) return [];
+  // v2.1.52 結算結果唯一的清單：帳款關係扣掉已轉帳
+  const payPairs = (t, r) => Logic.pairDebts(t.expenses || [], t.members || [], r.netMap);
+  const payStatus = (t, r) => Logic.pairStatus(payPairs(t, r), t.repays || [], t.members || []);
+  // 依成員分組：要付給誰（rows）、會收到誰的（recv）
+  function payGroups(t, ps) {
+    return (t.members || []).map(m => {
+      const rows = ps.rows.filter(x => x.from === m), recv = ps.rows.filter(x => x.to === m && x.rem > 0);
+      const openRows = rows.filter(x => x.rem > 0);
+      return { m, rows, recv, openRows, pay: openRows.reduce((s, x) => s + x.rem, 0), get: recv.reduce((s, x) => s + x.rem, 0), wasRecv: ps.rows.some(x => x.to === m) };
+    });
+  }
+  // 帳款關係的算式，每一對一行：麗欠族 $3,280 − 族欠麗 $1,214 ＝ 麗要給族 $2,066
+  function pairFormulas(t, r) {
     const $m = n => `$${n.toLocaleString()}`;
-    const line = (p, me) => {
-      const other = p.a === me ? p.b : p.a;
-      const parts = [`${p.from}欠${p.to} ${$m(p.fromOwes)}`].concat(p.toOwes ? [`${p.to}欠${p.from} ${$m(p.toOwes)}`] : []);
-      const res = p.amount ? `${p.from}要給${p.to} ${$m(p.amount)}` : '互不相欠';
-      return {
-        txt: `${me} ↔ ${other}：${parts.join(' − ')} ＝ ${res}`,
-        html: `<b>${UI.esc(me)} ↔ ${UI.esc(other)}</b>：${UI.esc(parts.join(' − '))} ＝ <b class="rel-res">${UI.esc(res)}</b>`
-      };
-    };
-    return ms.filter(m => pairs.some(p => p.from === m && p.amount > 0))
-      .map(m => ({ who: m, lines: pairs.filter(p => (p.a === m || p.b === m) && (p.amount || p.fromOwes)).map(p => line(p, m)) }));
+    return payPairs(t, r).filter(p => p.amount || p.fromOwes).map(p => ({
+      who: `${p.from} ↔ ${p.to}`,
+      calc: [`${p.from}欠${p.to} ${$m(p.fromOwes)}`].concat(p.toOwes ? [`${p.to}欠${p.from} ${$m(p.toOwes)}`] : []).join(' − ') + ' ＝ ' + (p.amount ? `${p.from}要給${p.to} ${$m(p.amount)}` : '互不相欠')
+    }));
   }
 
+  // v2.1.52 訊息精簡：只講誰要給誰、每人花費，其他點網址看
   function copySettle() {
     const t = trip();
     const r = Logic.settleExpenses(t.expenses, t.members, t.repays || []);
+    const ps = payStatus(t, r), $m = n => `$${n.toLocaleString()}`;
     const total = t.expenses.reduce((s, e) => s + e.amount, 0);
-    let txt = `【${t.name}】分帳結算\n總支出：$${total.toLocaleString()}\n\n`;
-    const sv = settleView(t, r);
-    sv.forEach(v => {
-      txt += `${v.m}：幫大家墊付 $${v.paid.toLocaleString()}／自己該出 $${v.due.toLocaleString()}（${netText(v.net, r.repaid)}${!r.repaid && v.bonus > 0 ? `，含進位零頭 $${v.bonus}` : ''}）\n`;
-    });
-    soloLines(sv).forEach(x => { txt += x + '\n'; });
-    const rel = relationSections(t, r);
-    if (rel.length) {
-      txt += '\n帳款關係（不想折抵的話，各自直接給）：\n' +
-        rel.map(s => `【${s.who}】\n` + s.lines.map(l => l.txt).join('\n')).join('\n') + '\n';
-    }
-    if (r.transfers.length) {
-      txt += `\n${r.repaid ? '還要轉帳' : rel.length ? '互相折抵後可以這樣轉帳更省事' : '這樣轉帳最省事'}：\n` + r.transfers.map(tr => `${tr.from} 付給 ${tr.to} $${tr.amount.toLocaleString()}${tr.refund ? '（多給了，退回）' : ''}${tr.given ? `（已給 $${tr.given.toLocaleString()}）` : ''}`).join('\n');
-    } else if (r.repaid) txt += '\n🎉 大家都結清了';
-    const reps = (t.repays || []).slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
-    if (reps.length) txt += '\n\n已轉帳紀錄：\n' + reps.map(x => `${repayTime(x.at)} ${x.from} 給 ${x.to} $${(Math.round(Number(x.amount)) || 0).toLocaleString()}${x.note ? `（${x.note}）` : ''}`).join('\n');
+    let txt = `【${t.name}】分帳結算\n總支出 ${$m(total)}\n\n`;
+    if (!ps.open) txt += ps.repaid ? '🎉 大家都結清了' : '大家剛好扯平，不用轉帳 🎉';
+    else txt += payGroups(t, ps).filter(g => g.openRows.length).map(g => {
+      const norm = g.openRows.filter(x => !x.refund), back = g.openRows.filter(x => x.refund), out = [];
+      if (norm.length) out.push(`${g.m} ${ps.repaid ? '還要給' : '要給'}：${norm.map(x => `${x.to} ${$m(x.rem)}${x.given ? `（已給 ${$m(x.given)}）` : ''}`).join('、')}`);
+      if (back.length) out.push(`${g.m} 要退回：${back.map(x => `${x.to} ${$m(x.rem)}`).join('、')}`);
+      return out.join('\n');
+    }).join('\n');
     const st = costStats();
-    if (st.rows.length) {
-      txt += '\n\n每個人最終花費：\n' + st.members.map(m => `${m}：$${Math.round(st.final[m]).toLocaleString()}`).join('\n');
-      txt += '\n\n總花費項目：\n' + st.rows.map(r => `${r.label}：$${Math.round(r.total).toLocaleString()}`).join('\n');
-    }
-    const un = unpaidList();
-    if (un.length) txt += `\n\n⏳ 還沒付清（共 $${un.reduce((s, x) => s + x.rem, 0).toLocaleString()}）：\n` + un.map(x => `${x.label}：${x.verb} $${x.rem.toLocaleString()}（${x.payer}）`).join('\n');
-    if (t.viewCode) txt += `\n\n👀 行程與分帳明細（僅檢視）：\n${shareLink(t.viewCode)}`;
+    if (st.rows.length) txt += '\n\n每人花費：' + st.members.map(m => `${m} ${$m(Math.round(st.final[m]))}`).join('｜');
+    if (t.viewCode) txt += `\n\n👀 明細（僅檢視）：\n${shareLink(t.viewCode)}&page=exp`;
     UI.copy(txt, '結算結果已複製，可以貼到群組裡');
   }
 
@@ -1347,11 +1331,7 @@ const Feat = (() => {
     (t.expenses || []).forEach(e => expenses.push([e.date, e.item, CAT_LABEL[catOf(e)], Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
     const stats = statsRows();
     const sr = Logic.settleExpenses(t.expenses || [], t.members || [], t.repays || []);
-    const settle = settleSheetHead(t, sr);
-    settle.push([]);
-    settle.push(['轉出人', '收款人', '金額', '已給', '備註']);
-    sr.transfers.forEach(x => settle.push([x.from, x.to, x.amount, x.given || '', x.refund ? '多給了，退回' : '']));
-    relRows(t, sr).forEach(r => settle.push(r));
+    const settle = settleSheetRows(t, sr);
     repayRows(t).forEach(r => settle.push(r));
     const packing = [['分類', '物品', '已準備']];
     packingTemplate.forEach(g => g.items.forEach(i => packing.push([g.cat, i, '□'])));
@@ -1394,11 +1374,7 @@ ${sheetXml('攜帶清單', packing)}
     const expenses = [['日期', '項目', '分類', '金額', '付款人', '不分帳', '分帳成員', '備註', '付款狀態', '已付金額']];
     (t.expenses || []).forEach(e => expenses.push([e.date, e.item, CAT_LABEL[catOf(e)], Number(e.amount) || 0, e.payer, e.treat ? '是' : '', (e.participants || []).join('、'), e.note || '', UI.PAY_LABELS[PaySync.statusOf(e)], PaySync.statusOf(e) === 'part' ? Number(e.paidAmount) || 0 : '']));
     const sr = Logic.settleExpenses(t.expenses || [], t.members || [], t.repays || []);
-    const settle = settleSheetHead(t, sr);
-    settle.push([]);
-    settle.push(['付款人', '收款人', '金額', '已給', '備註']);
-    sr.transfers.forEach(x => settle.push([x.from, x.to, x.amount, x.given || '', x.refund ? '多給了，退回' : '']));
-    relRows(t, sr).forEach(r => settle.push(r));
+    const settle = settleSheetRows(t, sr);
     repayRows(t).forEach(r => settle.push(r));
     const packing = [['分類', '物品', '確認']];
     packingTemplate.forEach(g => g.items.forEach(i => packing.push([g.cat, i, '□'])));
@@ -1413,20 +1389,15 @@ ${sheetXml('攜帶清單', packing)}
       { name: '攜帶清單', rows: packing }
     ];
   }
-  // v2.1.51 結算表前段：只算要分的錢；結算欄正＝收回、負＝要付
-  function settleSheetHead(t, sr) {
-    const sv = settleView(t, sr);
-    return [['成員', '幫大家墊付', '自己該出', sr.repaid ? '還差（正＝還要收、負＝還要付）' : '結算（正＝收回、負＝要付）', '自己付自己用（不分帳）', '請客（不分帳）']]
-      .concat(sv.map(v => [v.m, v.paid, v.due, v.net, v.self || '', v.treat || '']));
-  }
-  // v2.1.50 帳款關係（不折抵，兩兩之間各自直接給）
-  function relRows(t, sr) {
-    const ms = t.members || [];
-    if (ms.length < 3) return [];
-    const pairs = Logic.pairDebts(t.expenses || [], ms, sr.netMap).filter(p => p.amount || p.fromOwes);
-    if (!pairs.length) return [];
-    return [[], ['帳款關係（不折抵，各自直接給）'], ['付款人', '收款人', '付款人欠', '收款人欠', '抵掉後要給']]
-      .concat(pairs.map(p => [p.from, p.to, p.fromOwes, p.toOwes, p.amount]));
+  // v2.1.52 結算表：先列誰要給誰，再列怎麼算的（收付相減欄：正＝收回、負＝要付）
+  function settleSheetRows(t, sr) {
+    const ps = payStatus(t, sr), sv = settleView(t, sr);
+    const formulas = payPairs(t, sr).filter(p => p.amount || p.fromOwes);
+    return [['付款人', '收款人', '要給', '已給', '抵掉', '還要給', '備註']]
+      .concat(ps.rows.map(x => [x.from, x.to, x.total, x.given || '', x.offset || '', x.rem, x.refund ? '多給了，退回' : x.rem ? '' : '已結清']))
+      .concat([[], ['怎麼算的：每個人'], ['成員', '幫大家墊付', '自己該出', sr.repaid ? '收付相減（扣掉已給）' : '收付相減', '自己付自己用（不分帳）', '請客（不分帳）']])
+      .concat(sv.map(v => [v.m, v.paid, v.due, v.net, v.self || '', v.treat || '']))
+      .concat(formulas.length ? [[], ['怎麼算的：兩兩之間'], ['付款人', '收款人', '付款人欠', '收款人欠', '要給']].concat(formulas.map(p => [p.from, p.to, p.fromOwes, p.toOwes, p.amount])) : []);
   }
   function repayRows(t) {
     const reps = (t.repays || []).slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
