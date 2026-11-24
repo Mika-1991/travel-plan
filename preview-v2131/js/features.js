@@ -973,7 +973,7 @@ const Feat = (() => {
         ${g.recv.length && g.pay ? `<div class="sett-note">（${stillGet}${g.recv.map(x => `${UI.esc(x.from)}的 ${$m(x.rem)}`).join('、')}）</div>` : ''}
         ${g.rows.map(x => `
           <div class="sett-row${x.rem ? '' : ' done'}">
-            <div class="sett-top"><span>➜ ${UI.esc(x.to)}${x.refund ? '<span class="tr-refund">（多給了，退回）</span>' : ''}</span><span class="amt">${x.rem ? `${still} ${$m(x.rem)}` : '✅ 已結清'}</span></div>
+            <div class="sett-top"><span>➜ ${UI.esc(x.to)}${x.refund ? '<span class="tr-refund">（多給了，退回）</span>' : ''}</span><span class="amt">${x.rem ? `${x.refund ? '要退' : still} ${$m(x.rem)}` : '✅ 已結清'}</span></div>
             ${x.rem && x.rem < x.total ? `<div class="tr-prog"><i style="width:${Math.round((x.total - x.rem) / x.total * 100)}%"></i></div>` : ''}
             ${x.given || x.offset ? `<div class="tr-given">${[x.given ? (x.given > x.total ? `已給 ${$m(x.given)}，比 ${$m(x.total)} 多 ${$m(x.given - x.total)}` : `已給 ${$m(x.given)} / ${$m(x.total)}`) : '', x.offset ? `抵掉 ${$m(x.offset)}` : ''].filter(Boolean).join('｜')}</div>` : ''}
             ${ro || !x.rem ? '' : `<div class="tr-act"><button type="button" class="btn-outline tr-add" data-i="${ps.rows.indexOf(x)}">＋記一筆已給</button></div>`}
