@@ -1208,3 +1208,24 @@ button.pp-dot:disabled { opacity: .55; cursor: not-allowed; }
 .solo-line { margin: 6px 0 0; color: var(--text-2); }
 .solo-badge { display: inline-block; padding: 0 8px; border-radius: 99px; background: #EEF3F7; color: var(--main-dark); font-size: .85rem; font-weight: 700; }
 .settle-table .mem-row td:first-child { white-space: nowrap; }
+
+/* ===== v2.1.52 結算結果：一份清單，依付款人分組 ===== */
+.pay-group { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 8px 0; background: var(--white); }
+.pay-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.pay-head > b { font-size: 1.15rem; color: var(--main); }
+.pay-sum { margin-left: auto; color: var(--text-2); }
+.pay-sum b { color: var(--text); }
+.pay-note { color: var(--text-2); font-size: .95rem; }
+.pay-row { padding: 8px 0 2px; }
+.pay-row + .pay-row { border-top: 1px dashed var(--line); margin-top: 8px; }
+.pay-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-weight: 700; }
+.pay-top .amt { margin-left: auto; color: var(--accent); }
+.pay-row .tr-prog { margin: 6px 0 4px; }
+.pay-row .tr-act { margin-top: 4px; }
+.pay-row.done { opacity: .75; }
+.pay-row.done .amt { color: var(--ok); }
+.pay-get { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; margin: 8px 0; border-radius: 12px; background: #F3F8FB; }
+.pay-get > b { font-size: 1.15rem; color: var(--main); }
+.pay-get > span { margin-left: auto; color: var(--text-2); }
+.pay-get > span b { color: var(--ok); }
+#expFoldCalc .rel-box { border-width: 1px; border-color: var(--line); }

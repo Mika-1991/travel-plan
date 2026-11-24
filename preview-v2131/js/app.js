@@ -300,6 +300,7 @@ const App = (() => {
     }, ms);
   }
 
+  let landExp = false; // v2.1.52 從「複製結算結果」的連結進來：直接到分帳，不跑新手導覽
   function enterMain() {
     $('wizard').classList.add('hidden');
     $('app').classList.remove('hidden');
@@ -314,7 +315,7 @@ const App = (() => {
     // v2.1.25：用編輯代碼進來、這台裝置還沒選過身分 → 一定要先選「你是誰」才能編輯
     PaySync.autoLink(); // v2.1.35 舊的「OO 房費」自動連到對應飯店
     if (!Store.isReadonly() && !Store.getEditor()) askIdentity(true);
-    else { Prep.remindMine(); setTimeout(() => Tour.start(), 900); } // v2.1.32 待辦提醒；v2.1.33 第一次進來跑新手導覽
+    else { Prep.remindMine(); if (!landExp) setTimeout(() => Tour.start(), 900); } // v2.1.32 待辦提醒；v2.1.33 第一次進來跑新手導覽
     Store.startPresencePoll(); // 唯讀者也要：才能在別人更新時自動刷新
   }
 
@@ -623,7 +624,14 @@ const App = (() => {
       } else Store.load(r.trip, r.role);
       await UI.progressDone('行程開啟完成！');
       UI.toast(r.role === 'view' ? '已用唯讀模式開啟' : '行程已開啟，可以編輯');
+      landExp = new URLSearchParams(location.search).get('page') === 'exp';
       enterMain();
+      if (landExp) {
+        landExp = false;
+        switchPage('page-exp');
+        const fs = $('expFoldSettle');
+        if (fs) { fs.open = true; setTimeout(() => fs.scrollIntoView({ block: 'center' }), 300); }
+      }
       return true;
     } catch (e) {
       UI.loading(false);
